@@ -7,12 +7,12 @@ hooks = [{ id = "trailing-whitespace" }]
 repo = "local"
 hooks = [
   { id = "js-lint", name = "js lint", language = "system", entry = "nub run lint", pass_filenames = false, files = { glob = [
-    "src/**/*.tsx",
-    "src/**/*.ts",
+    "./**/*.tsx",
+    "./**/*.ts",
   ] } },
   { id = "format", name = "format", language = "system", entry = "nub run fmt", files = { glob = [
-    "src/**/*.tsx",
-    "src/**/*.ts",
+    "./**/*.tsx",
+    "./**/*.ts",
     "./**/*.json",
     "./**/*.md",
   ] } },
