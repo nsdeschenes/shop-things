@@ -8,11 +8,24 @@
     "build": "pnpm --filter @shop-things/interface build && pnpm --filter electron build:main",
     "dist:mac": "pnpm build && pnpm --filter electron exec electron-builder --mac dmg --arm64 --publish never",
     "dist:win": "pnpm build && pnpm --filter electron exec electron-builder --win nsis --publish never",
-    "dist:linux": "pnpm build && pnpm --filter electron exec electron-builder --linux deb --publish never"
+    "dist:linux": "pnpm build && pnpm --filter electron exec electron-builder --linux deb --publish never",
+    "fix": "nub run lint:fix && nub run fmt",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "pre-commit:run": "prek run",
+    "pre-commit:install": "prek install"
   },
   "devDependencies": {
+    "@e18e/eslint-plugin": "^0.8.1",
+    "@j178/prek": "^0.5.3",
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@types/node": "^26",
     "concurrently": "^9.2.1",
+    "oxfmt": "^0.70.0",
+    "oxlint": "^1.85.0",
+    "oxlint-tsgolint": "^7.0.2003",
     "typescript": "^7"
   }
 }
