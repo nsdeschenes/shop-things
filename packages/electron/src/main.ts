@@ -1,4 +1,6 @@
 import { app, BrowserWindow } from 'electron'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const createWindow = () => {
   const win = new BrowserWindow({
@@ -6,7 +8,14 @@ const createWindow = () => {
     height: 600
   })
 
-  win.loadFile('index.html')
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL
+
+  if (devServerUrl) {
+    void win.loadURL(devServerUrl)
+  } else {
+    const rendererHtml = join(dirname(fileURLToPath(import.meta.url)), 'renderer', 'index.html')
+    void win.loadFile(rendererHtml)
+  }
 }
 
 app.whenReady().then(() => {
