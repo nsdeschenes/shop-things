@@ -1,3 +1,5 @@
 packages:
   - packages/interface
   - packages/electron
+allowBuilds:
+  electron-winstaller: true

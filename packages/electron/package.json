@@ -12,8 +12,30 @@
     "@types/electron": "^1.6.12",
     "@types/node": "^26",
     "cross-env": "^10.1.0",
+    "electron-builder": "^26.15.3",
     "electron": "^44.4.5",
     "wait-on": "^8.0.4",
     "typescript": "^7"
+  },
+  "build": {
+    "appId": "com.shopthings.app",
+    "productName": "Shop Things",
+    "directories": {
+      "output": "../../release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": ["dmg"]
+    },
+    "win": {
+      "target": ["nsis"]
+    },
+    "linux": {
+      "category": "Utility",
+      "target": ["deb"]
+    }
   }
 }

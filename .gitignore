@@ -1,4 +1,6 @@
 node_modules
+packages/electron/dist
+release
 .env*
 !.env.example
 *.log
