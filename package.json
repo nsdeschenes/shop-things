@@ -3,10 +3,13 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "start": "node --experimental-strip-types index.ts"
+    "start": "node --experimental-strip-types index.ts",
+    "dev": "concurrently -k -n VITE,ELECTRON -c blue,green \"pnpm --filter @shop-things/interface dev\" \"pnpm --filter electron dev\"",
+    "build": "pnpm --filter @shop-things/interface build && pnpm --filter electron build:main"
   },
   "devDependencies": {
     "@types/node": "^26",
+    "concurrently": "^9.2.1",
     "typescript": "^7"
   }
 }
