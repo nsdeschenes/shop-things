@@ -1,0 +1,21 @@
+{
+  "name": "shop-things",
+  "version": "0.0.1",
+  "type": "module",
+  "packageManager": "nub@0.9.3",
+  "devEngines": {
+    "packageManager": {
+      "name": "nub",
+      "version": "^0.9.3",
+      "onFail": "ignore"
+    }
+  },
+  "scripts": {
+    "start": "nub index.ts"
+  },
+  "devDependencies": {
+    "@nubjs/types": ">=0.4.13 <=0.9.3",
+    "@types/node": "^26",
+    "typescript": "^7"
+  }
+}
