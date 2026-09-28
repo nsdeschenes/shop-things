@@ -1,0 +1,21 @@
+[[repos]]
+repo = "https://github.com/pre-commit/pre-commit-hooks"
+rev = "v6.0.0"
+hooks = [{ id = "trailing-whitespace" }]
+
+[[repos]]
+repo = "local"
+hooks = [
+  { id = "js-lint", name = "js lint", language = "system", entry = "pnpm run lint", pass_filenames = false, files = { glob = [
+    "**/*.tsx",
+    "**/*.ts",
+  ] } },
+  { id = "format", name = "format", language = "system", entry = "pnpm run fmt", files = { glob = [
+    "**/*.tsx",
+    "**/*.ts",
+    "**/*.css",
+    "**/*.html",
+    "**/*.json",
+    "**/*.md",
+  ] } },
+]

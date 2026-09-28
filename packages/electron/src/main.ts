@@ -1,35 +1,35 @@
-import { app, BrowserWindow } from 'electron'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { app, BrowserWindow } from "electron";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const createWindow = () => {
   const win = new BrowserWindow({
     width: 800,
-    height: 600
-  })
+    height: 600,
+  });
 
-  const devServerUrl = process.env.VITE_DEV_SERVER_URL
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 
   if (devServerUrl) {
-    void win.loadURL(devServerUrl)
+    void win.loadURL(devServerUrl);
   } else {
-    const rendererHtml = join(dirname(fileURLToPath(import.meta.url)), 'renderer', 'index.html')
-    void win.loadFile(rendererHtml)
+    const rendererHtml = join(dirname(fileURLToPath(import.meta.url)), "renderer", "index.html");
+    void win.loadFile(rendererHtml);
   }
-}
+};
 
-app.whenReady().then(() => {
-  createWindow()
+void app.whenReady().then(() => {
+  createWindow();
 
-  app.on('activate', () => {
+  app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+      createWindow();
     }
-  })
-})
+  });
+});
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    app.quit();
   }
-})
+});
