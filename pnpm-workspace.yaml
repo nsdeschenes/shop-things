@@ -4,3 +4,4 @@ packages:
   - packages/db
 allowBuilds:
   electron-winstaller: true
+  esbuild: true

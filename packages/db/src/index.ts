@@ -1,6 +1,8 @@
 import { Database } from "@tursodatabase/database";
 import { defineRelations } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/tursodatabase/database";
+import { migrate } from "drizzle-orm/tursodatabase/migrator";
+import { isAbsolute } from "node:path";
 
 import * as schema from "./schema.js";
 
@@ -25,4 +27,15 @@ export function openDatabase(databaseFilePath: string): DatabaseHandle {
     db: createTypedDatabase(client),
     close: () => client.close(),
   };
+}
+
+export async function runMigrations(
+  db: AppDatabase,
+  { migrationsFolder }: { migrationsFolder: string },
+): Promise<void> {
+  if (!isAbsolute(migrationsFolder)) {
+    throw new Error("migrationsFolder must be an absolute path");
+  }
+
+  await migrate(db, { migrationsFolder });
 }
