@@ -1,0 +1,3 @@
+packages:
+  - packages/interface
+  - packages/electron
