@@ -1,5 +1,6 @@
 packages:
   - packages/interface
   - packages/electron
+  - packages/db
 allowBuilds:
   electron-winstaller: true
