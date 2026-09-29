@@ -79,7 +79,8 @@
           ]
         }
       ],
-      "maintainer": "Shop Things contributors <nsdeschenes@users.noreply.github.com>"
+      "maintainer": "Shop Things contributors <nsdeschenes@users.noreply.github.com>",
+      "executableName": "shop-things"
     }
   }
 }

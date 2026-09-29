@@ -109,6 +109,11 @@ test("proves the shipped Linux glibc x64 backend and retains commit/artifact evi
     ] as const) {
       const emitted = join(projectRoot, "packages", folder, "dist");
       for (const path of await filesUnder(emitted)) {
+        // electron-builder omits declaration-only files from runtime dependencies.
+        if (path.endsWith(".d.ts")) {
+          continue;
+        }
+
         if (folder === "electron" && relative(emitted, path).startsWith("renderer/")) {
           continue;
         }
