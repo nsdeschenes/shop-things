@@ -1,27 +1,23 @@
 import { formOptions } from "@tanstack/react-form";
 import type Customer from "../types/customer";
 
-const defaultCustomer: Omit<Customer, "customerNumber"> = {
-  firstName: "",
-  lastName: "",
-  address: "",
-  city: "",
-  province: "NS",
-  postalCode: "",
-  homePhone: "",
-  email: "",
-  stock: 0,
-  balance: 0,
-  previousBalance: 0,
-  donate: false,
-  comments: "",
-};
-
-export default function customerFormOptions(customerNumber: number) {
+export default function customerFormOptions(customer?: Customer) {
   return formOptions({
     defaultValues: {
-      customerNumber,
-      ...defaultCustomer,
+      customerNumber: customer ? String(customer.customerNumber) : "",
+      firstName: customer?.firstName ?? "",
+      lastName: customer?.lastName ?? "",
+      address: customer?.address ?? "",
+      city: customer?.city ?? "",
+      province: customer?.province ?? "",
+      postalCode: customer?.postalCode ?? "",
+      homePhone: customer?.homePhone ?? "",
+      email: customer?.email ?? "",
+      stock: String(customer?.stock ?? 0),
+      previousBalance: (customer?.previousBalance ?? 0).toFixed(2),
+      balance: (customer?.balance ?? 0).toFixed(2),
+      donate: customer?.donate ?? false,
+      comments: customer?.comments ?? "",
     },
   });
 }
