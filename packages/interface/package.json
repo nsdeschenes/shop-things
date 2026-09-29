@@ -11,6 +11,7 @@
     "test:watch": "node ../../scripts/tasks.mjs interface-watch"
   },
   "dependencies": {
+    "@base-ui/react": "^1.8.0",
     "@shop-things/contract": "workspace:*",
     "@stylexjs/stylex": "^0.19.1",
     "@tanstack/react-form": "^1.33.5",

@@ -82,6 +82,13 @@
       "rules": { "import/no-named-export": "off" }
     },
     {
+      // StyleX variable and constant groups require named exports.
+      "files": ["**/*.stylex.ts"],
+      "rules": {
+        "import/no-named-export": "off"
+      }
+    },
+    {
       "files": ["**/*.test.{ts,tsx,js,jsx,mjs}"],
       "rules": {
         "vitest-js/expect-expect": [

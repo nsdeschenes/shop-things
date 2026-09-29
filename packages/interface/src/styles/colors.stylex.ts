@@ -1,0 +1,25 @@
+import * as stylex from "@stylexjs/stylex";
+
+export const colors = stylex.defineVars({
+  pageBackground: "#f4f6f3",
+  surface: "#ffffff",
+  surfaceHover: "#f4f7f5",
+  headerBackground: "#183f3b",
+  text: "#293a39",
+  textMuted: "#627671",
+  errorText: "#a12622",
+  placeholder: "#777e7b",
+  onPrimary: "#ffffff",
+  secondaryText: "#254c46",
+  primary: "#23665b",
+  primaryHover: "#1b5349",
+  focusRing: "#24675b",
+  border: "#d9e1dc",
+  controlBorder: "#cbd6d3",
+  checkboxBorder: "#919e99",
+  disabledBackground: "#e8eeeb",
+  tableHeaderBackground: "#e9efeb",
+  rowHover: "#edf4ef",
+  successBackground: "#e2efe5",
+  successText: "#2d5e37",
+});
