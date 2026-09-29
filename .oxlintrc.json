@@ -1,26 +1,18 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "unicorn", "oxc", "node", "promise", "import"],
-  "jsPlugins": ["@e18e/eslint-plugin", "@stylistic/eslint-plugin"],
+  "plugins": ["react", "typescript", "unicorn", "oxc", "node", "promise", "import"],
+  "jsPlugins": [
+    "@e18e/eslint-plugin",
+    "@stylistic/eslint-plugin",
+    "@tanstack/eslint-plugin-router"
+  ],
   "categories": {
     "correctness": "error"
   },
   "rules": {
+    // custom/stylistic rules
     "curly": "error",
     "import/no-named-export": "error",
-    "import/no-absolute-path": "error",
-    "import/no-relative-parent-imports": "error",
-    "no-restricted-imports": [
-      "error",
-      {
-        "patterns": [
-          {
-            "group": ["./*", "../*"],
-            "message": "Use the TypeScript path alias, such as #/utils/foo."
-          }
-        ]
-      }
-    ],
     "typescript/no-misused-spread": "off",
     "@stylistic/padding-line-between-statements": [
       "error",
@@ -50,16 +42,24 @@
     "e18e/prefer-regex-test": "error",
     "e18e/prefer-array-some": "error",
     "e18e/prefer-static-regex": "error",
-    "e18e/prefer-string-fromcharcode": "error"
+    "e18e/prefer-string-fromcharcode": "error",
+    // tanstack router
+    "@tanstack/router/create-route-property-order": "error",
+    // react
+    "react/rules-of-hooks": "error",
+    "react/only-export-components": ["warn", { "allowConstantExport": true }]
   },
   "env": {
     "builtin": true
   },
-  "ignorePatterns": ["node_modules", "src/renderer/routeTree.gen.ts"],
+  "ignorePatterns": ["node_modules", "packages/interface/src/routeTree.gen.ts"],
   "overrides": [
     {
-      "files": ["src/renderer/routes/*.tsx"],
-      "rules": { "import/no-named-export": "off" }
+      "files": ["packages/interface/src/routes/**/*.tsx"],
+      "rules": {
+        "import/no-named-export": "off",
+        "react/only-export-components": "off"
+      }
     },
     {
       "files": ["packages/db/src/*.ts"],
