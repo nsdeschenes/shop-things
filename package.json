@@ -17,7 +17,9 @@
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "pre-commit:run": "prek run",
-    "pre-commit:install": "prek install"
+    "pre-commit:install": "prek install",
+    "test": "pnpm -r test",
+    "test:watch": "pnpm -r --parallel test:watch"
   },
   "devDependencies": {
     "@e18e/eslint-plugin": "^0.8.1",

@@ -11,10 +11,11 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "pnpm build && node --test test/*.test.mjs",
+    "test": "pnpm build && tsc -p tsconfig.test.json && vitest run",
     "migrations:generate": "drizzle-kit generate --config drizzle.config.ts",
     "migrations:check": "drizzle-kit check --config drizzle.config.ts",
-    "migrations:apply": "pnpm build && node scripts/apply-migrations.mjs"
+    "migrations:apply": "pnpm build && node scripts/apply-migrations.mjs",
+    "test:watch": "pnpm build && vitest"
   },
   "dependencies": {
     "@tursodatabase/database": "0.7.2",
