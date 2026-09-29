@@ -78,7 +78,10 @@ const styles = stylex.create({
 
 export default function CustomerForm({ customer }: { customer?: Customer }) {
   const navigate = useNavigate();
-  const form = useAppForm(customerFormOptions(customer));
+  const form = useAppForm({
+    ...customerFormOptions(customer),
+    onSubmit: () => navigate({ to: "/customers" }),
+  });
 
   return (
     <PageShell
@@ -86,13 +89,9 @@ export default function CustomerForm({ customer }: { customer?: Customer }) {
       stickyHeader
       actions={
         <div {...stylex.props(styles.actions)}>
-          <form.Subscribe selector={(state) => state.isDefaultValue}>
-            {(isDefaultValue) => (
-              <Button
-                variant="primary"
-                disabled={isDefaultValue}
-                onClick={() => navigate({ to: "/customers" })}
-              >
+          <form.Subscribe selector={(state) => state.isDefaultValue || !state.canSubmit}>
+            {(disabled) => (
+              <Button variant="primary" disabled={disabled} onClick={() => form.handleSubmit()}>
                 Save
               </Button>
             )}
@@ -103,7 +102,14 @@ export default function CustomerForm({ customer }: { customer?: Customer }) {
         </div>
       }
     >
-      <Form noValidate onSubmit={(event) => event.preventDefault()} {...stylex.props(styles.form)}>
+      <Form
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          void form.handleSubmit();
+        }}
+        {...stylex.props(styles.form)}
+      >
         <div {...stylex.props(styles.topSections)}>
           <div {...stylex.props(styles.column)}>
             <fieldset {...stylex.props(styles.fieldset, styles.growingSection)}>
@@ -112,7 +118,9 @@ export default function CustomerForm({ customer }: { customer?: Customer }) {
                 {identityFields.map((config) => (
                   <form.AppField key={config.name} name={config.name}>
                     {(field) =>
-                      config.name === "province" ? (
+                      config.name === "customerNumber" ? (
+                        <field.NumberField label={config.label} style={styles.wide} />
+                      ) : config.name === "province" ? (
                         <field.ProvinceField />
                       ) : (
                         <field.TextField
@@ -120,9 +128,7 @@ export default function CustomerForm({ customer }: { customer?: Customer }) {
                           inputMode={config.inputMode}
                           uppercase={config.name === "postalCode"}
                           style={
-                            config.name === "customerNumber" ||
-                            config.name === "address" ||
-                            config.name === "email"
+                            config.name === "address" || config.name === "email"
                               ? styles.wide
                               : undefined
                           }

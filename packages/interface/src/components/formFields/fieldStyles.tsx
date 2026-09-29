@@ -8,6 +8,7 @@ import { controls } from "../../styles/controls.stylex";
 const styles = stylex.create({
   field: { gap: spacing.space6, display: "flex", flexDirection: "column", minWidth: 0 },
   label: { fontSize: typography.fontSizeSmall, fontWeight: typography.fontWeightBold },
+  error: { color: colors.errorText, fontSize: typography.fontSizeSmall },
   checkbox: {
     gap: spacing.space10,
     alignItems: "center",

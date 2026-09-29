@@ -1,10 +1,15 @@
 import { formOptions } from "@tanstack/react-form";
 import type Customer from "../types/customer";
+import customerFormSchema from "./customerFormSchema";
 
 export default function customerFormOptions(customer?: Customer) {
   return formOptions({
+    validators: {
+      onChange: customerFormSchema,
+      onSubmit: customerFormSchema,
+    },
     defaultValues: {
-      customerNumber: customer ? String(customer.customerNumber) : "",
+      customerNumber: customer?.customerNumber ?? null,
       firstName: customer?.firstName ?? "",
       lastName: customer?.lastName ?? "",
       address: customer?.address ?? "",
