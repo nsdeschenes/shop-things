@@ -372,6 +372,7 @@ export async function task(name) {
           "--test-concurrency=1",
           "scripts/test/processes.test.mjs",
           "scripts/test/build.test.mjs",
+          "scripts/test/provenance.test.mjs",
         ],
         { cwd: root },
       );

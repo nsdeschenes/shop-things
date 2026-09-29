@@ -76,13 +76,13 @@ async function command(name, args) {
 }
 
 try {
-  assert.equal(process.platform, "linux");
-  assert.equal(process.arch, "x64");
   assert.equal(
-    git(["status", "--porcelain", "--untracked-files=no"]),
+    git(["status", "--porcelain", "--untracked-files=all"]),
     "",
     "Require clean committed sources",
   );
+  assert.equal(process.platform, "linux");
+  assert.equal(process.arch, "x64");
   await command("install", ["install", "--frozen-lockfile"]);
   const testLog = await command("tests", ["test"]);
   for (const suite of ["db", "electron", "interface"]) {

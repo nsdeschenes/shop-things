@@ -58,6 +58,7 @@ export interface CustomerRevision {
 const decimalMoneyPattern = /^-?\d+(?:\.\d{1,2})?$/;
 const minusPattern = /^-/;
 const customerNumberPattern = /^\d+$/;
+const regexMetacharacters = /[.*+?^${}()|[\]\\]/g;
 
 function moneyCents(value: unknown): bigint {
   if (typeof value !== "string" || !decimalMoneyPattern.test(value)) {
@@ -180,6 +181,8 @@ function translateError(error: unknown): never {
 
 export async function listCustomers(db: AppDatabase, query = ""): Promise<CustomerData[]> {
   const needle = query.trim();
+  // Turso REGEXP uses Unicode case folding; escape literal input before binding it.
+  const pattern = "(?i)" + needle.replace(regexMetacharacters, "\\$&");
   const number =
     customerNumberPattern.test(needle) && Number.isSafeInteger(Number(needle))
       ? Number(needle)
@@ -189,7 +192,7 @@ export async function listCustomers(db: AppDatabase, query = ""): Promise<Custom
     .from(customers)
     .where(
       needle
-        ? sql`instr(lower(coalesce(${customers.firstName}, '')), lower(${needle})) > 0 or instr(lower(coalesce(${customers.lastName}, '')), lower(${needle})) > 0 or ${customers.customerNumber} = ${number}`
+        ? sql`coalesce(${customers.firstName}, '') regexp ${pattern} or coalesce(${customers.lastName}, '') regexp ${pattern} or ${customers.customerNumber} = ${number}`
         : undefined,
     )
     .orderBy(

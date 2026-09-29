@@ -49,8 +49,12 @@ test("proves the shipped Linux glibc x64 backend and retains commit/artifact evi
   await writeFile(reportPath, JSON.stringify(report, null, 2) + "\n");
   try {
     report.commit = git(["rev-parse", "HEAD"]);
-    report.dirtyTracked = git(["status", "--porcelain", "--untracked-files=no"]) !== "";
-    assert.equal(report.dirtyTracked, false, "Acceptance requires clean committed tracked sources");
+    report.dirtyCheckout = git(["status", "--porcelain", "--untracked-files=all"]) !== "";
+    assert.equal(
+      report.dirtyCheckout,
+      false,
+      "Acceptance requires clean committed sources, including nonignored untracked files",
+    );
     assert.equal(process.platform, "linux");
     assert.equal(process.arch, "x64");
     const diagnostic = process.report.getReport();
