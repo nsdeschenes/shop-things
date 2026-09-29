@@ -1,5 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
+import { spacing } from "../styles/spacing.stylex";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -13,7 +14,7 @@ export const Route = createFileRoute("/")({
 
 const styles = stylex.create({
   div: {
-    padding: "4px",
+    padding: spacing.space4,
   },
 });
 
