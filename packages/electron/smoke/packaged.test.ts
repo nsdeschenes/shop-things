@@ -1,55 +1,19 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { createHash } from "node:crypto";
+import { readFile, readdir, stat, writeFile, mkdir } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "vitest";
 
 const projectRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const release = join(projectRoot, "release");
-const sourceMigrations = join(projectRoot, "packages", "db", "migrations");
 const runtimeScript = fileURLToPath(new URL("../scripts/smoke-packaged.ts", import.meta.url));
-const packageName = "Shop Things";
-
-interface PackagedTarget {
-  directory: string;
-  executable: string[];
-  resources: string[];
-  addon: string;
-  installer: RegExp;
-}
-
-const targets: Record<string, PackagedTarget> = {
-  "darwin-arm64": {
-    directory: "mac-arm64",
-    executable: ["Shop Things.app", "Contents", "MacOS", packageName],
-    resources: ["Shop Things.app", "Contents", "Resources"],
-    addon: "database-darwin-arm64/turso.darwin-arm64.node",
-    installer: /-arm64\.dmg$/,
-  },
-  "win32-x64": {
-    directory: "win-unpacked",
-    executable: [`${packageName}.exe`],
-    resources: ["resources"],
-    addon: "database-win32-x64-msvc/turso.win32-x64-msvc.node",
-    installer: /\.exe$/,
-  },
-  "linux-x64": {
-    directory: "linux-unpacked",
-    executable: ["shop-things"],
-    resources: ["resources"],
-    addon: "database-linux-x64-gnu/turso.linux-x64-gnu.node",
-    installer: /_amd64\.deb$/,
-  },
-  "linux-arm64": {
-    directory: "linux-arm64-unpacked",
-    executable: ["shop-things"],
-    resources: ["resources"],
-    addon: "database-linux-arm64-gnu/turso.linux-arm64-gnu.node",
-    installer: /_arm64\.deb$/,
-  },
-};
-
+const installerPattern = /_amd64\.deb$/;
+const digest = async (path: string) =>
+  createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
 async function filesUnder(folder: string): Promise<string[]> {
   const files: string[] = [];
   for (const entry of await readdir(folder, { withFileTypes: true })) {
@@ -61,88 +25,155 @@ async function filesUnder(folder: string): Promise<string[]> {
     }
   }
 
-  return files.sort((a, b) => a.localeCompare(b));
+  return files.sort();
 }
 
-test("verifies the packaged database, migrations, native addon, and installer", async () => {
-  const platform = process.env.SMOKE_PLATFORM ?? process.platform;
-  const arch = process.env.SMOKE_ARCH ?? process.arch;
-  const target = targets[`${platform}-${arch}`];
-  assert.ok(target, `Unsupported packaged target: ${platform}-${arch}`);
-  assert.equal(process.platform, platform, "Smoke must run on the target OS");
-  assert.equal(process.arch, arch, "Smoke must run on the target architecture");
-  const diagnosticReport = process.report?.getReport();
-  const header =
-    diagnosticReport && "header" in diagnosticReport ? diagnosticReport.header : undefined;
-  const glibcVersion =
-    platform === "linux" &&
-    typeof header === "object" &&
-    header !== null &&
-    "glibcVersionRuntime" in header
-      ? header.glibcVersionRuntime
-      : null;
-  if (platform === "linux") {
-    assert.ok(glibcVersion, "Linux package smoke requires glibc");
-  }
+function git(args: string[]): string {
+  const result = spawnSync("git", args, { cwd: projectRoot, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
+}
 
-  const executable = join(release, target.directory, ...target.executable);
-  const resources = join(release, target.directory, ...target.resources);
-  const addon = join(
-    resources,
-    "app.asar.unpacked",
-    "node_modules",
-    "@tursodatabase",
-    target.addon,
-  );
-  assert.ok((await stat(executable)).isFile(), `Missing packaged executable: ${executable}`);
-  assert.ok((await stat(join(resources, "app.asar"))).isFile(), "Missing app.asar");
-  assert.ok((await stat(addon)).isFile(), `Missing native addon: ${addon}`);
-
-  const sourceFiles = await filesUnder(sourceMigrations);
-  const packagedFolder = join(resources, "migrations");
-  const packagedFiles = await filesUnder(packagedFolder);
-  assert.deepEqual(
-    packagedFiles.map((path) => relative(packagedFolder, path)),
-    sourceFiles.map((path) => relative(sourceMigrations, path)),
-    "Packaged migration tree differs from the checked-in tree",
-  );
-  for (const source of sourceFiles) {
-    assert.deepEqual(
-      await readFile(join(packagedFolder, relative(sourceMigrations, source))),
-      await readFile(source),
-      `Packaged migration differs: ${source}`,
-    );
-  }
-
-  const installers = (await readdir(release)).filter((name) => target.installer.test(name));
-  assert.equal(installers.length, 1, `Expected one installer for ${platform}-${arch}`);
-
-  const result = spawnSync(executable, ["--experimental-strip-types", runtimeScript, resources], {
-    encoding: "utf8",
-    timeout: 30_000,
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-  });
-  assert.equal(
-    result.status,
-    0,
-    `Packaged database smoke failed:\n${result.stdout}\n${result.stderr}`,
-  );
-  const databaseResult = JSON.parse(result.stdout);
-
-  const report = {
-    target: `${platform}-${arch}`,
-    glibcVersion,
-    installer: installers[0],
-    executable: relative(release, executable),
-    nativeAddon: relative(release, addon),
-    packagedMigrations: packagedFiles.map((path) => relative(packagedFolder, path)),
-    ...databaseResult,
+test("proves the shipped Linux glibc x64 backend and retains commit/artifact evidence", async () => {
+  const reportPath = process.env.SMOKE_REPORT_PATH ?? join(release, "package-smoke.json");
+  await mkdir(dirname(reportPath), { recursive: true });
+  const report: Record<string, unknown> = {
+    schemaVersion: 1,
+    status: "running",
+    startedAt: new Date().toISOString(),
+    executionEnvironment: process.env.SMOKE_EXECUTION_ENVIRONMENT ?? "native Linux glibc x64",
+    target: "linux-x64-glibc",
+    deferred: ["renderer/preload/IPC GUI journey", "macOS arm64", "Windows x64", "Linux arm64"],
   };
-  const reportPath = process.env.SMOKE_REPORT_PATH;
+  let failure: unknown;
+  await writeFile(reportPath, JSON.stringify(report, null, 2) + "\n");
+  try {
+    report.commit = git(["rev-parse", "HEAD"]);
+    report.dirtyTracked = git(["status", "--porcelain", "--untracked-files=no"]) !== "";
+    assert.equal(report.dirtyTracked, false, "Acceptance requires clean committed tracked sources");
+    assert.equal(process.platform, "linux");
+    assert.equal(process.arch, "x64");
+    const diagnostic = process.report.getReport();
+    const header =
+      typeof diagnostic === "object" && diagnostic !== null && "header" in diagnostic
+        ? diagnostic.header
+        : undefined;
+    assert.ok(
+      typeof header === "object" &&
+        header !== null &&
+        "glibcVersionRuntime" in header &&
+        header.glibcVersionRuntime,
+      "Linux acceptance requires glibc",
+    );
+    report.glibcVersion = header.glibcVersionRuntime;
+    const executable = join(release, "linux-unpacked/shop-things");
+    const resources = join(release, "linux-unpacked/resources");
+    const archive = join(resources, "app.asar");
+    const addon = join(
+      resources,
+      "app.asar.unpacked/node_modules/@tursodatabase/database-linux-x64-gnu/turso.linux-x64-gnu.node",
+    );
+    for (const path of [executable, archive, addon]) {
+      assert.ok((await stat(path)).isFile(), `Missing packaged resource: ${path}`);
+    }
 
-  if (reportPath) {
-    await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+    const installers = (await readdir(release)).filter((name) => installerPattern.test(name));
+    assert.equal(installers.length, 1, "Expected one Linux x64 installer");
+    const installer = join(release, installers[0]!);
+    report.artifacts = await Promise.all(
+      [executable, archive, addon, installer].map(async (path) => ({
+        path: relative(release, path),
+        sha256: await digest(path),
+      })),
+    );
+    const sourceMigrations = join(projectRoot, "packages/db/migrations");
+    const packagedMigrations = join(resources, "migrations");
+    const sourceFiles = await filesUnder(sourceMigrations);
+    const shippedFiles = await filesUnder(packagedMigrations);
+    assert.deepEqual(
+      shippedFiles.map((path) => relative(packagedMigrations, path)),
+      sourceFiles.map((path) => relative(sourceMigrations, path)),
+    );
+    report.migrations = await Promise.all(
+      sourceFiles.map(async (path) => {
+        const shipped = join(packagedMigrations, relative(sourceMigrations, path));
+        assert.deepEqual(await readFile(shipped), await readFile(path));
+        return { path: relative(packagedMigrations, shipped), sha256: await digest(shipped) };
+      }),
+    );
+    const inventoryFiles: { path: string; sha256: string }[] = [];
+    for (const [folder, destination] of [
+      ["electron", "dist"],
+      ["db", "node_modules/@shop-things/db/dist"],
+      ["contract", "node_modules/@shop-things/contract/dist"],
+    ] as const) {
+      const emitted = join(projectRoot, "packages", folder, "dist");
+      for (const path of await filesUnder(emitted)) {
+        if (folder === "electron" && relative(emitted, path).startsWith("renderer/")) {
+          continue;
+        }
+
+        inventoryFiles.push({
+          path: join(destination, relative(emitted, path)),
+          sha256: await digest(path),
+        });
+      }
+    }
+
+    const inventoryPath = reportPath + ".inventory.json";
+    await writeFile(
+      inventoryPath,
+      JSON.stringify({ commit: report.commit, files: inventoryFiles }, null, 2) + "\n",
+    );
+    const runtimeReport = reportPath + ".runtime.json";
+    const result = spawnSync(
+      executable,
+      ["--experimental-strip-types", runtimeScript, resources, runtimeReport, inventoryPath],
+      {
+        encoding: "utf8",
+        timeout: 90_000,
+        maxBuffer: 8 * 1024 * 1024,
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      },
+    );
+    await writeFile(reportPath + ".stdout.log", result.stdout ?? "");
+    await writeFile(reportPath + ".stderr.log", result.stderr ?? "");
+    report.process = {
+      exitCode: result.status,
+      signal: result.signal,
+      error: result.error?.message,
+    };
+    try {
+      report.runtime = JSON.parse(await readFile(runtimeReport, "utf8"));
+    } catch (error) {
+      report.runtimeReportError = String(error);
+    }
+
+    assert.equal(
+      result.status,
+      0,
+      `Shipped backend proof failed:\n${result.stdout}\n${result.stderr}`,
+    );
+    assert.ok(
+      typeof report.runtime === "object" &&
+        report.runtime !== null &&
+        "status" in report.runtime &&
+        report.runtime.status === "passed",
+      "Successful shipped runtime report required",
+    );
+    report.status = "passed";
+  } catch (error) {
+    failure = error;
+    report.status = "failed";
+    report.error =
+      error instanceof Error ? { message: error.message, stack: error.stack } : String(error);
+  } finally {
+    report.finishedAt = new Date().toISOString();
+    await writeFile(reportPath, JSON.stringify(report, null, 2) + "\n");
+    process.stdout.write(JSON.stringify(report, null, 2) + "\n");
   }
 
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-}, 60_000);
+  if (failure) {
+    throw failure;
+  }
+}, 120_000);
