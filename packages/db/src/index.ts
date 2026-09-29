@@ -1,18 +1,17 @@
 import { Database } from "@tursodatabase/database";
-import { defineRelations } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/tursodatabase/database";
 import { migrate } from "drizzle-orm/tursodatabase/migrator";
 import { isAbsolute } from "node:path";
 
+import { relations } from "./relations.js";
 import * as schema from "./schema.js";
-
-const relations = defineRelations(schema);
 
 function createTypedDatabase(client: Database) {
   return drizzle({ client, relations });
 }
 
-export { schema };
+export { relations, schema };
+
 export type AppDatabase = ReturnType<typeof createTypedDatabase>;
 
 export interface DatabaseHandle {
