@@ -1,6 +1,8 @@
 {
   "name": "electron",
   "version": "0.0.1",
+  "description": "Customer records and saved database workflows",
+  "homepage": "https://github.com/nsdeschenes/shop-things",
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
@@ -76,7 +78,9 @@
             "arm64"
           ]
         }
-      ]
+      ],
+      "maintainer": "Shop Things contributors <nsdeschenes@users.noreply.github.com>",
+      "executableName": "shop-things"
     }
   }
 }

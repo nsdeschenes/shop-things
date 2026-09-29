@@ -8,3 +8,5 @@ release
 
 packages/contract/dist
 packages/db/dist
+
+acceptance-reports

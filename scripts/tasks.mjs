@@ -282,6 +282,13 @@ export async function inspectBrowserDependencies() {
   }
 }
 
+function testReportArguments(name) {
+  const directory = process.env.ACCEPTANCE_REPORT_DIR;
+  return directory
+    ? ["--reporter=default", "--reporter=json", `--outputFile=${join(directory, name + ".json")}`]
+    : [];
+}
+
 async function testElectron(smoke = false, watch = false) {
   await checkElectronOutput();
   await pnpm(["--filter", "electron", "exec", "tsc", "-p", "tsconfig.test.json"]);
@@ -293,11 +300,19 @@ async function testElectron(smoke = false, watch = false) {
     "vitest",
     ...(watch ? [] : ["run"]),
     ...(smoke ? ["--config", "vitest.smoke.config.ts"] : []),
+    ...testReportArguments(smoke ? "smoke-tests" : "electron-tests"),
   ]);
 }
 
 async function testInterface(watch = false) {
-  await pnpm(["--filter", "@shop-things/interface", "exec", "vitest", ...(watch ? [] : ["run"])]);
+  await pnpm([
+    "--filter",
+    "@shop-things/interface",
+    "exec",
+    "vitest",
+    ...(watch ? [] : ["run"]),
+    ...testReportArguments("interface-tests"),
+  ]);
 }
 
 export async function task(name) {
@@ -331,7 +346,21 @@ export async function task(name) {
     case "test":
       // Mutation/freshness tests must finish before dependent consumers compile or run.
       await pnpm(["--filter", "@shop-things/contract", "test"]);
-      await pnpm(["--filter", "@shop-things/db", "test"]);
+      if (process.env.ACCEPTANCE_REPORT_DIR) {
+        await pnpm(["--filter", "@shop-things/db", "build"]);
+        await pnpm(["--filter", "@shop-things/db", "exec", "tsc", "-p", "tsconfig.test.json"]);
+        await pnpm([
+          "--filter",
+          "@shop-things/db",
+          "exec",
+          "vitest",
+          "run",
+          ...testReportArguments("db-tests"),
+        ]);
+      } else {
+        await pnpm(["--filter", "@shop-things/db", "test"]);
+      }
+
       await pnpm(["--filter", "@shop-things/db", "migrations:check"]);
       await buildAll({ interfaceBuild: false });
       await testElectron();

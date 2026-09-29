@@ -22,3 +22,16 @@ The preload stays unattached and renderer authorization/protected hooks stay ina
 Actual renderer refresh, draft preservation during watcher restarts, native-dialog GUI,
 and navigation/security journeys remain deferred to renderer integration. Build/process
 checks exercise emitted code and controlled participants rather than a connected GUI.
+
+Run `node scripts/acceptance.mjs` from a clean committed checkout on Linux glibc x64
+to install, run all required checks without skipped cases, build/package, and execute
+the shipped backend under the packaged Electron executable in Node mode.
+`ACCEPTANCE_REPORT_DIR` selects the report/log directory (default `acceptance-reports`).
+Reports retain commit identity, execution environment, package SHA-256 hashes,
+shipped-code comparisons against the current build inventory, migration/preload
+inspection and real persisted-file workflow results. Failed prerequisites also
+produce reports and logs; CI uploads the directory even on failure.
+
+For Docker emulation, set `SMOKE_EXECUTION_ENVIRONMENT` to describe the host and
+emulated target explicitly. Local Docker proof does not establish a successful
+GitHub Actions run. Other platform targets and GUI/renderer acceptance remain deferred.

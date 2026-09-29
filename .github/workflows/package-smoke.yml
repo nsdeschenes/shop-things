@@ -7,28 +7,8 @@ on:
 
 jobs:
   package-smoke:
-    name: ${{ matrix.platform }}-${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # - runner: macos-15
-          #   platform: darwin
-          #   arch: arm64
-          #   script: dist:mac
-          # - runner: windows-2022
-          #   platform: win32
-          #   arch: x64
-          #   script: dist:win
-          - runner: ubuntu-24.04
-            platform: linux
-            arch: x64
-            script: dist:linux:x64
-          # - runner: ubuntu-24.04-arm
-          #   platform: linux
-          #   arch: arm64
-          #   script: dist:linux:arm64
+    name: Linux glibc x64 shipped backend
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -38,15 +18,14 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm ${{ matrix.script }}
-      - name: Smoke packaged database
-        run: pnpm --filter electron test:smoke
+      - name: Clean source checks, package and shipped backend acceptance
+        run: node scripts/acceptance.mjs
         env:
-          SMOKE_PLATFORM: ${{ matrix.platform }}
-          SMOKE_ARCH: ${{ matrix.arch }}
-          SMOKE_REPORT_PATH: ${{ runner.temp }}/package-smoke.json
+          ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
+          SMOKE_EXECUTION_ENVIRONMENT: github-actions-ubuntu-24.04-native-linux-x64
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: package-smoke-${{ matrix.platform }}-${{ matrix.arch }}
-          path: ${{ runner.temp }}/package-smoke.json
+          name: package-acceptance-linux-x64-${{ github.sha }}
+          path: ${{ runner.temp }}/shop-things-acceptance
+          if-no-files-found: error
