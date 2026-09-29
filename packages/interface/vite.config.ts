@@ -1,6 +1,7 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import { unplugin as stylex } from "@stylexjs/unplugin";
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -9,6 +10,14 @@ export default defineConfig({
     tanstackRouter({
       target: "react",
       autoCodeSplitting: true,
+    }),
+    stylex.vite({
+      useCSSLayers: {
+        before: ["reset"],
+        prefix: "stylex",
+      },
+      dev: process.env.NODE_ENV === "development",
+      runtimeInjection: false,
     }),
     react(),
   ],
