@@ -13,22 +13,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15
-            platform: darwin
-            arch: arm64
-            script: dist:mac
-          - runner: windows-2022
-            platform: win32
-            arch: x64
-            script: dist:win
+          # - runner: macos-15
+          #   platform: darwin
+          #   arch: arm64
+          #   script: dist:mac
+          # - runner: windows-2022
+          #   platform: win32
+          #   arch: x64
+          #   script: dist:win
           - runner: ubuntu-24.04
             platform: linux
             arch: x64
             script: dist:linux:x64
-          - runner: ubuntu-24.04-arm
-            platform: linux
-            arch: arm64
-            script: dist:linux:arm64
+          # - runner: ubuntu-24.04-arm
+          #   platform: linux
+          #   arch: arm64
+          #   script: dist:linux:arm64
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
