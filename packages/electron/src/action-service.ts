@@ -1,6 +1,9 @@
 /* oxlint-disable import/no-named-export -- Backend APIs are consumed by IPC and packaged runners. */
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
+import { constants } from "node:fs";
+import { copyFile } from "node:fs/promises";
+import { copyBackup, removeDatabaseFile, temporaryPath, writeCustomerCsv } from "./files.js";
 import {
   createDatabase,
   openExistingDatabase,
@@ -10,6 +13,7 @@ import {
   updateCustomer,
   deleteCustomer,
   DatabaseError,
+  backupDatabase,
 } from "@shop-things/db";
 import type { CustomerChanges, CustomerData, DatabaseHandle } from "@shop-things/db";
 import type {
@@ -41,6 +45,7 @@ export const databaseOperations = {
   createCustomer,
   updateCustomer,
   deleteCustomer,
+  backupDatabase,
 };
 export type DatabaseOperations = typeof databaseOperations;
 type Outcome<T> =
@@ -154,9 +159,9 @@ export class ActionService {
           );
           return { deleted: true as const };
         }),
-      "database.backup": async () => this.unavailableFeature(),
-      "database.restore": async () => this.unavailableFeature(),
-      "exports.csv": async () => this.unavailableFeature(),
+      "database.backup": (args) => this.admit(() => this.backup(args.session)),
+      "database.restore": () => this.admit(() => this.transition((lease) => this.restore(lease))),
+      "exports.csv": (args) => this.admit(() => this.exportCsv(args.session)),
       "drafts.confirmDiscard": async () => {
         try {
           return (await this.options.dialogs.confirmDiscard())
@@ -245,14 +250,56 @@ export class ActionService {
       lease.finish(committed ? "committed" : "aborted");
     }
   }
-  private unavailableFeature(): { status: "error"; error: ContractError } {
-    return {
-      status: "error",
-      error: {
-        code: "DATABASE_UNAVAILABLE",
-        message: "Protected coordination is not available yet.",
-      },
-    };
+  private async exportCsv(session: string): Promise<{ path: string } | null> {
+    const handle = this.requireSession(session);
+    const selected = await this.options.dialogs.exportCsv();
+    if (selected === null) {
+      return null;
+    }
+
+    const path = resolve(selected);
+    await writeCustomerCsv(path, await this.database.listCustomers(handle.db));
+    return { path };
+  }
+  private async backup(session: string): Promise<{ path: string } | null> {
+    const handle = this.requireSession(session);
+    const selected = await this.options.dialogs.backupDatabase();
+    if (selected === null) {
+      return null;
+    }
+
+    const path = resolve(selected);
+    const temporary = temporaryPath(path);
+    try {
+      await this.database.backupDatabase(handle.db, temporary);
+      await copyFile(temporary, path, constants.COPYFILE_EXCL);
+    } finally {
+      await removeDatabaseFile(temporary);
+    }
+
+    return { path };
+  }
+  private async restore(lease?: DraftLease): Promise<DatabaseState | null> {
+    const source = await this.options.dialogs.restoreSource();
+    if (source === null) {
+      return null;
+    }
+
+    const destination = await this.options.dialogs.restoreDestination();
+    if (destination === null) {
+      return null;
+    }
+
+    const path = resolve(destination);
+    await copyBackup(resolve(source), path);
+    try {
+      await this.prepareCandidate(path, false, lease);
+    } catch (error) {
+      await removeDatabaseFile(path);
+      throw error;
+    }
+
+    return this.status();
   }
   private record(row: CustomerData): CustomerRecord {
     const { revision, ...customer } = row;
