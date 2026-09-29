@@ -60,6 +60,13 @@
     {
       "files": ["src/renderer/routes/*.tsx"],
       "rules": { "import/no-named-export": "off" }
+    },
+    {
+      "files": ["packages/db/src/*.ts"],
+      "rules": {
+        "import/no-named-export": "off",
+        "no-restricted-imports": "off"
+      }
     }
   ],
   "options": {
