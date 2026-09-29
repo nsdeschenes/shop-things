@@ -18,6 +18,7 @@
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3",
     "typescript": "^7",
+    "vitest": "^5.0.2",
     "wait-on": "^8.0.4"
   },
   "build": {
