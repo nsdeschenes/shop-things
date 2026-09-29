@@ -4,6 +4,7 @@
   "jsPlugins": [
     "@e18e/eslint-plugin",
     "@stylistic/eslint-plugin",
+    "@stylexjs/eslint-plugin",
     "@tanstack/eslint-plugin-query",
     "@tanstack/eslint-plugin-router"
   ],
@@ -44,6 +45,11 @@
     "e18e/prefer-array-some": "error",
     "e18e/prefer-static-regex": "error",
     "e18e/prefer-string-fromcharcode": "error",
+    // stylexjs
+    "@stylexjs/valid-styles": "error",
+    "@stylexjs/no-unused": "error",
+    "@stylexjs/valid-shorthands": "warn",
+    "@stylexjs/sort-keys": "warn",
     // tanstack query
     "@tanstack/query/exhaustive-deps": "error",
     "@tanstack/query/no-rest-destructuring": "warn",
