@@ -4,6 +4,7 @@
   "jsPlugins": [
     "@e18e/eslint-plugin",
     "@stylistic/eslint-plugin",
+    "@tanstack/eslint-plugin-query",
     "@tanstack/eslint-plugin-router"
   ],
   "categories": {
@@ -43,6 +44,15 @@
     "e18e/prefer-array-some": "error",
     "e18e/prefer-static-regex": "error",
     "e18e/prefer-string-fromcharcode": "error",
+    // tanstack query
+    "@tanstack/query/exhaustive-deps": "error",
+    "@tanstack/query/no-rest-destructuring": "warn",
+    "@tanstack/query/stable-query-client": "error",
+    "@tanstack/query/no-unstable-deps": "error",
+    "@tanstack/query/infinite-query-property-order": "error",
+    "@tanstack/query/no-void-query-fn": "error",
+    "@tanstack/query/mutation-property-order": "error",
+    "@tanstack/query/prefer-query-options": "error",
     // tanstack router
     "@tanstack/router/create-route-property-order": "error",
     // react
