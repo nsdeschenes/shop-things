@@ -74,6 +74,14 @@
   "ignorePatterns": ["node_modules", "packages/interface/src/routeTree.gen.ts"],
   "overrides": [
     {
+      "files": [
+        "packages/contract/src/*.ts",
+        "packages/contract/scripts/*.mjs",
+        "packages/contract/test/conformance.ts"
+      ],
+      "rules": { "import/no-named-export": "off" }
+    },
+    {
       "files": ["**/*.test.{ts,tsx,js,jsx,mjs}"],
       "rules": {
         "vitest-js/expect-expect": [
@@ -161,6 +169,10 @@
         "import/no-named-export": "off",
         "no-restricted-imports": "off"
       }
+    },
+    {
+      "files": ["packages/contract/test/*.test.mjs"],
+      "rules": { "vitest-js/no-import-node-test": "off" }
     }
   ],
   "options": {

@@ -1,0 +1,36 @@
+{
+  "name": "@shop-things/contract",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    },
+    "./schemas": {
+      "types": "./dist/schemas.d.ts",
+      "default": "./dist/schemas.js"
+    },
+    "./bridge": {
+      "types": "./dist/bridge.d.ts",
+      "default": "./dist/bridge.js"
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check:fresh": "node scripts/freshness.mjs",
+    "test": "pnpm build && node --test --test-concurrency=1 test/*.test.mjs && pnpm test:conformance",
+    "test:conformance": "pnpm --filter electron exec tsc -p tsconfig.contract.json && pnpm --filter @shop-things/interface exec tsc -p tsconfig.contract.json"
+  },
+  "dependencies": {
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "typescript": "^7"
+  }
+}
