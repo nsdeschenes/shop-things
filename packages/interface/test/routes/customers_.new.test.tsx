@@ -29,6 +29,7 @@ test("returns to the list after Save without adding the preview customer", async
 
   const firstName = await screen.findByRole("textbox", { name: "First name" });
   await user.type(firstName, "Alex");
+  await user.type(screen.getByRole("textbox", { name: "Customer number" }), "3003");
   await user.click(screen.getByRole("button", { name: "Save" }));
 
   expect(await screen.findByRole("link", { name: "Test User" })).toBeInTheDocument();

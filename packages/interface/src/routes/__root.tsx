@@ -16,8 +16,6 @@ const styles = stylex.create({
   layout: {
     backgroundColor: colors.pageBackground,
     color: colors.text,
-    fontFamily: typography.fontFamily,
-    fontSize: typography.fontSizeBody,
     minHeight: "100vh",
   },
   header: {

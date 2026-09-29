@@ -1,19 +1,15 @@
 import { Field } from "@base-ui/react/field";
-import type { ComponentProps } from "react";
+import { NumberField as BaseNumberField } from "@base-ui/react/number-field";
 import * as stylex from "@stylexjs/stylex";
-import Input from "../input/input";
 import formContexts from "../../forms/formContexts";
+import inputStyles from "../input/inputStyles";
 import styles from "./fieldStyles";
 
-type Props = {
-  label: string;
-  inputMode?: ComponentProps<typeof Input>["inputMode"];
-  uppercase?: boolean;
-  style?: stylex.StyleXStyles;
-};
+type Props = { label: string; style?: stylex.StyleXStyles };
 
-export default function TextField({ label, inputMode, uppercase, style }: Props) {
-  const field = formContexts.useFieldContext<string>();
+export default function NumberField({ label, style }: Props) {
+  const field = formContexts.useFieldContext<number | null>();
+
   return (
     <Field.Root
       name={field.name}
@@ -23,13 +19,14 @@ export default function TextField({ label, inputMode, uppercase, style }: Props)
       {...stylex.props(styles.field, style)}
     >
       <Field.Label {...stylex.props(styles.label)}>{label}</Field.Label>
-      <Input
+      <BaseNumberField.Root
         name={field.name}
-        inputMode={inputMode}
         value={field.state.value}
-        onBlur={field.handleBlur}
-        onValueChange={(value) => field.handleChange(uppercase ? value.toUpperCase() : value)}
-      />
+        onValueChange={field.handleChange}
+        format={{ useGrouping: false }}
+      >
+        <BaseNumberField.Input onBlur={field.handleBlur} {...stylex.props(inputStyles.input)} />
+      </BaseNumberField.Root>
       {field.state.meta.errors.length > 0 && (
         <Field.Error match {...stylex.props(styles.error)}>
           {field.state.meta.errors.map((error) => error?.message).join(" ")}

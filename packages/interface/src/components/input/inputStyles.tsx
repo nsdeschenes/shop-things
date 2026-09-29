@@ -5,33 +5,26 @@ import { typography } from "../../styles/typography.stylex";
 import { radii } from "../../styles/radii.stylex";
 import { controls } from "../../styles/controls.stylex";
 
-const styles = stylex.create({
-  field: { gap: spacing.space6, display: "flex", flexDirection: "column", minWidth: 0 },
-  label: { fontSize: typography.fontSizeSmall, fontWeight: typography.fontWeightBold },
-  error: { color: colors.errorText, fontSize: typography.fontSizeSmall },
-  checkbox: {
-    gap: spacing.space10,
-    alignItems: "center",
-    display: "flex",
-    fontSize: typography.fontSizeSmall,
-    fontWeight: typography.fontWeightBold,
-  },
-  textarea: {
+const inputStyles = stylex.create({
+  input: {
     borderColor: colors.controlBorder,
     borderRadius: radii.control,
     borderStyle: "solid",
     borderWidth: controls.borderWidth,
-    paddingBlock: spacing.space8,
+    paddingBlock: spacing.space10,
     paddingInline: spacing.space12,
     backgroundColor: colors.surface,
     color: colors.text,
-    flexGrow: 1,
+    fontSize: typography.fontSizeBody,
+    fontWeight: typography.fontWeightRegular,
+    lineHeight: typography.lineHeightControl,
     outlineColor: colors.focusRing,
     outlineOffset: controls.focusOffset,
-    resize: "vertical",
-    minHeight: 160,
+    minHeight: 42,
+    minWidth: 0,
     width: "100%",
+    "::placeholder": { color: colors.placeholder },
   },
 });
 
-export default styles;
+export default inputStyles;

@@ -7,6 +7,7 @@ export const colors = stylex.defineVars({
   headerBackground: "#183f3b",
   text: "#293a39",
   textMuted: "#627671",
+  errorText: "#a12622",
   placeholder: "#777e7b",
   onPrimary: "#ffffff",
   secondaryText: "#254c46",

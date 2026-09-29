@@ -1,16 +1,21 @@
 import { formOptions } from "@tanstack/react-form";
 import type Customer from "../types/customer";
+import customerFormSchema from "./customerFormSchema";
 
 export default function customerFormOptions(customer?: Customer) {
   return formOptions({
+    validators: {
+      onChange: customerFormSchema,
+      onSubmit: customerFormSchema,
+    },
     defaultValues: {
-      customerNumber: customer ? String(customer.customerNumber) : "",
+      customerNumber: customer?.customerNumber ?? null,
       firstName: customer?.firstName ?? "",
       lastName: customer?.lastName ?? "",
       address: customer?.address ?? "",
       city: customer?.city ?? "",
-      province: customer?.province ?? "",
-      postalCode: customer?.postalCode ?? "",
+      province: customer?.province.toUpperCase() || "NS",
+      postalCode: (customer?.postalCode ?? "").toUpperCase(),
       homePhone: customer?.homePhone ?? "",
       email: customer?.email ?? "",
       stock: String(customer?.stock ?? 0),
