@@ -102,6 +102,7 @@ export class ActionService {
   private busy = false;
   private activeOperation: Promise<void> | null = null;
   private closePending = false;
+  private pendingUnprotectedClose: Promise<void> | null = null;
   private pendingClose: Promise<Outcome<{ closed: true }>> | null = null;
 
   constructor(private readonly options: ActionServiceOptions) {
@@ -194,6 +195,22 @@ export class ActionService {
     this.active?.close();
     this.active = null;
     this.publish({ available: false, selectedPath: this.state.selectedPath, session: null });
+  }
+  // Placeholder application shutdown: wait for work without activating renderer draft hooks.
+  closeUnprotectedWhenIdle(): Promise<void> {
+    if (this.pendingUnprotectedClose) {
+      return this.pendingUnprotectedClose;
+    }
+
+    this.closePending = true;
+    this.pendingUnprotectedClose = (async () => {
+      await this.activeOperation;
+      this.closeUnprotected();
+    })().finally(() => {
+      this.closePending = false;
+      this.pendingUnprotectedClose = null;
+    });
+    return this.pendingUnprotectedClose;
   }
   requestClose(): Promise<Outcome<{ closed: true }>> {
     if (this.pendingClose) {
