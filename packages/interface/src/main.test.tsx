@@ -6,12 +6,12 @@ import { expect, test } from "vitest";
 
 import { routeTree } from "./routeTree.gen";
 
-test("navigates from Home to About and back", async () => {
+test("navigates from customer details to the customer list through Home", async () => {
   const user = userEvent.setup();
   const queryClient = new QueryClient();
   const router = createRouter({
     routeTree,
-    history: createMemoryHistory({ initialEntries: ["/"] }),
+    history: createMemoryHistory({ initialEntries: ["/customers/1"] }),
     context: { queryClient },
   });
 
@@ -21,10 +21,9 @@ test("navigates from Home to About and back", async () => {
     </QueryClientProvider>,
   );
 
-  expect(await screen.findByRole("heading", { name: "Welcome Home!" })).toBeInTheDocument();
-  await user.click(screen.getByRole("link", { name: "About" }));
-  expect(await screen.findByText("Hello from About!")).toBeInTheDocument();
-  expect(screen.queryByRole("heading", { name: "Welcome Home!" })).not.toBeInTheDocument();
+  expect(await screen.findByText('Hello "/customers_/$rowid"!')).toBeInTheDocument();
   await user.click(screen.getByRole("link", { name: "Home" }));
-  expect(await screen.findByRole("heading", { name: "Welcome Home!" })).toBeInTheDocument();
+  expect(await screen.findByText("List of customers")).toBeInTheDocument();
+  expect(screen.queryByText('Hello "/customers_/$rowid"!')).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Customers" })).toHaveAttribute("aria-current", "page");
 });
