@@ -38,3 +38,6 @@ export async function runMigrations(
 
   await migrate(db, { migrationsFolder });
 }
+
+export * from "./customers.js";
+export * from "./lifecycle.js";
