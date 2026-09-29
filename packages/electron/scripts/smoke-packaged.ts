@@ -11,7 +11,15 @@ const sourceMigrations = join(projectRoot, "packages", "db", "migrations");
 const fixture = join(projectRoot, "packages", "db", "test", "fixtures");
 const packageName = "Shop Things";
 
-const targets = {
+interface PackagedTarget {
+  directory: string;
+  executable: string[];
+  resources: string[];
+  addon: string;
+  installer: RegExp;
+}
+
+const targets: Record<string, PackagedTarget> = {
   "darwin-arm64": {
     directory: "mac-arm64",
     executable: ["Shop Things.app", "Contents", "MacOS", packageName],
@@ -42,8 +50,8 @@ const targets = {
   },
 };
 
-async function filesUnder(folder) {
-  const files = [];
+async function filesUnder(folder: string): Promise<string[]> {
+  const files: string[] = [];
   for (const entry of await readdir(folder, { withFileTypes: true })) {
     const path = join(folder, entry.name);
     if (entry.isDirectory()) {
@@ -56,7 +64,7 @@ async function filesUnder(folder) {
   return files.sort((a, b) => a.localeCompare(b));
 }
 
-async function runPackagedDatabase(resources) {
+async function runPackagedDatabase(resources: string) {
   const dbModule = join(
     resources,
     "app.asar",
@@ -66,7 +74,12 @@ async function runPackagedDatabase(resources) {
     "dist",
     "index.js",
   );
-  const { openDatabase, runMigrations } = await import(pathToFileURL(dbModule).href);
+  const {
+    openDatabase,
+    runMigrations,
+  }: Pick<typeof import("@shop-things/db"), "openDatabase" | "runMigrations"> = await import(
+    pathToFileURL(dbModule).href
+  );
   const directory = await mkdtemp(join(tmpdir(), "shop-things-packaged-db-"));
   const migrationsFolder = join(resources, "migrations");
 
@@ -107,8 +120,16 @@ async function main() {
   assert.ok(target, `Unsupported packaged target: ${platform}-${arch}`);
   assert.equal(process.platform, platform, "Smoke must run on the target OS");
   assert.equal(process.arch, arch, "Smoke must run on the target architecture");
+  const diagnosticReport = process.report?.getReport();
+  const header =
+    diagnosticReport && "header" in diagnosticReport ? diagnosticReport.header : undefined;
   const glibcVersion =
-    platform === "linux" ? process.report.getReport().header.glibcVersionRuntime : null;
+    platform === "linux" &&
+    typeof header === "object" &&
+    header !== null &&
+    "glibcVersionRuntime" in header
+      ? header.glibcVersionRuntime
+      : null;
   if (platform === "linux") {
     assert.ok(glibcVersion, "Linux package smoke requires glibc");
   }
@@ -145,10 +166,14 @@ async function main() {
   const installers = (await readdir(release)).filter((name) => target.installer.test(name));
   assert.equal(installers.length, 1, `Expected one installer for ${platform}-${arch}`);
 
-  const result = spawnSync(executable, [fileURLToPath(import.meta.url), "--runtime", resources], {
-    encoding: "utf8",
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-  });
+  const result = spawnSync(
+    executable,
+    ["--experimental-strip-types", fileURLToPath(import.meta.url), "--runtime", resources],
+    {
+      encoding: "utf8",
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+    },
+  );
   assert.equal(
     result.status,
     0,
@@ -175,7 +200,9 @@ async function main() {
 }
 
 if (process.argv[2] === "--runtime") {
-  process.stdout.write(`${JSON.stringify(await runPackagedDatabase(process.argv[3]))}\n`);
+  const resources = process.argv[3];
+  assert.ok(resources, "Runtime smoke requires a resources directory");
+  process.stdout.write(`${JSON.stringify(await runPackagedDatabase(resources))}\n`);
 } else {
   await main();
 }

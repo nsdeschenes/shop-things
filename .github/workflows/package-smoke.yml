@@ -41,7 +41,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm ${{ matrix.script }}
       - name: Smoke packaged database
-        run: node packages/electron/scripts/smoke-packaged.mjs ${{ matrix.platform }} ${{ matrix.arch }}
+        run: node --experimental-strip-types packages/electron/scripts/smoke-packaged.ts ${{ matrix.platform }} ${{ matrix.arch }}
         env:
           SMOKE_REPORT_PATH: ${{ runner.temp }}/package-smoke.json
       - uses: actions/upload-artifact@v4
