@@ -1,27 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createMemoryHistory, createRouter, RouterProvider } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-
-import { routeTree } from "./routeTree.gen";
-
-function renderRoute(path: string) {
-  const queryClient = new QueryClient();
-  const router = createRouter({
-    routeTree,
-    history: createMemoryHistory({ initialEntries: [path] }),
-    context: { queryClient },
-  });
-
-  render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  );
-
-  return { router };
-}
+import renderRoute from "../test/renderRoute";
 
 test("opens a customer row using the internal customer ID", async () => {
   const user = userEvent.setup();
