@@ -18,7 +18,7 @@ const styles = stylex.create({
     marginInline: "auto",
     paddingInline: { default: spacing.space24, [breakpoints.compact]: spacing.space16 },
     maxWidth: 1080,
-    paddingBottom: spacing.space28,
+    paddingBottom: spacing.space4,
     paddingTop: spacing.space4,
   },
   header: {
