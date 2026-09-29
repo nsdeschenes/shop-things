@@ -209,3 +209,57 @@ test("one operation is admitted while status bypasses the gate and internal erro
     await f.cleanup();
   }
 });
+
+test("placeholder shutdown waits admitted work and closes once without renderer coordination", async () => {
+  const f = await fixture();
+  let release!: () => void;
+  let reached!: () => void;
+  let closed = 0;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const entered = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const service = new ActionService({
+    ...f.options,
+    database: {
+      ...databaseOperations,
+      createDatabase: async (...args) => {
+        const handle = await databaseOperations.createDatabase(...args);
+        return {
+          ...handle,
+          close() {
+            closed++;
+            handle.close();
+          },
+        };
+      },
+      listCustomers: async (...args) => {
+        reached();
+        await pending;
+        return databaseOperations.listCustomers(...args);
+      },
+    },
+  });
+  try {
+    const state = success(await service.handlers["database.create"]());
+    const read = service.handlers["customers.list"]({ session: state.session!, query: "" });
+    await entered;
+    const closing = service.closeUnprotectedWhenIdle();
+    expect(service.closeUnprotectedWhenIdle()).toBe(closing);
+    expect(closed).toBe(0);
+    expect(
+      await service.handlers["customers.create"]({ session: state.session!, values }),
+    ).toMatchObject({ error: { code: "BUSY" } });
+    release();
+    expect(success(await read)).toEqual([]);
+    await closing;
+    expect(closed).toBe(1);
+    expect(service.status()).toMatchObject({ available: false, version: state.version + 1 });
+  } finally {
+    release();
+    await service.closeUnprotectedWhenIdle();
+    await f.cleanup();
+  }
+});
