@@ -134,3 +134,40 @@ test("placeholder quit waits startup, avoids creating a window and closes the ba
     close.mockRestore();
   }
 });
+
+test("development parent quit requests enter the ordinary application shutdown path", async () => {
+  vi.stubEnv("VITE_DEV_SERVER_URL", "http://127.0.0.1:5173");
+  const descriptor = Object.getOwnPropertyDescriptor(process, "send");
+  if (typeof process.send !== "function") {
+    Object.defineProperty(process, "send", { configurable: true, value: () => true });
+  }
+
+  const originalOn = process.on.bind(process);
+  let messageListener: ((message: unknown) => void) | null = null;
+  const on = vi.spyOn(process, "on").mockImplementation((event, listener) => {
+    if (event === "message") {
+      messageListener = listener;
+      return process;
+    }
+
+    return Reflect.apply(originalOn, process, [event, listener]);
+  });
+  try {
+    await startApp();
+    if (!messageListener) {
+      throw new Error("Missing development control listener");
+    }
+
+    Reflect.apply(messageListener, undefined, [{ type: "unrelated" }]);
+    expect(electron.app.quit).not.toHaveBeenCalled();
+    Reflect.apply(messageListener, undefined, [{ type: "shop-things:quit" }]);
+    expect(electron.app.quit).toHaveBeenCalledOnce();
+  } finally {
+    on.mockRestore();
+    if (descriptor) {
+      Object.defineProperty(process, "send", descriptor);
+    } else {
+      Reflect.deleteProperty(process, "send");
+    }
+  }
+});

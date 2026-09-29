@@ -98,3 +98,17 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
+
+// Development shutdown requests travel only over the parent process IPC channel.
+if (process.env.VITE_DEV_SERVER_URL && process.send) {
+  process.on("message", (message: unknown) => {
+    if (
+      typeof message === "object" &&
+      message !== null &&
+      "type" in message &&
+      message.type === "shop-things:quit"
+    ) {
+      app.quit();
+    }
+  });
+}
