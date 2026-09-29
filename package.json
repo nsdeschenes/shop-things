@@ -17,7 +17,9 @@
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "pre-commit:run": "prek run",
-    "pre-commit:install": "prek install"
+    "pre-commit:install": "prek install",
+    "test": "pnpm -r test",
+    "test:watch": "pnpm -r --parallel test:watch"
   },
   "devDependencies": {
     "@e18e/eslint-plugin": "^0.8.1",
@@ -27,7 +29,10 @@
     "@tanstack/eslint-plugin-query": "^5.104.0",
     "@tanstack/eslint-plugin-router": "^1.162.0",
     "@types/node": "^26",
+    "@vitest/eslint-plugin": "^1.6.27",
     "concurrently": "^9.2.1",
+    "eslint-plugin-jest-dom": "^5.10.1",
+    "eslint-plugin-testing-library": "^7.16.2",
     "oxfmt": "^0.70.0",
     "oxlint": "^1.85.0",
     "oxlint-tsgolint": "^7.0.2003",
