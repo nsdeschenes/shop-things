@@ -272,3 +272,22 @@ test("close preparation timeout and discard dialog failure keep the connection a
     await f.cleanup();
   }
 });
+
+test("editor discard approval permits navigation without clearing draft before navigation commits", async () => {
+  const drafts = new DraftCoordinator();
+  const participant = simulatedEditor(drafts);
+  const f = await fixture({ drafts });
+  try {
+    f.choices.discard = false;
+    expect(await f.service.handlers["drafts.confirmDiscard"]()).toEqual({ status: "cancelled" });
+    f.choices.discard = true;
+    expect(success(await f.service.handlers["drafts.confirmDiscard"]())).toEqual({
+      approved: true,
+    });
+    expect(participant.editor).toMatchObject({ draft: "unsaved", selection: 1, frozen: false });
+    expect(participant.editor.requests).toEqual([]);
+  } finally {
+    participant.unregister();
+    await f.cleanup();
+  }
+});
