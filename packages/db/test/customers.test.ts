@@ -141,6 +141,42 @@ test("SQL search treats wildcard characters literally and orders names/numbers d
     assert.deepEqual(await listCustomers(db, "Alice Smith"), []);
   });
 });
+test("Unicode search matches literal mixed-case first and last names without regex or SQL injection", async () => {
+  await fixture(async ({ db }) => {
+    const first = await createCustomer(db, { firstName: "ÉMILIE", lastName: "ÅNGSTRÖM" });
+    const greek = await createCustomer(db, { firstName: "ΣΩΚΡΆΤΗΣ", lastName: "Other" });
+    const literals = ".*+?^${}()|[]\\%_'; OR 1=1 --";
+    const special = await createCustomer(db, {
+      firstName: "Before " + literals + " After",
+      lastName: "Literal",
+    });
+    const nul = await createCustomer(db, { firstName: "Nul\0ÉMILIE", lastName: "Nul" });
+    assert.deepEqual(
+      (await listCustomers(db, " éMi ")).map((row) => row.id),
+      [nul.id, first.id],
+    );
+    assert.deepEqual(
+      (await listCustomers(db, "ångström")).map((row) => row.id),
+      [first.id],
+    );
+    assert.deepEqual(
+      (await listCustomers(db, "σωκράτης")).map((row) => row.id),
+      [greek.id],
+    );
+    for (const needle of [literals, ".*", "[", "\\", "%_", "'; OR 1=1 --"]) {
+      assert.deepEqual(
+        (await listCustomers(db, needle)).map((row) => row.id),
+        [special.id],
+      );
+    }
+
+    assert.deepEqual(await listCustomers(db, "(?i)other|.*"), []);
+    assert.deepEqual(
+      (await listCustomers(db, "\0émi")).map((row) => row.id),
+      [nul.id],
+    );
+  });
+});
 test("simultaneous writes across real connections allocate uniquely or fail without partial insertion", async () => {
   await fixture(async ({ db }, path) => {
     const other = await openExistingDatabase(path, { migrationsFolder });

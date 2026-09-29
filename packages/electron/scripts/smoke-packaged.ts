@@ -218,6 +218,41 @@ try {
     assert.equal(stale.error.code, "STALE_REVISION");
   }
 
+  const unicode = success(
+    await service.handlers["customers.create"]({
+      session,
+      values: { ...values, firstName: "ÉMILIE", lastName: "ÅNGSTRÖM", comments: "" },
+    }),
+  );
+  const literal = success(
+    await service.handlers["customers.create"]({
+      session,
+      values: { ...values, firstName: "Literal .* [ \\ %_ '", lastName: "Literal", comments: "" },
+    }),
+  );
+  for (const query of ["éMi", " åNgStrÖm "]) {
+    assert.deepEqual(
+      success(await service.handlers["customers.list"]({ session, query })).map(
+        (record) => record.customer.id,
+      ),
+      [unicode.customer.id],
+    );
+  }
+
+  for (const query of [".*", "[", "\\", "%_", "'"]) {
+    assert.deepEqual(
+      success(await service.handlers["customers.list"]({ session, query })).map(
+        (record) => record.customer.id,
+      ),
+      [literal.customer.id],
+    );
+  }
+
+  assert.deepEqual(
+    success(await service.handlers["customers.list"]({ session, query: "(?i)smith|.*" })),
+    [],
+  );
+  phases.push("shipped-native-Unicode-casefold/literal-metacharacter-search");
   phases.push("current-schema/customer-crud/search/revisions");
   success(await service.handlers["exports.csv"]({ session }));
   const csv = await readFile(paths.csv, "utf8");
