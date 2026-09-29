@@ -6,7 +6,10 @@
     "@stylistic/eslint-plugin",
     "@stylexjs/eslint-plugin",
     "@tanstack/eslint-plugin-query",
-    "@tanstack/eslint-plugin-router"
+    "@tanstack/eslint-plugin-router",
+    { "name": "vitest-js", "specifier": "@vitest/eslint-plugin" },
+    "eslint-plugin-testing-library",
+    "eslint-plugin-jest-dom"
   ],
   "categories": {
     "correctness": "error"
@@ -70,6 +73,81 @@
   },
   "ignorePatterns": ["node_modules", "packages/interface/src/routeTree.gen.ts"],
   "overrides": [
+    {
+      "files": ["**/*.test.{ts,tsx,js,jsx,mjs}"],
+      "rules": {
+        "vitest-js/expect-expect": [
+          "error",
+          {
+            "assertFunctionNames": ["expect", "assert.*"]
+          }
+        ],
+        "vitest-js/no-commented-out-tests": "error",
+        "vitest-js/no-conditional-expect": "error",
+        "vitest-js/no-disabled-tests": "warn",
+        "vitest-js/no-focused-tests": "error",
+        "vitest-js/no-identical-title": "error",
+        "vitest-js/no-import-node-test": "error",
+        "vitest-js/no-interpolation-in-snapshots": "error",
+        "vitest-js/no-mocks-import": "error",
+        "vitest-js/no-standalone-expect": "error",
+        "vitest-js/no-unneeded-async-expect-function": "error",
+        "vitest-js/prefer-called-exactly-once-with": "error",
+        "vitest-js/require-local-test-context-for-concurrent-snapshots": "error",
+        "vitest-js/valid-describe-callback": "error",
+        "vitest-js/valid-expect": "error",
+        "vitest-js/valid-expect-in-promise": "error",
+        "vitest-js/valid-title": "error"
+      }
+    },
+    {
+      "files": ["packages/interface/**/*.test.{ts,tsx,js,jsx}"],
+      "rules": {
+        "testing-library/await-async-events": [
+          "error",
+          {
+            "eventModule": "userEvent"
+          }
+        ],
+        "testing-library/await-async-queries": "error",
+        "testing-library/await-async-utils": "error",
+        "testing-library/no-await-sync-events": [
+          "error",
+          {
+            "eventModules": ["fire-event"]
+          }
+        ],
+        "testing-library/no-await-sync-queries": "error",
+        "testing-library/no-container": "error",
+        "testing-library/no-debugging-utils": "warn",
+        "testing-library/no-dom-import": ["error", "react"],
+        "testing-library/no-global-regexp-flag-in-query": "error",
+        "testing-library/no-manual-cleanup": "error",
+        "testing-library/no-node-access": "error",
+        "testing-library/no-promise-in-fire-event": "error",
+        "testing-library/no-render-in-lifecycle": "error",
+        "testing-library/no-unnecessary-act": "error",
+        "testing-library/no-wait-for-multiple-assertions": "error",
+        "testing-library/no-wait-for-side-effects": "error",
+        "testing-library/no-wait-for-snapshot": "error",
+        "testing-library/prefer-find-by": "error",
+        "testing-library/prefer-presence-queries": "error",
+        "testing-library/prefer-query-by-disappearance": "error",
+        "testing-library/prefer-screen-queries": "error",
+        "testing-library/render-result-naming-convention": "error",
+        "jest-dom/prefer-checked": "error",
+        "jest-dom/prefer-empty": "error",
+        "jest-dom/prefer-enabled-disabled": "error",
+        "jest-dom/prefer-focus": "error",
+        "jest-dom/prefer-in-document": "error",
+        "jest-dom/prefer-required": "error",
+        "jest-dom/prefer-to-have-attribute": "error",
+        "jest-dom/prefer-to-have-class": "error",
+        "jest-dom/prefer-to-have-style": "error",
+        "jest-dom/prefer-to-have-text-content": "error",
+        "jest-dom/prefer-to-have-value": "error"
+      }
+    },
     {
       "files": ["packages/interface/src/routes/**/*.tsx"],
       "rules": {

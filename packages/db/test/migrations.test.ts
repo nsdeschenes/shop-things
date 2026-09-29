@@ -4,8 +4,9 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { test } from "node:test";
+import { test } from "vitest";
 
+import type { AppDatabase, DatabaseHandle } from "@shop-things/db";
 import { openDatabase, runMigrations } from "@shop-things/db";
 
 const fixtureFolder = fileURLToPath(new URL("./fixtures", import.meta.url));
@@ -17,7 +18,13 @@ const absolutePathError = /absolute path/;
 const failedMigrationError = /missing_table/;
 const databaseArgumentError = /--database <absolute database file path>/;
 
-async function withDatabase(callback) {
+async function withDatabase(
+  callback: (context: {
+    handle: DatabaseHandle;
+    databaseFilePath: string;
+    directory: string;
+  }) => Promise<void>,
+) {
   const directory = await mkdtemp(join(tmpdir(), "shop-things-migrations-"));
   const databaseFilePath = join(directory, "app.db");
   const handle = openDatabase(databaseFilePath);
@@ -103,7 +110,7 @@ test("local apply and exported runner produce the same database state", async ()
     await runMigrations(handle.db, { migrationsFolder: checkedInFolder });
     const commandHandle = openDatabase(commandFilePath);
     try {
-      const inspect = async (db) => ({
+      const inspect = async (db: AppDatabase) => ({
         tables: await db.all("select name from sqlite_master where type = 'table' order by name"),
         migrations: await db.all("select name from __drizzle_migrations"),
       });
