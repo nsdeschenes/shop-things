@@ -27,7 +27,11 @@ its source during watch mode.
 
 Interface tests use jsdom, React Testing Library, user-event, and jest-dom
 matchers. Electron tests run the main entry point in Node with the Electron API
-boundary mocked; packaged application checks remain a separate smoke test.
+boundary mocked. After building an installer on its target OS, run
+`pnpm --filter electron test:smoke` to check the packaged app with Vitest.
+The smoke suite launches the built Electron executable to verify its bundled
+database code, native addon, and migrations. CI runs this command after packaging
+and saves the smoke report.
 
 Run `pnpm lint` to check source and tests, including the companion testing lint
 rules, and `pnpm fmt:check` to check formatting.
