@@ -8,10 +8,11 @@ import styles from "./fieldStyles";
 type Props = {
   label: string;
   inputMode?: ComponentProps<typeof Input>["inputMode"];
+  uppercase?: boolean;
   style?: stylex.StyleXStyles;
 };
 
-export default function TextField({ label, inputMode, style }: Props) {
+export default function TextField({ label, inputMode, uppercase, style }: Props) {
   const field = formContexts.useFieldContext<string>();
   return (
     <Field.Root
@@ -27,7 +28,7 @@ export default function TextField({ label, inputMode, style }: Props) {
         inputMode={inputMode}
         value={field.state.value}
         onBlur={field.handleBlur}
-        onValueChange={field.handleChange}
+        onValueChange={(value) => field.handleChange(uppercase ? value.toUpperCase() : value)}
       />
     </Field.Root>
   );

@@ -111,19 +111,24 @@ export default function CustomerForm({ customer }: { customer?: Customer }) {
               <div {...stylex.props(styles.grid)}>
                 {identityFields.map((config) => (
                   <form.AppField key={config.name} name={config.name}>
-                    {(field) => (
-                      <field.TextField
-                        label={config.label}
-                        inputMode={config.inputMode}
-                        style={
-                          config.name === "customerNumber" ||
-                          config.name === "address" ||
-                          config.name === "email"
-                            ? styles.wide
-                            : undefined
-                        }
-                      />
-                    )}
+                    {(field) =>
+                      config.name === "province" ? (
+                        <field.ProvinceField />
+                      ) : (
+                        <field.TextField
+                          label={config.label}
+                          inputMode={config.inputMode}
+                          uppercase={config.name === "postalCode"}
+                          style={
+                            config.name === "customerNumber" ||
+                            config.name === "address" ||
+                            config.name === "email"
+                              ? styles.wide
+                              : undefined
+                          }
+                        />
+                      )
+                    }
                   </form.AppField>
                 ))}
               </div>
