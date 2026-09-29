@@ -12,6 +12,7 @@
     "test:smoke": "tsc -p tsconfig.test.json && vitest run --config vitest.smoke.config.ts"
   },
   "dependencies": {
+    "@shop-things/contract": "workspace:*",
     "@shop-things/db": "workspace:*"
   },
   "devDependencies": {

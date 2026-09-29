@@ -2,6 +2,7 @@ packages:
   - packages/interface
   - packages/electron
   - packages/db
+  - packages/contract
 allowBuilds:
   electron-winstaller: true
   esbuild: true
