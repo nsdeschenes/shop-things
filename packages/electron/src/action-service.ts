@@ -22,6 +22,7 @@ import type {
   UpdateCustomerInput,
 } from "@shop-things/contract";
 import type { DatabaseSettings } from "./settings.js";
+import type { DraftCoordinator, DraftLease } from "./draft-coordinator.js";
 
 export interface BackendDialogs {
   createDatabase(): Promise<string | null>;
@@ -79,6 +80,7 @@ export interface ActionServiceOptions {
   dialogs: BackendDialogs;
   database?: DatabaseOperations;
   logError?: (error: unknown) => void;
+  drafts?: DraftCoordinator;
 }
 
 export class ActionService {
@@ -93,14 +95,19 @@ export class ActionService {
   };
   private readonly listeners = new Set<(state: DatabaseState) => void>();
   private busy = false;
+  private activeOperation: Promise<void> | null = null;
+  private closePending = false;
+  private pendingClose: Promise<Outcome<{ closed: true }>> | null = null;
 
   constructor(private readonly options: ActionServiceOptions) {
     this.database = options.database ?? databaseOperations;
     this.handlers = {
       "database.status": async () => ({ status: "success", value: this.status() }),
-      "database.retry": () => this.admit(() => this.retry()),
-      "database.create": () => this.admit(() => this.select("create")),
-      "database.open": () => this.admit(() => this.select("open")),
+      "database.retry": () => this.admit(() => this.transition((lease) => this.retry(lease))),
+      "database.create": () =>
+        this.admit(() => this.transition((lease) => this.select("create", lease))),
+      "database.open": () =>
+        this.admit(() => this.transition((lease) => this.select("open", lease))),
       "customers.list": (args) =>
         this.admit(async () => {
           const handle = this.requireSession(args.session);
@@ -150,7 +157,15 @@ export class ActionService {
       "database.backup": async () => this.unavailableFeature(),
       "database.restore": async () => this.unavailableFeature(),
       "exports.csv": async () => this.unavailableFeature(),
-      "drafts.confirmDiscard": async () => this.unavailableFeature(),
+      "drafts.confirmDiscard": async () => {
+        try {
+          return (await this.options.dialogs.confirmDiscard())
+            ? { status: "success", value: { approved: true } }
+            : { status: "cancelled" };
+        } catch (error) {
+          return { status: "error", error: this.safeError(error) };
+        }
+      },
     };
   }
 
@@ -164,7 +179,7 @@ export class ActionService {
     };
   }
   async start(): Promise<void> {
-    await this.admit(() => this.retry());
+    await this.handlers["database.retry"]();
   }
   closeUnprotected(): void {
     if (this.busy) {
@@ -174,6 +189,61 @@ export class ActionService {
     this.active?.close();
     this.active = null;
     this.publish({ available: false, selectedPath: this.state.selectedPath, session: null });
+  }
+  requestClose(): Promise<Outcome<{ closed: true }>> {
+    if (this.pendingClose) {
+      return this.pendingClose;
+    }
+
+    this.closePending = true;
+    this.pendingClose = this.closeProtected().finally(() => {
+      this.closePending = false;
+      this.pendingClose = null;
+    });
+    return this.pendingClose;
+  }
+  private async closeProtected(): Promise<Outcome<{ closed: true }>> {
+    try {
+      await this.activeOperation;
+      const closed = await this.transition(async (lease) => {
+        lease?.assertCurrent();
+        this.closeUnprotected();
+        return { closed: true as const };
+      }, true);
+      return closed === null ? { status: "cancelled" } : { status: "success", value: closed };
+    } catch (error) {
+      return { status: "error", error: this.safeError(error) };
+    }
+  }
+  private async transition<T>(
+    work: (lease?: DraftLease) => Promise<T | null>,
+    closing = false,
+  ): Promise<T | null> {
+    if (!this.active && !closing) {
+      return work();
+    }
+
+    if (!this.options.drafts) {
+      throw new ActionError(
+        "DATABASE_UNAVAILABLE",
+        "Protected draft coordination is unavailable. Keep the application open.",
+      );
+    }
+
+    const lease = await this.options.drafts.prepare();
+    let committed = false;
+    try {
+      if (lease.hasUnsavedDraft && !(await this.options.dialogs.confirmDiscard())) {
+        return null;
+      }
+
+      lease.assertCurrent();
+      const value = await work(lease);
+      committed = value !== null;
+      return value;
+    } finally {
+      lease.finish(committed ? "committed" : "aborted");
+    }
   }
   private unavailableFeature(): { status: "error"; error: ContractError } {
     return {
@@ -255,7 +325,7 @@ export class ActionService {
     return { code: "INTERNAL", message: "The operation failed. Please try again." };
   }
   private async admit<T>(work: () => Promise<T | null>): Promise<Outcome<T>> {
-    if (this.busy) {
+    if (this.busy || this.closePending) {
       return {
         status: "error",
         error: {
@@ -266,6 +336,10 @@ export class ActionService {
     }
 
     this.busy = true;
+    let release!: () => void;
+    this.activeOperation = new Promise<void>((done) => {
+      release = done;
+    });
     try {
       const value = await work();
       return value === null ? { status: "cancelled" } : { status: "success", value };
@@ -273,24 +347,22 @@ export class ActionService {
       return { status: "error", error: this.safeError(error) };
     } finally {
       this.busy = false;
+      this.activeOperation = null;
+      release();
     }
   }
-  private async retry(): Promise<DatabaseState> {
-    if (this.active) {
-      throw new ActionError(
-        "DATABASE_UNAVAILABLE",
-        "Protected coordination is required to reopen the active database.",
-      );
-    }
-
+  private async retry(lease?: DraftLease): Promise<DatabaseState> {
     try {
       const path = await this.options.settings.read();
       if (!path) {
         return this.status();
       }
 
-      this.state = { ...this.state, selectedPath: path };
-      await this.prepareCandidate(path, false);
+      if (!this.active) {
+        this.state = { ...this.state, selectedPath: path };
+      }
+
+      await this.prepareCandidate(path, false, lease);
       return this.status();
     } catch (error) {
       const safe = this.safeError(error);
@@ -301,23 +373,19 @@ export class ActionService {
               message: "The remembered database could not be opened. Retry or choose Create/Open.",
             }
           : safe;
-      this.publish({
-        available: false,
-        selectedPath: this.state.selectedPath,
-        session: null,
-        recoveryError,
-      });
+      if (!this.active) {
+        this.publish({
+          available: false,
+          selectedPath: this.state.selectedPath,
+          session: null,
+          recoveryError,
+        });
+      }
+
       throw new ActionError(recoveryError.code, recoveryError.message);
     }
   }
-  private async select(kind: "create" | "open"): Promise<DatabaseState | null> {
-    if (this.active) {
-      throw new ActionError(
-        "DATABASE_UNAVAILABLE",
-        "Protected coordination is required to switch databases.",
-      );
-    }
-
+  private async select(kind: "create" | "open", lease?: DraftLease): Promise<DatabaseState | null> {
     const path = await (kind === "create"
       ? this.options.dialogs.createDatabase()
       : this.options.dialogs.openDatabase());
@@ -326,24 +394,41 @@ export class ActionService {
     }
 
     try {
-      await this.prepareCandidate(resolve(path), kind === "create");
+      await this.prepareCandidate(resolve(path), kind === "create", lease);
       return this.status();
     } catch (error) {
-      this.publish({
-        available: false,
-        selectedPath: this.state.selectedPath,
-        session: null,
-        recoveryError: this.safeError(error),
-      });
+      if (!this.active) {
+        this.publish({
+          available: false,
+          selectedPath: this.state.selectedPath,
+          session: null,
+          recoveryError: this.safeError(error),
+        });
+      }
+
       throw error;
     }
   }
-  private async prepareCandidate(path: string, creation: boolean): Promise<void> {
+  private async prepareCandidate(
+    path: string,
+    creation: boolean,
+    lease?: DraftLease,
+  ): Promise<void> {
     let candidate: DatabaseHandle | null = null;
     try {
       const open = creation ? this.database.createDatabase : this.database.openExistingDatabase;
       candidate = await open(path, { migrationsFolder: this.options.migrationsFolder });
+      lease?.assertCurrent();
       await this.options.settings.write(path);
+      try {
+        lease?.assertCurrent();
+      } catch (error) {
+        if (this.state.selectedPath) {
+          await this.options.settings.write(this.state.selectedPath);
+        }
+
+        throw error;
+      }
     } catch (error) {
       candidate?.close();
       if (error instanceof DatabaseError) {
@@ -357,8 +442,13 @@ export class ActionService {
       );
     }
 
-    this.active?.close();
+    const superseded = this.active;
     this.active = candidate;
     this.publish({ available: true, selectedPath: path, session: randomUUID() });
+    try {
+      superseded?.close();
+    } catch (error) {
+      this.options.logError?.(error);
+    }
   }
 }
