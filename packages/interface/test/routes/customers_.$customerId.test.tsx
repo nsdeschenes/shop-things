@@ -14,3 +14,16 @@ test('shows a missing preview customer without enabling editing', async () => {
   );
   expect(screen.queryByRole('textbox', {name: 'First name'})).not.toBeInTheDocument();
 });
+
+test.each(['abc', '0', '-1', '9007199254740992'])(
+  'rejects invalid customer ID %s through the route error component',
+  async id => {
+    renderRoute(`/customers/${id}`);
+    expect(
+      await screen.findByRole('heading', {name: 'Customer Not Found'})
+    ).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'This customer no longer exists.'
+    );
+  }
+);
