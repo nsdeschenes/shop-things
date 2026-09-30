@@ -278,7 +278,7 @@ try {
     'packaged-renderer',
     process.execPath,
     ['acceptance/packagedRenderer.mjs'],
-    {PACKAGED_RENDERER_TARGET: supporting ? 'darwin-arm64-supporting' : 'linux-x64-glibc'}
+    {PACKAGED_RENDERER_TARGET: supporting ? 'darwin-arm64-supporting' : 'linux-x64'}
   );
   report.packagedRenderer = await successfulReport('packaged-renderer.json');
   await command('development-watcher', process.execPath, ['acceptance/watcher.mjs']);
