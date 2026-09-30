@@ -21,6 +21,8 @@ export default defineConfig({
     }),
     react(),
   ],
+  // Release cold optimized modules before this application's browser crawl can stall.
+  optimizeDeps: {holdUntilCrawlEnd: false},
   server: {
     // Electron's cooperative watcher owns updates before a document can replace drafts.
     hmr: false,

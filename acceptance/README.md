@@ -110,3 +110,15 @@ Source tests supplement this with query-cache replacement that cannot substitute
 the editor's reference, preview read cloning, and number ordering before ID ties.
 The explicit guarded reload control belongs to #63. Platform acceptance remains
 subject to the existing authorized Linux deferral.
+
+### Cold Vite development bootstrap (#58 follow-up)
+
+`developmentBootstrap.spec.ts` starts the real configured Vite server programmatically
+on an ephemeral loopback port with a fresh temporary dependency cache, then launches
+actual Electron through Playwright. It checks live named IPC, opens a saved editor,
+and retains an invalid exact balance draft after native close Stay. The check keeps
+StrictMode and disabled HMR. Disabling Vite's dependency-crawl hold prevents cold
+optimized-module requests from leaving the renderer blank; a warm cache is not used
+as startup evidence. Test-owned processes/server are cleaned up separately from the
+user's application. This case proves development bootstrap and draft protection;
+watcher source-change, retry, failed-build, and replacement evidence remains with #67.
