@@ -28,7 +28,8 @@ when retaining evidence independently. Run source tests, builds, renderer tests,
 packaging and watcher checks sequentially: they replace shared emitted outputs.
 The runner refuses dirty sources, binds all reports to one commit, rejects skipped
 source/renderer checks, and verifies source restoration after watcher probes.
-It never certifies deferred release or manual GUI gates.
+A passed run covers only the recorded target and executed automated checks. It does
+not certify manual GUI behavior, signing, installation, or other platforms.
 
 ## Evidence layers
 
@@ -79,18 +80,19 @@ Controlled native picker choices and narrowly scoped holds/failures preserve the
 actual protected service and IPC under test. Automation of dialog functions does
 not prove OS modal ownership or native safe-default behavior.
 
-## Reports and deferred gates
+## Current-run reports
 
 `acceptance.json` includes commit, OS/architecture/runtime, exact commands/results,
 no-skip source counts, Playwright results, normal packaged artifacts/inventory and
 watcher phase/PID evidence. Failed checks retain logs; Playwright retains traces.
 Individual backend, packaged and watcher reports remain distinguishable.
 
-The owner explicitly deferred Linux execution and required native GUI checks for
-this session. GitHub Actions run
-[36714438402](https://github.com/nsdeschenes/shop-things/actions/runs/36714438402)
-could not start because the Actions budget prevented use. This is an external
-execution blocker, not a passing CI or product test. macOS arm64, Windows x64 and
-Linux arm64 release verification remain decision-52 deferred. Local macOS automation
-is supporting evidence. Required manual tester/date/checklist remains unexecuted;
-see [frontend acceptance](../docs/acceptance/frontend.md).
+`acceptance.json` schema version 3 uses `running`, `passed`, or `failed` for the
+automated outcome. The target is recorded separately in `environment.target`.
+On macOS, `shippedBackend.applicable` is false with a reason: that smoke check
+requires a Linux release artifact. The packaged renderer and backend reports use schema
+version 2 and record only their current target and executed checks. CI uploads the
+report directory and renderer artifacts even when a check fails.
+
+A passing report does not establish manual or other-platform verification;
+see [frontend acceptance](../docs/acceptance/frontend.md) for those checks.
