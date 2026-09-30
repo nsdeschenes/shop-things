@@ -4,6 +4,7 @@ import type {
   ContractError,
   CreateCustomerInput,
   CustomerReference,
+  CustomerRecord,
   UpdateCustomerInput,
 } from '@shop-things/contract';
 import {CancelledError, mutationOptions, queryOptions} from '@tanstack/react-query';
@@ -21,6 +22,7 @@ export class CustomerRequestError extends Error {
 
 export const customerKeys = {
   session: (session: string) => ['customers', session] as const,
+  lists: (session: string) => ['customers', session, 'list'] as const,
   list: (session: string, query: string) =>
     ['customers', session, 'list', query] as const,
   detail: (session: string, id: number) => ['customers', session, 'detail', id] as const,
@@ -31,7 +33,7 @@ const readOptions = {
   retry: false,
   refetchOnWindowFocus: false,
   refetchOnReconnect: false,
-  refetchOnMount: false,
+  refetchOnMount: true,
 } as const;
 
 function unwrap<T>(
@@ -95,11 +97,32 @@ export function customerDetailOptions(
   });
 }
 
+async function adoptSavedCustomer(
+  application: Application,
+  record: CustomerRecord,
+  captured: ReturnType<Application['captureSession']>
+) {
+  if (!captured.isCurrent()) {
+    return;
+  }
+
+  application.queryClient.setQueryData(
+    customerKeys.detail(captured.session, record.customer.id),
+    record
+  );
+  await application.queryClient.invalidateQueries({
+    queryKey: customerKeys.lists(captured.session),
+  });
+}
+
 // Consumers suppress CancelledError feedback and check captureSession().isCurrent()
-// immediately before cache writes, draft resets or success navigation.
+// immediately before draft resets or success navigation.
 export function createCustomerOptions(application: Application, session: string) {
   return mutationOptions({
     retry: false,
+    onMutate: () => application.captureSession(session),
+    onSuccess: (record, _values, captured) =>
+      adoptSavedCustomer(application, record, captured),
     mutationFn: async (values: CreateCustomerInput) =>
       unwrap(
         await application.request(session, client =>
@@ -112,6 +135,9 @@ export function createCustomerOptions(application: Application, session: string)
 export function updateCustomerOptions(application: Application) {
   return mutationOptions({
     retry: false,
+    onMutate: ({reference}) => application.captureSession(reference.session),
+    onSuccess: (record, _values, captured) =>
+      adoptSavedCustomer(application, record, captured),
     mutationFn: async ({
       reference,
       changes,
