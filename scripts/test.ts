@@ -4,7 +4,29 @@ import {testElectron, testInterface, testReportArguments} from './testHelpers.ts
 import {pnpm, runIfMain} from './workspace.ts';
 
 export async function testAll() {
-  await pnpm(['--filter', '@shop-things/contract', 'test']);
+  if (process.env.ACCEPTANCE_REPORT_DIR) {
+    await pnpm(['--filter', '@shop-things/contract', 'build']);
+    await pnpm([
+      '--filter',
+      '@shop-things/contract',
+      'exec',
+      'tsc',
+      '-p',
+      'tsconfig.test.json',
+    ]);
+    await pnpm([
+      '--filter',
+      '@shop-things/contract',
+      'exec',
+      'vitest',
+      'run',
+      ...testReportArguments('contract-tests'),
+    ]);
+    await pnpm(['--filter', '@shop-things/contract', 'test:conformance']);
+  } else {
+    await pnpm(['--filter', '@shop-things/contract', 'test']);
+  }
+
   if (process.env.ACCEPTANCE_REPORT_DIR) {
     await pnpm(['--filter', '@shop-things/db', 'build']);
     await pnpm([

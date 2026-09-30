@@ -1,163 +1,96 @@
-# Renderer Acceptance
+# Renderer acceptance
 
-Run `pnpm exec playwright install chromium` and install the workspace Electron runtime,
-then `pnpm test:renderer`. Linux headless hosts require a display, for example
-`xvfb-run -a pnpm test:renderer`. Run builds/tests sequentially: both the backend suite
-and renderer suite replace emitted output.
+The integrated application has startup/setup/recovery, protected Create/Open/Retry,
+customer CRUD and search, explicit stale/deleted/unavailable recovery, all-saved
+Backup/CSV, and separate-file Restore. Browser preview requires exactly
+`preview=true`, identifies temporary data, and labels simulated file operations.
 
-The foundation suite executes the built frontend in Chromium and real Electron
-BrowserWindows with the bundled sandboxed preload and actual IPC. The test launcher
-isolates user data, can deny handshakes and can hold a startup status response at the
-transport boundary. The ordering check selects a temporary real database through the
-production create action and delivers its notification before releasing the old status. It imports the
-built production entry point; it does not provide a replacement frontend client.
+## Run the complete automated record
 
-The development resource check serves the built renderer at one configured origin.
-The bundled HTML check uses actual file loading and hash routes. Neither check claims
-execution of an electron-builder packaged artifact. Packaged execution and the complete
-workflow matrix belong to the final acceptance stage.
+Use Node 26+, pnpm 12.4.2 and a clean committed checkout. Install Chromium with
+`pnpm exec playwright install chromium`. Linux headless hosts need the Electron/
+Chromium desktop libraries and Xvfb; the workflow installs them.
 
-Reports and retained failure traces are written to `acceptance-reports/renderer`.
-The foundation checks cover exact preview gating, route/reload parameter preservation,
-live precedence, private subscription/participant admission before status, early handshake
-recovery, live failure/Retry, nested file hash routing, and blocked navigation/new windows.
-Editors and unfinished file actions remain disabled during this stage.
+```sh
+xvfb-run -a node --experimental-strip-types scripts/acceptance.ts
+```
 
-Local foundation run: September 30, 2026, macOS arm64, Electron 44.4.5 and Chromium
-153.0.8010.12; all nine renderer checks passed. The controller/QueryClient tests also
-cover superseded searches and old-session completion suppression. Actual customer UI
-late-completion evidence remains with the customer and final acceptance stages. This is supporting local evidence.
-Linux glibc x64 automated renderer/packaged checks and manual GUI/native-dialog gates
-were explicitly deferred by the owner during implementation; they are not certified here.
+This is the required Linux glibc x64 automated command. A local unsigned macOS
+arm64 supporting run is explicitly available:
 
-## Shared Draft Protection
+```sh
+node --experimental-strip-types scripts/acceptance.ts --supporting-macos
+```
 
-`application.protection` owns one renderer participant across route changes.
-Forms supply a stable `{values(), baseline(), reset()}` editor via
-`useDraftProtection`, call `changed()` after exact editable values change, and disable
-editing while `frozen`. Invalid text is compared exactly against the baseline.
+Set `ACCEPTANCE_REPORT_DIR` to an absolute report directory outside the checkout
+when retaining evidence independently. Run source tests, builds, renderer tests,
+packaging and watcher checks sequentially: they replace shared emitted outputs.
+The runner refuses dirty sources, binds all reports to one commit, rejects skipped
+source/renderer checks, and verifies source restoration after watcher probes.
+It never certifies deferred release or manual GUI gates.
 
-Use `await protection.save(work)` to track persistence plus cache/baseline callbacks.
-Then verify the captured session and call `navigateAfterSave(navigate)` outside that
-tracked work. It refuses navigation while saving, frozen, or newer edits remain.
-Preparation never initiates Save. Matching aborted messages release the freeze silently;
-matching committed messages reset the captured editor. Keep errors in the caller's
-operation feedback. Browser preview uses the renderer Discard/Stay dialog with Stay
-focused, and its single native beforeunload warning.
+## Evidence layers
 
-The protection acceptance journey mounts test-only controlled editable values in the
-real BrowserWindow and uses the production protection owner, bundled preload and IPC.
-It verifies invalid drafts survive Stay on window close/app quit/guarded reload,
-clean reversion permits reload, unresponsive Save preparation times out without consent,
-and missing participation aborts with retry guidance. Main-owned cold startup can open
-remembered data before a renderer exists; all public recovery transitions require an
-explicit current participant, including when no database is active.
+| Layer                                         | Runnable command                                          | What it establishes                                                                                                                                                                |
+| --------------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source/contract/database/components/processes | `pnpm test`, `pnpm typecheck`, `pnpm build`, `pnpm lint`  | Supporting behavior, conformance and clean emission; machine no-skip reports under acceptance orchestration                                                                        |
+| Built renderer                                | `pnpm test:renderer`                                      | Real Electron BrowserWindow, bundled sandboxed preload and named IPC against temporary real databases; actual Chromium workflows                                                   |
+| Cold development                              | `developmentBootstrap.spec.ts` in renderer suite          | Actual configured Vite with fresh dependency cache and live Electron; HMR disabled and invalid drafts retained                                                                     |
+| Complete development watcher                  | `node acceptance/watcher.mjs`                             | Original develop/supervisor child IPC; Stay/explicit retry, denied parent shutdown with resumed polling, graceful replacement, failed prerequisite build and fixed-source recovery |
+| Shipped backend                               | `pnpm --filter electron test:smoke` after Linux packaging | Supporting backend resource/native-driver proof using Electron as Node; not renderer proof                                                                                         |
+| Normal packaged application                   | `node acceptance/packagedRenderer.mjs` after packaging    | Normal shipped executable/main, file renderer/preload, resources/driver, persisted UI workflows and artifact/source hashes                                                         |
 
-## Customer Browsing
+Normal packaged proof does not use the acceptance main entry or Electron-as-Node.
+The watcher uses a test-only native-dialog control entry importing production main,
+with the original parent IPC preserved and standard isolated `--user-data-dir`
+verified before startup. Only exact test-owned processes and temporary files are
+controlled; no operator settings or application processes are used.
 
-The customer suite seeds temporary migrated databases through the emitted database
-package and remembered settings, then exercises the production renderer and IPC in
-both development-resource and bundled-file/hash modes. It covers backend ordering,
-debounced search with preserved focus, Enter/Clear, immutable-ID links, query-preserving
-Back/header navigation and reload, nullable numbers, decimal-string balances, missing
-records and explicit Retry. Customer create/edit/delete remain disabled in this stage.
+## Workflow coverage
 
-The launcher can hold a real handler result or supply one controlled error after the
-real handler completes. Superseded search errors and detail successes cannot paint a
-new target. Reopening the same file rotates its session and clears selection/search
-only after matching protection commit; a held prior-session error cannot affect the
-new list. Chromium proves temporary empty/search/missing behavior and separation of
-outer preview switches from hash-route search parameters.
+- `foundation.spec.ts`: exact preview switch, live precedence, handshake/retry,
+  actual subscribe/protection-before-status, delayed status/newer notification,
+  trusted development/bundled URLs, blocked external navigation/new windows.
+- `customers.spec.ts`, `create.spec.ts`, `edit.spec.ts`, `deletion.spec.ts`:
+  canonical saved CRUD, defaults/validation/decimal/contact text, immutable IDs,
+  nullable numbers, search, retained opaque revisions, persistence after reopen,
+  delayed search/detail/write results, pending-save edits and lifecycle races.
+- `recovery.spec.ts`: explicit stale reload with Stay/error/held-read/success,
+  deleted copyable drafts, stale Delete, unavailable recovery and protected Retry.
+- `database.spec.ts`: visible startup loading, setup/remembered reopen/failure,
+  protected Create/Open/Retry, silent picker Cancel, existing-file/schema/settings
+  failures preserving the old session/view/draft even after discard approval.
+- `savedFiles.spec.ts`: all saved rows despite search, CSV escaping/money/null
+  values, unsaved draft exclusion, independent backup reopen, no leave prompt,
+  pending/Cancel/EEXIST/folder/BUSY feedback and temporary simulations.
+- `restore.spec.ts`: explanation before native action, Stay/both picker Cancels,
+  separate destination/source preservation, unsupported/migration/persistence
+  failure cleanup, fresh-session reset and remembered reopen; preview snapshot
+  cloning and correlated cancel/failure/commit.
+- `history.spec.ts`, `unload.spec.ts`: actual Back/Forward safe Stay/Discard,
+  editor handoff after approved navigation, native Chromium beforeunload dismissal
+  retaining invalid edits and acceptance resetting temporary data without a stacked
+  custom prompt; empty local/session/IndexedDB and no native bridge.
+- Boundary/protocol cases: actual unauthorized sender/frame/stale-document IPC,
+  stable registration across routes and replacement cleanup, and matching-only
+  stale/duplicate resolution through the actual preload transport.
 
-Local run on September 30, 2026: all 14 renderer/protection/customer checks and 26
-interface checks passed on macOS arm64. Linux/packaged artifact and manual acceptance
-remain deferred as recorded above; these local runs do not certify release acceptance.
+Controlled native picker choices and narrowly scoped holds/failures preserve the
+actual protected service and IPC under test. Automation of dialog functions does
+not prove OS modal ownership or native safe-default behavior.
 
-`deletion.spec.ts` drives identifying confirmation/cancellation and deletion through
-actual development-resource and bundled hash renderers, then independently reopens
-the real database after graceful Electron closure. It also creates a genuine revision
-conflict through the named IPC update action and delays an actual deletion completion
-across a committed session change. This verifies retained references, no stale retry,
-searched-list cache retirement and suppression of obsolete success navigation.
-Chromium create/delete preview coverage joins the Create implementation; injected
-preview-client component checks alone do not certify the complete browser UI workflow.
+## Reports and deferred gates
 
-### Protected Create (#60)
+`acceptance.json` includes commit, OS/architecture/runtime, exact commands/results,
+no-skip source counts, Playwright results, normal packaged artifacts/inventory and
+watcher phase/PID evidence. Failed checks retain logs; Playwright retains traces.
+Individual backend, packaged and watcher reports remain distinguishable.
 
-`create.spec.ts` exercises the actual bundled renderer, sandboxed preload, named IPC,
-and persisted database. It creates a customer with unrestricted contact text and a
-negative decimal balance, revisits a previously cached search, reloads, and reopens
-its database before inspecting saved detail. A held actual Create response proves
-repeat Save prevention, permitted newer edits, native close Stay, retained saved
-identity for the subsequent Update, and full Save settlement before database replacement.
-A pre-dispatch test boundary failure proves supplied inline/form feedback and
-retained input when quit preparation waits on the failed Save. Chromium exercises
-canonical draft validation, Stay default focus, temporary Create, saved detail/list,
-and refresh clearing the document's temporary records. These checks remain local
-macOS arm64/Chromium evidence; the authorized Linux acceptance deferral still applies.
-
-### Retained Edit references (#61)
-
-`edit.spec.ts` proves real IPC Update persistence after database reopen, authoritative
-duplicate-number feedback, explicit assignment of a previously unnumbered record,
-and exact loaded/typed contact and decimal text. A held Update permits newer edits,
-blocks repeat Save and route navigation, waits during native close preparation,
-and retains the newer draft after Stay. Its next Save uses the returned fresh
-reference. An external actual Update then makes the retained editor revision stale;
-Save keeps the draft and blocks further writes, including during quit Stay.
-Chromium proves equivalent temporary editing and leading-zero numeric search.
-Source tests supplement this with query-cache replacement that cannot substitute
-the editor's reference, preview read cloning, and number ordering before ID ties.
-The explicit guarded reload control belongs to #63. Platform acceptance remains
-subject to the existing authorized Linux deferral.
-
-### Cold Vite development bootstrap (#58 follow-up)
-
-`developmentBootstrap.spec.ts` starts the real configured Vite server programmatically
-on an ephemeral loopback port with a fresh temporary dependency cache, then launches
-actual Electron through Playwright. It checks live named IPC, opens a saved editor,
-and retains an invalid exact balance draft after native close Stay. The check keeps
-StrictMode and disabled HMR. Disabling Vite's dependency-crawl hold prevents cold
-optimized-module requests from leaving the renderer blank; a warm cache is not used
-as startup evidence. Test-owned processes/server are cleaned up separately from the
-user's application. This case proves development bootstrap and draft protection;
-watcher source-change, retry, failed-build, and replacement evidence remains with #67.
-
-`database.spec.ts` covers startup loading before remembered recovery settles, first-launch
-Create cancellation/success and remembered reopen, missing-file Retry/Open recovery,
-and dirty-editor preservation after cancelled or failed candidates (existing destination,
-unsupported file, and remembered-path write failure). Chromium exercises labelled
-Create/Open/Retry simulations with correlated draft abort/commit and temporary state.
-The launcher queues test-only picker selections in `acceptanceFiles`; it continues to use
-the actual protected action service and IPC boundary. Linux and native manual gates remain
-deferred as recorded in the parent acceptance plan.
-
-`acceptance/savedFiles.spec.ts` drives Backup and CSV export through the real Electron
-renderer, bundled preload, and named IPC. It inspects independent backup/CSV outputs
-for every saved customer despite search, quoted multiline comments, decimal strings,
-and unassigned customer numbers; the active editor's unsaved values and route remain.
-Held pickers exercise the pending layer. Cancel, existing-file rejection, folder
-failure, and BUSY leave the draft intact and release pending UI. Chromium separately
-checks visibly labelled simulations and empty browser storage. Run this focused suite
-with `pnpm build && pnpm exec playwright test --config acceptance/playwright.config.ts
-acceptance/savedFiles.spec.ts`. These local checks supplement the deferred Linux and
-manual native-dialog acceptance gates.
-
-### Separate-file Restore (#66)
-
-`restore.spec.ts` drives the explanatory Continue/Cancel step through the persistent
-Database menu before the native action. Actual BrowserWindow/preload/IPC checks
-cover Stay before pickers, each picker cancellation after approval, destination
-conflicts with preserved bytes, unsupported backups, failed migration and settings
-persistence with candidate cleanup, and BUSY during a held picker. They retain the
-original session, reference, exact draft, route and search after failure. Successful
-Restore migrates a separate copy of a read-only backup, preserves both source and
-previous working file, clears the old view on commit and reopens the remembered
-restored destination. Restore also works without an active database.
-
-Chromium exercises visibly labelled Restore simulation, explanatory cancellation,
-Stay, simulated cancellation/failure and committed restoration of all saved backup
-records despite search and unsaved edits. Restored records receive fresh references;
-changing the working copy cannot mutate the saved backup snapshot. No native dialogs,
-files or persistent browser storage are used in preview. These local checks remain
-supporting evidence; the authorized Linux/manual acceptance deferral still applies.
+The owner explicitly deferred Linux execution and required native GUI checks for
+this session. GitHub Actions run
+[36714438402](https://github.com/nsdeschenes/shop-things/actions/runs/36714438402)
+could not start because the Actions budget prevented use. This is an external
+execution blocker, not a passing CI or product test. macOS arm64, Windows x64 and
+Linux arm64 release verification remain decision-52 deferred. Local macOS automation
+is supporting evidence. Required manual tester/date/checklist remains unexecuted;
+see [frontend acceptance](../docs/acceptance/frontend.md).

@@ -1,8 +1,10 @@
-// Linux package acceptance: keep machine reports and logs even when prerequisites fail.
+// Automated phases are sequential: source checks and builds replace emitted resources.
 import assert from 'node:assert/strict';
 import {spawn, spawnSync} from 'node:child_process';
-import {mkdir, readFile, writeFile} from 'node:fs/promises';
+import {cp, mkdir, readFile, writeFile} from 'node:fs/promises';
+import {release} from 'node:os';
 import {join, resolve} from 'node:path';
+
 const directory = resolve(process.env.ACCEPTANCE_REPORT_DIR ?? 'acceptance-reports');
 await mkdir(directory, {recursive: true});
 function git(args: string[]) {
@@ -11,71 +13,114 @@ function git(args: string[]) {
   return result.stdout.trim();
 }
 
-type Step = {
-  name: string;
-  status: 'running' | 'passed' | 'failed';
-  startedAt: string;
-  command: string[];
-  exitCode?: number | null;
-  signal?: NodeJS.Signals | null;
-  error?: string;
-  finishedAt?: string;
-};
-
-type Report = {
-  schemaVersion: number;
-  status: 'running' | 'passed' | 'failed';
-  commit: string;
-  startedAt: string;
-  environment: string;
-  steps: Step[];
-  package?: unknown;
-  error?: string | {message: string; stack: string | undefined};
-  finishedAt?: string;
-};
-
-const report: Report = {
-  schemaVersion: 1,
+const supporting = process.argv.includes('--supporting-macos');
+const glibc = Reflect.get(
+  Reflect.get(process.report.getReport(), 'header'),
+  'glibcVersionRuntime'
+);
+const report: Record<string, unknown> = {
+  schemaVersion: 2,
   status: 'running',
+  acceptance: 'incomplete',
   commit: git(['rev-parse', 'HEAD']),
   startedAt: new Date().toISOString(),
-  environment: process.env.SMOKE_EXECUTION_ENVIRONMENT ?? 'native-linux-x64-glibc',
+  environment: {
+    platform: process.platform,
+    architecture: process.arch,
+    os: release(),
+    node: process.version,
+    glibc: glibc ?? null,
+    target: supporting ? 'darwin-arm64-supporting-unsigned' : 'linux-x64-glibc',
+  },
   steps: [],
+  deferred: [
+    {
+      gate: 'packaged Linux native GUI checklist',
+      status: 'deferred-by-owner',
+      tester: null,
+      date: null,
+    },
+    {
+      gate: 'development GUI restart checklist',
+      status: 'deferred-by-owner',
+      tester: null,
+      date: null,
+    },
+    {
+      gate: 'Chromium Linux native unload GUI checklist',
+      status: 'deferred-by-owner',
+      tester: null,
+      date: null,
+    },
+    {
+      gate: 'macOS arm64, Windows x64 and Linux arm64 release verification',
+      status: 'deferred-by-decision-52',
+    },
+    ...(supporting
+      ? [
+          {
+            gate: 'Linux glibc x64 automated renderer, packaged and Chromium matrix',
+            status: 'deferred-by-owner',
+            ciBlocker: 'GitHub Actions budget prevented job startup',
+            run: 'https://github.com/nsdeschenes/shop-things/actions/runs/36714438402',
+          },
+        ]
+      : []),
+  ],
 };
-const reportPath = join(directory, 'acceptance.json');
+const steps: {
+  name: string;
+  status: string;
+  command: string[];
+  startedAt: string;
+  finishedAt?: string;
+  exitCode?: number | null;
+  signal?: string | null;
+  error?: string;
+}[] = [];
+report.steps = steps;
 function persist() {
-  return writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
+  return writeFile(
+    join(directory, 'acceptance.json'),
+    JSON.stringify(report, null, 2) + '\n'
+  );
 }
 
 await persist();
-async function command(name: string, args: string[]) {
-  const step: Step = {
+async function command(
+  name: string,
+  executable: string,
+  args: string[],
+  extra: NodeJS.ProcessEnv = {}
+) {
+  const step = {
     name,
     status: 'running',
+    command: [executable, ...args],
     startedAt: new Date().toISOString(),
-    command: ['pnpm', ...args],
-  };
-  report.steps.push(step);
+  } as (typeof steps)[number];
+  steps.push(step);
   await persist();
   let output = '';
   try {
     await new Promise<void>((resolve, reject) => {
-      const child = spawn('pnpm', args, {
+      const child = spawn(executable, args, {
         env: {
           ...process.env,
           ACCEPTANCE_REPORT_DIR: directory,
           SMOKE_REPORT_PATH: join(directory, 'package-smoke.json'),
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false',
+          ...extra,
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
-      child.stdout.on('data', chunk => {
-        output += chunk;
-        process.stdout.write(chunk);
-      });
-      child.stderr.on('data', chunk => {
-        output += chunk;
-        process.stderr.write(chunk);
-      });
+      for (const stream of [child.stdout, child.stderr]) {
+        stream.on('data', chunk => {
+          output += chunk;
+          process.stdout.write(chunk);
+        });
+      }
+
       child.once('error', reject);
       child.once('exit', (code, signal) => {
         step.exitCode = code;
@@ -97,8 +142,13 @@ async function command(name: string, args: string[]) {
     await writeFile(join(directory, name + '.log'), output);
     await persist();
   }
+}
 
-  return output;
+async function successfulReport(name: string) {
+  const result = JSON.parse(await readFile(join(directory, name), 'utf8'));
+  assert.equal(result.status, 'passed', `${name} must pass`);
+  assert.equal(result.commit, report.commit, `${name} must use this commit`);
+  return result;
 }
 
 try {
@@ -107,11 +157,49 @@ try {
     '',
     'Require clean committed sources'
   );
-  assert.equal(process.platform, 'linux');
-  assert.equal(process.arch, 'x64');
-  await command('install', ['install', '--frozen-lockfile']);
-  const testLog = await command('tests', ['test']);
-  for (const suite of ['db', 'electron', 'interface']) {
+  assert.ok(
+    Number(process.versions.node.split('.')[0]) >= 26,
+    'Node 26 or later required'
+  );
+  if (supporting) {
+    assert.equal(process.platform, 'darwin');
+    assert.equal(process.arch, 'arm64');
+  } else {
+    assert.equal(process.platform, 'linux');
+    assert.equal(process.arch, 'x64');
+    assert.ok(glibc, 'glibc required');
+  }
+
+  report.cleanBefore = true;
+  const pnpmVersion = spawnSync('pnpm', ['--version'], {encoding: 'utf8'});
+  assert.equal(pnpmVersion.status, 0);
+  report.pnpm = pnpmVersion.stdout.trim();
+  report.osDistribution =
+    process.platform === 'linux'
+      ? await readFile('/etc/os-release', 'utf8')
+      : spawnSync('sw_vers', [], {encoding: 'utf8'}).stdout.trim();
+  await command('install', 'pnpm', ['install', '--frozen-lockfile']);
+  await command('electron-runtime', 'pnpm', [
+    '--filter',
+    'electron',
+    'exec',
+    'node',
+    '-e',
+    'require("electron/install.js")',
+  ]);
+  await command('chromium-runtime', 'pnpm', [
+    'exec',
+    'playwright',
+    'install',
+    'chromium',
+  ]);
+  const {chromium} = await import('@playwright/test');
+  const browser = await chromium.launch();
+  report.chromium = browser.version();
+  await browser.close();
+  await command('source-tests', 'pnpm', ['test']);
+  const source: Record<string, unknown> = {};
+  for (const suite of ['contract', 'db', 'electron', 'interface', 'scripts']) {
     const results = JSON.parse(
       await readFile(join(directory, suite + '-tests.json'), 'utf8')
     );
@@ -123,40 +211,87 @@ try {
     assert.equal(
       results.numPassedTests,
       results.numTotalTests,
-      `No skipped ${suite} checks permitted`
+      `No skipped ${suite} checks`
     );
+    source[suite] = {
+      passed: results.numPassedTests,
+      total: results.numTotalTests,
+      skipped: 0,
+    };
   }
 
-  const tapSkipCounts = Array.from(testLog.matchAll(/# skipped (\d+)/g), match =>
-    Number(match[1])
+  report.sourceTests = source;
+  await command('typecheck', 'pnpm', ['typecheck']);
+  await command('build', 'pnpm', ['build']);
+  await command('lint', 'pnpm', ['lint']);
+  try {
+    await command('renderer', 'pnpm', ['test:renderer']);
+  } finally {
+    await cp('acceptance-reports/renderer', join(directory, 'renderer-artifacts'), {
+      recursive: true,
+      force: true,
+    }).catch(error => {
+      report.rendererArtifactError = String(error);
+    });
+  }
+
+  const renderer = JSON.parse(
+    await readFile('acceptance-reports/renderer/results.json', 'utf8')
   );
-  assert.ok(
-    tapSkipCounts.length >= 2,
-    'Contract and Node build/process TAP results required'
+  assert.ok(renderer.stats.expected > 0);
+  for (const field of ['unexpected', 'skipped', 'flaky']) {
+    assert.equal(renderer.stats[field], 0, `Renderer ${field} checks must be zero`);
+  }
+
+  await writeFile(
+    join(directory, 'renderer-results.json'),
+    JSON.stringify(renderer, null, 2)
   );
-  assert.ok(tapSkipCounts.every(count => count === 0));
-  assert.equal(/# (?:cancelled|todo) [1-9]/.test(testLog), false);
-  await command('build', ['build']);
-  await command('lint', ['lint']);
-  await command('package', [
+  report.renderer = {
+    kind: 'built-test-entry-Electron-and-Chromium',
+    stats: renderer.stats,
+    results: 'renderer-results.json',
+  };
+  await command('package', 'pnpm', [
     '--filter',
     'electron',
     'exec',
     'electron-builder',
-    '--linux',
-    'deb',
-    '--x64',
+    ...(supporting
+      ? ['--mac', 'dir', '--arm64', '-c.mac.identity=null']
+      : ['--linux', 'deb', '--x64']),
     '--publish',
     'never',
   ]);
-  await command('shipped-backend', ['--filter', 'electron', 'test:smoke']);
-  const smoke = JSON.parse(await readFile(join(directory, 'package-smoke.json'), 'utf8'));
-  assert.equal(smoke.status, 'passed');
-  assert.equal(smoke.commit, report.commit);
-  assert.ok(smoke.artifacts.length >= 4);
-  assert.ok(smoke.runtime.buildInventory.files.length > 10);
-  report.package = smoke;
-  report.status = 'passed';
+  if (supporting) {
+    report.shippedBackend = {
+      status: 'deferred-supporting-only',
+      target: 'linux-x64-glibc',
+      reason: 'The shipped backend smoke requires the Linux release artifact',
+    };
+  } else {
+    await command('shipped-backend-node', 'pnpm', ['--filter', 'electron', 'test:smoke']);
+    report.shippedBackend = await successfulReport('package-smoke.json');
+  }
+
+  await command(
+    'packaged-renderer',
+    process.execPath,
+    ['acceptance/packagedRenderer.mjs'],
+    {PACKAGED_RENDERER_TARGET: supporting ? 'darwin-arm64-supporting' : 'linux-x64-glibc'}
+  );
+  report.packagedRenderer = await successfulReport('packaged-renderer.json');
+  await command('development-watcher', process.execPath, ['acceptance/watcher.mjs']);
+  report.developmentWatcher = await successfulReport('watcher.json');
+  assert.equal(
+    git(['status', '--porcelain', '--untracked-files=all']),
+    '',
+    'Acceptance must restore all source bytes'
+  );
+  assert.equal(git(['rev-parse', 'HEAD']), report.commit);
+  report.cleanAfter = true;
+  report.status = supporting ? 'passed-supporting' : 'automated-passed-manual-pending';
+  report.acceptance = 'incomplete-deferred-gates';
 } catch (error) {
   report.status = 'failed';
   report.error =

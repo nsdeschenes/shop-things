@@ -1,4 +1,4 @@
-name: Package smoke
+name: Linux renderer acceptance
 
 on:
   pull_request:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   package-smoke:
-    name: Linux glibc x64 shipped backend
+    name: Linux glibc x64 renderer and packaged application
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -16,16 +16,24 @@ jobs:
           version: 12.4.2
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
-      - name: Clean source checks, package and shipped backend acceptance
-        run: node --experimental-strip-types scripts/acceptance.ts
+      - name: Install locked workspace and Chromium desktop dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
+      - name: Sequential source, renderer, packaged and watcher acceptance
+        run: xvfb-run -a node --experimental-strip-types scripts/acceptance.ts
         env:
           ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
           SMOKE_EXECUTION_ENVIRONMENT: github-actions-ubuntu-24.04-native-linux-x64
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: package-acceptance-linux-x64-${{ github.sha }}
-          path: ${{ runner.temp }}/shop-things-acceptance
+          name: renderer-acceptance-linux-x64-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/shop-things-acceptance
+            acceptance-reports/renderer
           if-no-files-found: error
