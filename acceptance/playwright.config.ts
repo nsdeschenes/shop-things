@@ -1,3 +1,5 @@
+import {fileURLToPath} from 'node:url';
+
 import {defineConfig} from '@playwright/test';
 
 export default defineConfig({
@@ -8,7 +10,14 @@ export default defineConfig({
   outputDir: '../acceptance-reports/renderer',
   reporter: [
     ['list'],
-    ['json', {outputFile: 'acceptance-reports/renderer/results.json'}],
+    [
+      'json',
+      {
+        outputFile: fileURLToPath(
+          new URL('../acceptance-reports/renderer/results.json', import.meta.url)
+        ),
+      },
+    ],
   ],
   use: {baseURL: 'http://127.0.0.1:5179', trace: 'retain-on-failure'},
   webServer: {
