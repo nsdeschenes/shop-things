@@ -50,7 +50,7 @@ test('empty defaults validate on Save and preserve arbitrary contacts and exact 
 
 test('invalid decimal drafts and failed Save retain entered values and route guards', async () => {
   const user = userEvent.setup();
-  const {application} = renderRoute('/customers/new');
+  const {application, router} = renderRoute('/customers/new');
   await user.type(await screen.findByRole('textbox', {name: 'First name'}), 'Ada');
   const stock = screen.getByRole('textbox', {name: 'Items in stock'});
   await user.clear(stock);
@@ -75,6 +75,13 @@ test('invalid decimal drafts and failed Save retain entered values and route gua
   await waitFor(() => expect(stay).toHaveFocus());
   await user.keyboard('{Enter}');
   expect(balance).toHaveValue('1.234');
+  expect(router.state.location.pathname).toBe('/customers/new');
+  expect(application.protection.getState().frozen).toBe(false);
+  await user.click(screen.getByRole('link', {name: 'Customer records Shop Things'}));
+  await user.click(await screen.findByRole('button', {name: 'Discard'}));
+  await screen.findByRole('heading', {name: 'Customers'});
+  expect(router.state.location.pathname).toBe('/customers');
+  expect(application.protection.isDirty()).toBe(false);
 });
 
 test('Edit retains exact loaded strings and original revision across cache replacement', async () => {

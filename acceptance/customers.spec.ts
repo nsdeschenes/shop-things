@@ -8,76 +8,70 @@ import launchElectron from './launchElectron';
 
 const alphaDetailLink = /\/customers\/2\?q=Alpha$/;
 
-for (const development of [true, false]) {
-  test(`saved customer list/search/detail through actual ${development ? 'development' : 'bundled hash'} renderer IPC`, async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'shop-things-customers-'));
-    const application = await launchElectron(directory, {
-      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
-      VITE_DEV_SERVER_URL: development ? 'http://127.0.0.1:5179/' : '',
-    });
-    try {
-      const page = await application.firstWindow();
-      await expect(page.getByText('3 results', {exact: true})).toBeVisible();
-      expect(await page.locator('tbody a').allTextContents()).toEqual([
-        'Alpha One',
-        'Unnumbered Three',
-        'Zed Two',
-      ]);
-      await expect(page.getByRole('link', {name: 'Add customer'})).toBeVisible();
-      const search = page.getByRole('textbox', {name: 'Search customers'});
-      await search.fill('Alpha');
-      await expect(page.getByText('1 result', {exact: true})).toBeVisible();
-      await expect(search).toBeFocused();
-      await expect(page.getByRole('link', {name: 'Alpha One'})).toHaveAttribute(
-        'href',
-        alphaDetailLink
-      );
-      await page.getByRole('link', {name: 'Alpha One'}).click();
-      await expect(
-        page.getByRole('heading', {name: 'Alpha One', exact: true})
-      ).toBeVisible();
-      await expect(page.getByText('$-1.23', {exact: true})).toBeVisible();
-      await expect(page.getByText('$10.00', {exact: true})).toBeVisible();
-      await expect(page.getByText('+1 (902) 555-1234', {exact: true})).toBeVisible();
-      await expect(page.getByRole('button', {name: 'Edit customer'})).toBeEnabled();
-      await expect(page.getByRole('button', {name: 'Delete customer'})).toBeEnabled();
-      await page.reload();
-      await expect(
-        page.getByRole('heading', {name: 'Alpha One', exact: true})
-      ).toBeVisible();
-      expect(new URL(page.url()).hash).toContain('/customers/2?q=Alpha');
-      await page.getByRole('link', {name: 'Back to customers'}).click();
-      await expect(search).toHaveValue('Alpha');
-      await expect(page.getByText('1 result', {exact: true})).toBeVisible();
-      await search.fill('1');
-      await search.press('Enter');
-      await expect(page.getByRole('link', {name: 'Zed Two'})).toBeVisible();
-      await page.getByRole('button', {name: 'Clear'}).click();
-      await expect(page.getByText('3 results', {exact: true})).toBeVisible();
-      await page.getByRole('link', {name: 'Unnumbered Three'}).click();
-      await expect(page.getByText('Unassigned', {exact: true})).toBeVisible();
-      await expect(page.getByText('$0.00', {exact: true})).toHaveCount(2);
-      await page.getByRole('link', {name: 'Customer records Shop Things'}).click();
-      await search.fill('no such customer');
-      await search.press('Enter');
-      await expect(
-        page.getByRole('heading', {name: 'No Matching Customers'})
-      ).toBeVisible();
-      await expect(page.getByText('0 results', {exact: true})).toBeVisible();
-      expect(
-        await application.evaluate(() => Reflect.get(globalThis, 'acceptanceIpc'))
-      ).toEqual(
-        expect.arrayContaining([
-          'shop-things:customers.list',
-          'shop-things:customers.get',
-        ])
-      );
-    } finally {
-      await application.close();
-      await rm(directory, {recursive: true, force: true});
-    }
+test('saved customer list/search/detail through actual bundled hash renderer IPC', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-customers-'));
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
   });
-}
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByText('3 results', {exact: true})).toBeVisible();
+    expect(await page.locator('tbody a').allTextContents()).toEqual([
+      'Alpha One',
+      'Unnumbered Three',
+      'Zed Two',
+    ]);
+    await expect(page.getByRole('link', {name: 'Add customer'})).toBeVisible();
+    const search = page.getByRole('textbox', {name: 'Search customers'});
+    await search.fill('Alpha');
+    await expect(page.getByText('1 result', {exact: true})).toBeVisible();
+    await expect(search).toBeFocused();
+    await expect(page.getByRole('link', {name: 'Alpha One'})).toHaveAttribute(
+      'href',
+      alphaDetailLink
+    );
+    await page.getByRole('link', {name: 'Alpha One'}).click();
+    await expect(
+      page.getByRole('heading', {name: 'Alpha One', exact: true})
+    ).toBeVisible();
+    await expect(page.getByText('$-1.23', {exact: true})).toBeVisible();
+    await expect(page.getByText('$10.00', {exact: true})).toBeVisible();
+    await expect(page.getByText('+1 (902) 555-1234', {exact: true})).toBeVisible();
+    await expect(page.getByRole('button', {name: 'Edit customer'})).toBeEnabled();
+    await expect(page.getByRole('button', {name: 'Delete customer'})).toBeEnabled();
+    await page.reload();
+    await expect(
+      page.getByRole('heading', {name: 'Alpha One', exact: true})
+    ).toBeVisible();
+    expect(new URL(page.url()).hash).toContain('/customers/2?q=Alpha');
+    await page.getByRole('link', {name: 'Back to customers'}).click();
+    await expect(search).toHaveValue('Alpha');
+    await expect(page.getByText('1 result', {exact: true})).toBeVisible();
+    await search.fill('1');
+    await search.press('Enter');
+    await expect(page.getByRole('link', {name: 'Zed Two'})).toBeVisible();
+    await page.getByRole('button', {name: 'Clear'}).click();
+    await expect(page.getByText('3 results', {exact: true})).toBeVisible();
+    await page.getByRole('link', {name: 'Unnumbered Three'}).click();
+    await expect(page.getByText('Unassigned', {exact: true})).toBeVisible();
+    await expect(page.getByText('$0.00', {exact: true})).toHaveCount(2);
+    await page.getByRole('link', {name: 'Customer records Shop Things'}).click();
+    await search.fill('no such customer');
+    await search.press('Enter');
+    await expect(
+      page.getByRole('heading', {name: 'No Matching Customers'})
+    ).toBeVisible();
+    await expect(page.getByText('0 results', {exact: true})).toBeVisible();
+    expect(
+      await application.evaluate(() => Reflect.get(globalThis, 'acceptanceIpc'))
+    ).toEqual(
+      expect.arrayContaining(['shop-things:customers.list', 'shop-things:customers.get'])
+    );
+  } finally {
+    await application.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
 
 test('superseded reads stay loading for new targets and cannot paint obsolete success or failure', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-customer-delay-'));

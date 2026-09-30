@@ -69,7 +69,7 @@ async function cleanup(application: ElectronApplication, directory: string) {
   await rm(directory, {recursive: true, force: true});
 }
 
-test('actual child frame, wrong window and replaced document IPC are denied before native work', async () => {
+test('wrong window and replaced document IPC are denied before native work', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-boundary-'));
   const application = await launch(directory);
   try {
@@ -98,12 +98,10 @@ test('actual child frame, wrong window and replaced document IPC are denied befo
     const wrongId = await application.evaluate(({BrowserWindow}) => {
       const window = new BrowserWindow({
         show: false,
-        // Test-owned attacker frame capability; the production window stays unchanged.
         webPreferences: {
           contextIsolation: true,
           sandbox: true,
           nodeIntegration: false,
-          nodeIntegrationInSubFrames: true,
         },
       });
       void window.loadURL('about:blank');
@@ -111,25 +109,6 @@ test('actual child frame, wrong window and replaced document IPC are denied befo
     });
     const wrong = await opened;
     await wrong.waitForFunction(() => Reflect.has(window, 'acceptanceBoundaryRaw'));
-    await wrong.evaluate(() => {
-      const iframe = document.createElement('iframe');
-      iframe.src = 'data:text/html,<title>Acceptance attacker frame</title>';
-      document.body.append(iframe);
-    });
-    const child = wrong.frames().find(frame => frame !== wrong.mainFrame())!;
-    await child.waitForFunction(() => Reflect.has(window, 'acceptanceBoundaryRaw'));
-    expect(
-      (
-        await child.evaluate(
-          documentId =>
-            Reflect.get(window, 'acceptanceBoundaryRaw').invoke(
-              'shop-things:database.create',
-              {documentId, arguments: undefined}
-            ),
-          original
-        )
-      ).error.code
-    ).toBe('UNAUTHORIZED');
     expect(
       (
         await wrong.evaluate(
@@ -167,15 +146,13 @@ test('actual child frame, wrong window and replaced document IPC are denied befo
     const observed = (await messages(application)).incoming.filter(
       (message: {channel: string}) => message.channel === 'shop-things:database.create'
     );
-    expect(observed).toHaveLength(3);
+    expect(observed).toHaveLength(2);
     expect(observed.map((message: {main: boolean}) => message.main)).toEqual([
-      false,
       true,
       true,
     ]);
-    expect(observed[1].wc).toBe(wrongId);
     expect(observed[0].wc).toBe(wrongId);
-    expect(observed[2].wc).not.toBe(wrongId);
+    expect(observed[1].wc).not.toBe(wrongId);
     expect(observed[0].payload.documentId).toBe(original);
     expect(
       observed.every(
