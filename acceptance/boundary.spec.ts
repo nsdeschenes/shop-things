@@ -20,6 +20,7 @@ function launch(directory: string) {
       SHOP_THINGS_ACCEPTANCE_DATA: directory,
       SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
       SHOP_THINGS_ACCEPTANCE_BOUNDARY: 'true',
+      SHOP_THINGS_ACCEPTANCE_RECOVERY: 'true',
       VITE_DEV_SERVER_URL: '',
     },
   });
@@ -54,8 +55,14 @@ async function reload(application: ElectronApplication) {
 async function cleanup(application: ElectronApplication, directory: string) {
   await application.evaluate(({BrowserWindow}) => {
     Reflect.set(globalThis, 'acceptanceDiscard', true);
-    for (const window of BrowserWindow.getAllWindows().slice(1)) {
-      window.destroy();
+    const mainId = Reflect.get(globalThis, 'acceptanceBoundary').incoming.find(
+      (message: {channel: string; result?: unknown}) =>
+        message.channel === 'shop-things:document' && typeof message.result === 'string'
+    ).wc;
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.webContents.id !== mainId) {
+        window.destroy();
+      }
     }
   });
   await application.close();
@@ -309,6 +316,67 @@ test('one application subscription and participant span route/editor mounts and 
         () => Reflect.get(globalThis, 'acceptanceDialogs').length
       )
     ).toBe(0);
+  } finally {
+    await cleanup(application, directory);
+  }
+});
+
+test('the authorized webContents main frame succeeds while its actual child frame is rejected before service work', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-frame-'));
+  const application = await launch(directory);
+  try {
+    const primary = await application.firstWindow();
+    await expect(primary.getByText('3 results', {exact: true})).toBeVisible();
+    const opened = application.waitForEvent('window');
+    const authorized = await application.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceCreateAuthorizedFrame')()
+    );
+    const page = await opened;
+    await page.waitForFunction(() => Reflect.has(window, 'acceptanceBoundaryRaw'));
+    function invoke(documentId: string) {
+      return Reflect.get(window, 'acceptanceBoundaryRaw').invoke(
+        'acceptance-frame:shop-things:database.status',
+        {documentId, arguments: undefined}
+      );
+    }
+
+    expect((await page.evaluate(invoke, authorized.documentId)).status).toBe('success');
+    expect(
+      await application.evaluate(() => Reflect.get(globalThis, 'acceptanceFrameCalls'))
+    ).toEqual(['database.status']);
+    await page.evaluate(() => {
+      const iframe = document.createElement('iframe');
+      iframe.src = 'data:text/html,<title>Authorized window child frame</title>';
+      document.body.append(iframe);
+    });
+    const child = page.frames().find(frame => frame !== page.mainFrame())!;
+    await child.waitForFunction(() => Reflect.has(window, 'acceptanceBoundaryRaw'));
+    expect(await child.evaluate(invoke, authorized.documentId)).toMatchObject({
+      status: 'error',
+      error: {code: 'UNAUTHORIZED'},
+    });
+    expect(
+      await application.evaluate(() => Reflect.get(globalThis, 'acceptanceFrameCalls'))
+    ).toEqual(['database.status']);
+    // The same authorized main frame remains usable after the rejected child call.
+    expect((await page.evaluate(invoke, authorized.documentId)).status).toBe('success');
+    const observed = (await messages(application)).incoming.filter(
+      (message: {channel: string}) =>
+        message.channel === 'acceptance-frame:shop-things:database.status'
+    );
+    expect(observed.map((message: {wc: number}) => message.wc)).toEqual([
+      authorized.wc,
+      authorized.wc,
+      authorized.wc,
+    ]);
+    expect(observed.map((message: {main: boolean}) => message.main)).toEqual([
+      true,
+      false,
+      true,
+    ]);
+    expect(
+      await application.evaluate(() => Reflect.get(globalThis, 'acceptanceFrameCalls'))
+    ).toEqual(['database.status', 'database.status']);
   } finally {
     await cleanup(application, directory);
   }
