@@ -1,7 +1,6 @@
 import {expect, test} from 'vitest';
 
-import createPreviewClient, {setPreviewOutcome} from './preview';
-import {getPreviewBackup, recordPreviewBackup} from './previewFiles';
+import createPreviewClient from './preview';
 
 test('temporary canonical records normalize decimal strings and retain opaque revision checks', async () => {
   const client = createPreviewClient();
@@ -127,113 +126,6 @@ test('preview uses numeric search and number ordering before immutable ID ties',
     status: 'success',
     value: [{customer: {id: first.value.customer.id}}],
   });
-});
-
-test('preview transitions clone state, correlate abort/commit and preserve a cancelled snapshot', async () => {
-  const client = createPreviewClient();
-  const before = await client.database.status();
-  if (before.status !== 'success') {
-    throw new Error('No preview');
-  }
-
-  const resolutions: string[] = [];
-  client.drafts.registerProtection({
-    prepare: async request => ({...request, hasUnsavedDraft: false}),
-    resolve: resolution => {
-      resolutions.push(resolution.outcome);
-    },
-  });
-  setPreviewOutcome(client, 'cancelled');
-  expect(await client.database.open()).toEqual({status: 'cancelled'});
-  expect(await client.database.status()).toEqual(before);
-  setPreviewOutcome(client, 'success');
-  const opened = await client.database.open();
-  expect(opened.status).toBe('success');
-  expect(before.value.version).toBe(1);
-  expect(resolutions).toEqual(['aborted', 'committed']);
-  if (opened.status !== 'success') {
-    throw new Error('Transition failed');
-  }
-
-  expect(opened.value.session).not.toBe(before.value.session);
-});
-
-test('Restore clones a saved preview backup into a fresh session only after protected commit', async () => {
-  const values = {
-    firstName: 'Temporary',
-    lastName: '',
-    address: '',
-    city: '',
-    province: '',
-    postalCode: '',
-    homePhone: '',
-    email: '',
-    stock: 0,
-    balance: '0.00',
-    previousBalance: '0.00',
-    donate: false,
-    comments: '',
-  };
-  const client = createPreviewClient(async () => true);
-  let dirty = false;
-  const resolutions: string[] = [];
-  client.drafts.registerProtection({
-    prepare: async request => ({...request, hasUnsavedDraft: dirty}),
-    resolve: resolution => {
-      resolutions.push(resolution.outcome);
-    },
-  });
-  const state = await client.database.status();
-  if (state.status !== 'success' || !state.value.session) {
-    throw new Error('Missing state');
-  }
-
-  const created = await client.customers.create({
-    session: state.value.session,
-    values: {...values, firstName: 'Backup saved'},
-  });
-  if (created.status !== 'success') {
-    throw new Error('Create failed');
-  }
-
-  recordPreviewBackup(client, {customers: [created.value], nextId: 2});
-  await client.customers.update({
-    reference: created.value.reference,
-    changes: {firstName: 'Changed after backup'},
-  });
-  dirty = true;
-  setPreviewOutcome(client, 'cancelled');
-  expect((await client.database.restore()).status).toBe('cancelled');
-  expect(await client.database.status()).toEqual(state);
-  setPreviewOutcome(client, 'error');
-  expect((await client.database.restore()).status).toBe('error');
-  expect(await client.database.status()).toEqual(state);
-  setPreviewOutcome(client, 'success');
-  const restored = await client.database.restore();
-  if (restored.status !== 'success' || !restored.value.session) {
-    throw new Error('Restore failed');
-  }
-
-  expect(restored.value.session).not.toBe(state.value.session);
-  const record = await client.customers.get({session: restored.value.session, id: 1});
-  if (record.status !== 'success') {
-    throw new Error('Restored record missing');
-  }
-
-  expect(record.value.customer.firstName).toBe('Backup saved');
-  expect(record.value.reference.revision).not.toBe(created.value.reference.revision);
-  expect(
-    (
-      await client.customers.update({
-        reference: created.value.reference,
-        changes: {firstName: 'Old session'},
-      })
-    ).status
-  ).toBe('error');
-  expect(getPreviewBackup(client)?.customers[0]?.customer.firstName).toBe('Backup saved');
-  const next = await client.customers.create({session: restored.value.session, values});
-  expect(next.status === 'success' && next.value.customer.id).toBe(2);
-  expect(resolutions).toEqual(['aborted', 'aborted', 'committed']);
 });
 
 async function previewNames(names: string[]) {

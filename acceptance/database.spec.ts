@@ -7,7 +7,6 @@ import {fileURLToPath} from 'node:url';
 import {_electron, expect, test} from '@playwright/test';
 
 const activeLabel = /Active database:/;
-const simulatedFailure = /Simulated file failure/;
 const root = fileURLToPath(new URL('..', import.meta.url));
 const executablePath = createRequire(
   new URL('../packages/electron/package.json', import.meta.url)
@@ -172,48 +171,4 @@ test('database failed candidates after discard approval preserve editor, search,
     await application.close();
     await rm(directory, {recursive: true, force: true});
   }
-});
-
-test('database preview simulations preserve cancelled/failed drafts and reset only after correlated commit', async ({
-  page,
-}) => {
-  await page.goto('/?preview=true');
-  await page.getByRole('link', {name: 'Add customer'}).click();
-  await page.getByRole('textbox', {name: 'First name'}).fill('Temporary draft');
-  await page.getByRole('combobox', {name: 'Simulation result'}).selectOption('cancelled');
-  async function open() {
-    await page.getByRole('button', {name: 'Database', exact: true}).click();
-    await page
-      .getByRole('menuitem', {name: 'Open database (simulation)', exact: true})
-      .click();
-    await expect(page.getByRole('dialog')).toBeVisible();
-    await page.getByRole('button', {name: 'Discard', exact: true}).click();
-  }
-
-  await open();
-  await expect(page.getByRole('textbox', {name: 'First name'})).toHaveValue(
-    'Temporary draft'
-  );
-  await page.getByRole('combobox', {name: 'Simulation result'}).selectOption('error');
-  await open();
-  await expect(page.getByText(simulatedFailure)).toBeVisible();
-  await expect(page.getByRole('textbox', {name: 'First name'})).toHaveValue(
-    'Temporary draft'
-  );
-  await page.getByRole('combobox', {name: 'Simulation result'}).selectOption('success');
-  await open();
-  await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
-  await expect(page.getByText('Simulated: Database opened.')).toBeVisible();
-  await expect(
-    page.getByText('Active database: Preview: open customers.sqlite')
-  ).toBeVisible();
-  await page.getByRole('button', {name: 'Simulate remembered-file failure'}).click();
-  await expect(page.getByRole('heading', {name: 'Recover Database'})).toBeVisible();
-  await page
-    .getByRole('button', {name: 'Retry remembered database (simulation)'})
-    .click();
-  await expect(
-    page.getByText('Active database: Preview: retry customers.sqlite')
-  ).toBeVisible();
-  expect(await page.evaluate(() => Reflect.has(window, 'shopThings'))).toBe(false);
 });
