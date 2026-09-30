@@ -27,14 +27,17 @@ export function sameDraftValues(first: DraftValues, second: DraftValues): boolea
   );
 }
 
+type PendingAction = {editor: DraftEditor | null} & (
+  | {kind: 'lifecycle'; request: DraftRequest}
+  | {kind: 'navigation'; target: string; approved: boolean}
+  | {kind: 'replacement'}
+);
+
 export function createDraftProtection(getClient: () => Client | null) {
   let editor: DraftEditor | null = null;
-  let preparing: {request: DraftRequest; editor: DraftEditor | null} | null = null;
-  let route: {target: string; editor: DraftEditor | null; approved: boolean} | null =
-    null;
+  let pendingAction: PendingAction | null = null;
   let previewPrompt: ((approved: boolean) => void) | null = null;
   let saving: Promise<unknown> | null = null;
-  let replacing: {editor: DraftEditor | null} | null = null;
   let state = {
     confirmingDiscard: false,
     frozen: false,
@@ -59,7 +62,7 @@ export function createDraftProtection(getClient: () => Client | null) {
   function publish(error: string | null = state.error) {
     state = {
       confirmingDiscard: previewPrompt !== null,
-      frozen: preparing !== null || route !== null || replacing !== null,
+      frozen: pendingAction !== null,
       saving: saving !== null,
       dirty: isDirty(),
       error,
@@ -72,7 +75,10 @@ export function createDraftProtection(getClient: () => Client | null) {
   function registerEditor(next: DraftEditor) {
     // React releases the old editor before mounting the destination; router resolution
     // can follow that mount. Keep the approved route frozen until its matching commit.
-    if (editor || preparing || (route && !route.approved) || replacing) {
+    if (
+      editor ||
+      (pendingAction && !(pendingAction.kind === 'navigation' && pendingAction.approved))
+    ) {
       throw new Error('Another editor or protected transition is active.');
     }
 
@@ -104,21 +110,63 @@ export function createDraftProtection(getClient: () => Client | null) {
     }
   }
 
-  async function prepare(request: DraftRequest) {
-    if (preparing || route || replacing) {
+  function beginAction(action: PendingAction) {
+    if (pendingAction) {
       throw new Error('Another protected transition is active.');
     }
 
-    const pending = {request, editor};
-    preparing = pending;
+    pendingAction = action;
     publish(null);
+  }
+
+  function isCurrentAction(action: PendingAction) {
+    return pendingAction === action;
+  }
+
+  function finishAction(action: PendingAction, discard = false) {
+    if (!isCurrentAction(action)) {
+      return;
+    }
+
+    pendingAction = null;
+    if (discard) {
+      action.editor?.reset();
+    }
+
+    publish(null);
+  }
+
+  async function confirmDiscard(): Promise<boolean> {
+    if (!readDirty()) {
+      return true;
+    }
+
+    const result = await getClient()?.drafts.confirmDiscard();
+    if (result?.status === 'cancelled') {
+      return false;
+    }
+
+    if (result?.status !== 'success') {
+      throw new Error(
+        result?.status === 'error'
+          ? result.error.message
+          : 'Draft protection is unavailable.'
+      );
+    }
+
+    return true;
+  }
+
+  async function prepare(request: DraftRequest) {
+    const pending: PendingAction = {kind: 'lifecycle', request, editor};
+    beginAction(pending);
     try {
       await saving;
     } catch {
       /* Failed Save leaves its entered values intact. */
     }
 
-    if (preparing !== pending) {
+    if (!isCurrentAction(pending)) {
       throw new Error('Draft preparation was aborted.');
     }
 
@@ -126,26 +174,21 @@ export function createDraftProtection(getClient: () => Client | null) {
   }
 
   function resolve(resolution: DraftResolution): boolean {
+    const pending = pendingAction;
     if (
-      !preparing ||
-      preparing.request.requestId !== resolution.requestId ||
-      preparing.request.documentId !== resolution.documentId
+      pending?.kind !== 'lifecycle' ||
+      pending.request.requestId !== resolution.requestId ||
+      pending.request.documentId !== resolution.documentId
     ) {
       return false;
     }
 
-    const previous = preparing;
-    preparing = null;
-    if (resolution.outcome === 'committed') {
-      previous.editor?.reset();
-    }
-
-    publish(null);
+    finishAction(pending, resolution.outcome === 'committed');
     return true;
   }
 
   async function blockNavigation(target: string): Promise<boolean> {
-    if (preparing || route || saving || replacing) {
+    if (pendingAction || saving) {
       return true;
     }
 
@@ -153,47 +196,48 @@ export function createDraftProtection(getClient: () => Client | null) {
       return false;
     }
 
-    const pending = {target, editor, approved: false};
-    route = pending;
-    publish(null);
+    const pending: PendingAction = {kind: 'navigation', target, editor, approved: false};
+    beginAction(pending);
     try {
-      const result = await getClient()?.drafts.confirmDiscard();
-      if (route !== pending) {
+      const approved = await confirmDiscard();
+      if (!isCurrentAction(pending)) {
         return true;
       }
 
-      if (result?.status === 'success') {
+      if (approved) {
         pending.approved = true;
         return false;
       }
 
-      route = null;
-      publish(result?.status === 'error' ? result.error.message : null);
-      return true;
-    } catch {
-      if (route === pending) {
-        route = null;
-        publish('Could not confirm navigation. Your edits are retained. Try again.');
+      finishAction(pending);
+    } catch (error) {
+      if (isCurrentAction(pending)) {
+        finishAction(pending);
+        publish(
+          error instanceof Error
+            ? error.message
+            : 'Could not confirm navigation. Your edits are retained. Try again.'
+        );
       }
-
-      return true;
     }
+
+    return true;
   }
 
   function navigationResolved(target: string, committed = true) {
-    if (!route || !route.approved || route.target !== target) {
+    const pending = pendingAction;
+    if (
+      pending?.kind !== 'navigation' ||
+      !pending.approved ||
+      pending.target !== target
+    ) {
       return;
     }
 
-    const previous = route;
-    route = null;
-    if (committed) {
-      previous.editor?.reset();
+    finishAction(pending, committed);
+    if (!committed) {
+      publish('Navigation did not finish. Your edits are retained. Try again.');
     }
-
-    publish(
-      committed ? null : 'Navigation did not finish. Your edits are retained. Try again.'
-    );
   }
 
   function answerDiscard(approved: boolean) {
@@ -222,27 +266,15 @@ export function createDraftProtection(getClient: () => Client | null) {
       throw new Error('Wait for the current operation to finish.');
     }
 
-    const pending = {editor};
-    replacing = pending;
-    publish(null);
+    const pending: PendingAction = {kind: 'replacement', editor};
+    beginAction(pending);
     function isCurrent() {
-      return replacing === pending && editor === pending.editor;
+      return isCurrentAction(pending) && editor === pending.editor;
     }
 
     try {
-      if (readDirty()) {
-        const result = await getClient()?.drafts.confirmDiscard();
-        if (!isCurrent() || result?.status === 'cancelled') {
-          return false;
-        }
-
-        if (result?.status !== 'success') {
-          throw new Error(
-            result?.status === 'error'
-              ? result.error.message
-              : 'Draft protection is unavailable.'
-          );
-        }
+      if (!(await confirmDiscard()) || !isCurrent()) {
+        return false;
       }
 
       const value = await load(isCurrent);
@@ -253,18 +285,13 @@ export function createDraftProtection(getClient: () => Client | null) {
       commit(value);
       return true;
     } finally {
-      if (replacing === pending) {
-        replacing = null;
-        publish(null);
-      }
+      finishAction(pending);
     }
   }
 
   function dispose() {
     answerDiscard(false);
-    preparing = null;
-    route = null;
-    replacing = null;
+    pendingAction = null;
     publish(null);
   }
 
@@ -275,7 +302,7 @@ export function createDraftProtection(getClient: () => Client | null) {
     answerDiscard,
     confirmPreviewDiscard,
     navigateAfterSave(navigate: () => void) {
-      if (saving || preparing || route || replacing || isDirty()) {
+      if (saving || pendingAction || isDirty()) {
         return false;
       }
 
