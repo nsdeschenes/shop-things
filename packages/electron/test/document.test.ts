@@ -78,3 +78,18 @@ test('same-document hash routing retains authorization and document identity', (
   expect(document?.url).toBe(contents.mainFrame.url);
   tracked.dispose();
 });
+
+test('blocked external attempts retain the document while an actual navigation commit revokes it', () => {
+  const contents = new Contents();
+  const tracked = trackAuthorizedDocument(contents, contents.mainFrame.url);
+  contents.emit('dom-ready');
+  const current = tracked.currentDocument();
+  contents.emit('did-start-navigation', {}, 'https://example.com', false, true);
+  expect(tracked.currentDocument()).toBe(current);
+  contents.mainFrame.url = 'https://example.com';
+  contents.emit('did-navigate');
+  expect(tracked.currentDocument()).toBeNull();
+  contents.emit('dom-ready');
+  expect(tracked.currentDocument()).toBeNull();
+  tracked.dispose();
+});

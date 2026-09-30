@@ -1,7 +1,9 @@
 import type {Client, CustomerRecord, DatabaseState} from '@shop-things/contract';
 
 // One instance per document. Never connect browser preview to native storage.
-export default function createPreviewClient(): Client {
+export default function createPreviewClient(
+  confirmDiscard: () => Promise<boolean> = async () => false
+): Client {
   const state: DatabaseState = {
     available: true,
     selectedPath: 'Preview: temporary customers.sqlite',
@@ -37,6 +39,12 @@ export default function createPreviewClient(): Client {
       onStateChanged: () => () => {},
     },
     exports: {csv: disabled},
-    drafts: {confirmDiscard: disabled, registerProtection: () => () => {}},
+    drafts: {
+      confirmDiscard: async () =>
+        (await confirmDiscard())
+          ? {status: 'success', value: {approved: true}}
+          : {status: 'cancelled'},
+      registerProtection: () => () => {},
+    },
   };
 }

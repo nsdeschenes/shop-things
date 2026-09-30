@@ -1,9 +1,17 @@
+import {Dialog} from '@base-ui/react/dialog';
 import * as stylex from '@stylexjs/stylex';
 import type {QueryClient} from '@tanstack/react-query';
-import {createRootRouteWithContext, Link, Outlet} from '@tanstack/react-router';
-import {useSyncExternalStore} from 'react';
+import {
+  createRootRouteWithContext,
+  Link,
+  Outlet,
+  useBlocker,
+  useRouter,
+} from '@tanstack/react-router';
+import {useEffect, useSyncExternalStore} from 'react';
 
 import type {Application} from '../application/controller';
+import {navigationTarget} from '../application/protection';
 import Button from '../components/button/button';
 import {breakpoints} from '../styles/breakpoints.stylex';
 import {colors} from '../styles/colors.stylex';
@@ -17,6 +25,19 @@ interface RouterContext {
 }
 
 const styles = stylex.create({
+  dialog: {
+    padding: spacing.space24,
+    borderColor: colors.border,
+    borderStyle: 'solid',
+    borderWidth: controls.borderWidth,
+    backgroundColor: colors.surface,
+    color: colors.text,
+    position: 'fixed',
+    transform: 'translate(-50%, -50%)',
+    left: '50%',
+    maxWidth: 400,
+    top: '50%',
+  },
   layout: {
     backgroundColor: colors.pageBackground,
     color: colors.text,
@@ -60,8 +81,70 @@ const styles = stylex.create({
 function RootLayout() {
   const {application} = Route.useRouteContext();
   const state = useSyncExternalStore(application.subscribe, application.getState);
+  const protection = useSyncExternalStore(
+    application.protection.subscribe,
+    application.protection.getState
+  );
+  const router = useRouter();
+  useBlocker({
+    shouldBlockFn: async ({next}) => {
+      const target = navigationTarget(next.pathname, next.search);
+      const blocked = await application.protection.blockNavigation(target);
+      if (blocked || !application.protection.getState().frozen) {
+        return blocked;
+      }
+
+      // Resolve route code/loader failure before committing history or unmounting the draft.
+      const matches = await router.preloadRoute({to: next.pathname, search: next.search});
+      if (!matches || matches.some(match => match.status === 'error')) {
+        application.protection.navigationResolved(target, false);
+        return true;
+      }
+
+      return false;
+    },
+    enableBeforeUnload: () =>
+      state.mode === 'preview' && application.protection.isDirty(),
+  });
+  useEffect(
+    () =>
+      router.subscribe('onResolved', event => {
+        application.protection.navigationResolved(
+          navigationTarget(event.toLocation.pathname, event.toLocation.search),
+          !router.state.matches.some(match => match.status === 'error')
+        );
+      }),
+    [application, router]
+  );
   return (
     <div {...stylex.props(styles.layout)}>
+      <Dialog.Root
+        open={protection.confirmingDiscard}
+        onOpenChange={open => {
+          if (!open) {
+            application.protection.answerDiscard(false);
+          }
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Popup
+            initialFocus={() => document.getElementById('draft-stay')}
+            {...stylex.props(styles.dialog)}
+          >
+            <Dialog.Title>Discard Unsaved Changes?</Dialog.Title>
+            <Dialog.Description>Your edits have not been saved.</Dialog.Description>
+            <Button
+              id="draft-stay"
+              onClick={() => application.protection.answerDiscard(false)}
+            >
+              Stay
+            </Button>
+            <Button onClick={() => application.protection.answerDiscard(true)}>
+              Discard
+            </Button>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
       <header {...stylex.props(styles.header)}>
         <Link to="/customers" {...stylex.props(styles.brand)}>
           <p {...stylex.props(styles.eyebrow)}>Customer records</p>
@@ -82,6 +165,7 @@ function RootLayout() {
             : 'Application unavailable'}
         {state.database?.selectedPath && ` · ${state.database.selectedPath}`}
       </p>
+      {protection.error && <p role="alert">{protection.error}</p>}
       {state.mode === 'unavailable' ? (
         <p>
           Open Shop Things in Electron, or add ?preview=true to the browser URL for a

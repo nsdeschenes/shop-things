@@ -109,6 +109,12 @@ for (const development of [true, false]) {
           )
         )
       ).toBe('Customer Editing Unavailable');
+      const protectedStatus = await application.evaluate(({BrowserWindow}) =>
+        BrowserWindow.getAllWindows()[0]!.webContents.executeJavaScript(
+          'window.shopThings.database.status()'
+        )
+      );
+      expect(protectedStatus.status).toBe('success');
     } finally {
       await application.close();
       await rm(directory, {recursive: true, force: true});

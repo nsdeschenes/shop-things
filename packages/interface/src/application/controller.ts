@@ -4,6 +4,7 @@ import {applyNewerDatabaseState, getClient} from '@shop-things/contract/client';
 import {QueryClient} from '@tanstack/react-query';
 
 import createPreviewClient from './preview';
+import {createDraftProtection} from './protection';
 
 export interface ApplicationState {
   mode: 'live' | 'preview' | 'unavailable';
@@ -56,6 +57,7 @@ export function createApplication(
       },
     });
   let client: Client | null = options.client ?? null;
+  const protection = createDraftProtection(() => client);
   let state: ApplicationState = {
     mode,
     phase: 'loading',
@@ -186,7 +188,12 @@ export function createApplication(
       return unavailable;
     }
 
-    if (state.pendingTransition || state.reconciling || protectionRequest) {
+    if (
+      state.pendingTransition ||
+      state.reconciling ||
+      protectionRequest ||
+      protection.getState().frozen
+    ) {
       return busy;
     }
 
@@ -216,7 +223,12 @@ export function createApplication(
           return unavailable;
         }
 
-        if (state.pendingTransition || protectionRequest || state.reconciling) {
+        if (
+          state.pendingTransition ||
+          protectionRequest ||
+          state.reconciling ||
+          protection.getState().frozen
+        ) {
           return busy;
         }
 
@@ -254,7 +266,12 @@ export function createApplication(
       return unavailable;
     }
 
-    if (state.pendingTransition || state.reconciling || protectionRequest) {
+    if (
+      state.pendingTransition ||
+      state.reconciling ||
+      protectionRequest ||
+      protection.getState().frozen
+    ) {
       return busy;
     }
 
@@ -291,6 +308,7 @@ export function createApplication(
     stopProtection?.();
     stopState = stopProtection = null;
     protectionRequest = null;
+    protection.dispose();
     pendingSessionChange = null;
     reconcilePromise = null;
     searches.clear();
@@ -313,17 +331,23 @@ export function createApplication(
       reconciling: false,
     });
     try {
-      client ??= mode === 'live' ? getClient() : createPreviewClient();
+      client ??=
+        mode === 'live'
+          ? getClient()
+          : createPreviewClient(protection.confirmPreviewDiscard);
       stopState = client.database.onStateChanged(database => {
         if (attempt === generation) {
           acceptDatabase(database);
         }
       });
-      // Editors remain unavailable. Stage 57 replaces the clean reply with shared draft state.
       stopProtection = client.drafts.registerProtection({
         prepare: async request => {
+          if (protectionRequest) {
+            throw new Error('Another preparation is active.');
+          }
+
           protectionRequest = request;
-          return {...request, hasUnsavedDraft: false};
+          return protection.prepare(request);
         },
         resolve: resolution => {
           if (
@@ -333,6 +357,7 @@ export function createApplication(
             return;
           }
 
+          protection.resolve(resolution);
           protectionRequest = null;
           if (resolution.outcome === 'committed') {
             flushSessionChange();
@@ -367,6 +392,7 @@ export function createApplication(
 
   return {
     queryClient,
+    protection,
     getState: () => state,
     getClient: () => client,
     isCurrentSession,

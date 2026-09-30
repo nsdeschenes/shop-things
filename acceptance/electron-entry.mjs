@@ -4,6 +4,19 @@ import {app, dialog, ipcMain} from 'electron';
 // BrowserWindow, bundled preload, renderer and backend are the built production code.
 app.setPath('userData', process.env.SHOP_THINGS_ACCEPTANCE_DATA);
 globalThis.acceptanceIpc = [];
+globalThis.acceptanceDialogs = [];
+globalThis.acceptanceDiscard = false;
+dialog.showMessageBox = async (...args) => {
+  const options = args.at(-1);
+  globalThis.acceptanceDialogs.push(options);
+  return {
+    response:
+      options.message === 'Discard unsaved changes?' && globalThis.acceptanceDiscard
+        ? 1
+        : 0,
+  };
+};
+
 if (process.env.SHOP_THINGS_ACCEPTANCE_CREATE_PATH) {
   dialog.showSaveDialog = async () => ({
     canceled: false,

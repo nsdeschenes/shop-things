@@ -15,6 +15,8 @@ const electron = vi.hoisted(() => {
       getPath: vi.fn(() => '/tmp/shop-things-main-test-empty-settings'),
       isPackaged: false,
     },
+    Menu: {buildFromTemplate: vi.fn(), setApplicationMenu: vi.fn()},
+    dialog: {showMessageBox: vi.fn(async () => ({response: 0}))},
     ipcMain: {
       handle: vi.fn(),
       removeHandler: vi.fn(),
@@ -26,6 +28,9 @@ const electron = vi.hoisted(() => {
         this.loadURL = loadURL;
         this.loadFile = loadFile;
         Object.assign(this, {
+          on: vi.fn(),
+          close: vi.fn(),
+          isDestroyed: () => false,
           webContents: Object.assign(new EventEmitter(), {
             mainFrame: {url: ''},
             isDestroyed: () => false,
@@ -131,7 +136,7 @@ test('attaches sandboxed preload while rejecting unknown senders', async () => {
   expect(electron.app.quit).toHaveBeenCalledTimes(process.platform === 'darwin' ? 0 : 1);
 });
 
-test('placeholder quit waits startup, avoids creating a window and closes the backend once', async () => {
+test('quit waits startup and missing participant keeps the backend and window open', async () => {
   const {FileDatabaseSettings} = await import('../src/settings.js');
   const {ActionService} = await import('../src/actionService.js');
   let complete!: (value: null) => void;
@@ -139,7 +144,7 @@ test('placeholder quit waits startup, avoids creating a window and closes the ba
     complete = resolve;
   });
   const read = vi.spyOn(FileDatabaseSettings.prototype, 'read').mockReturnValue(reading);
-  const close = vi.spyOn(ActionService.prototype, 'closeUnprotectedWhenIdle');
+  const close = vi.spyOn(ActionService.prototype, 'requestClose');
   try {
     await import('../src/main.ts');
     await vi.waitFor(() => expect(electron.ipcMain.handle).toHaveBeenCalled());
@@ -156,8 +161,9 @@ test('placeholder quit waits startup, avoids creating a window and closes the ba
     expect(event.preventDefault).toHaveBeenCalledTimes(2);
     expect(electron.app.quit).not.toHaveBeenCalled();
     complete(null);
-    await vi.waitFor(() => expect(electron.app.quit).toHaveBeenCalled());
-    expect(electron.BrowserWindow).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(close).toHaveBeenCalled());
+    expect(electron.app.quit).not.toHaveBeenCalled();
+    expect(electron.BrowserWindow).toHaveBeenCalledOnce();
     expect(close).toHaveBeenCalledOnce();
   } finally {
     complete(null);

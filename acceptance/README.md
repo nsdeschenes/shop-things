@@ -29,3 +29,26 @@ cover superseded searches and old-session completion suppression. Actual custome
 late-completion evidence remains with the customer and final acceptance stages. This is supporting local evidence.
 Linux glibc x64 automated renderer/packaged checks and manual GUI/native-dialog gates
 were explicitly deferred by the owner during implementation; they are not certified here.
+
+## Shared Draft Protection
+
+`application.protection` owns one renderer participant across route changes.
+Forms supply a stable `{values(), baseline(), reset()}` editor via
+`useDraftProtection`, call `changed()` after exact editable values change, and disable
+editing while `frozen`. Invalid text is compared exactly against the baseline.
+
+Use `await protection.save(work)` to track persistence plus cache/baseline callbacks.
+Then verify the captured session and call `navigateAfterSave(navigate)` outside that
+tracked work. It refuses navigation while saving, frozen, or newer edits remain.
+Preparation never initiates Save. Matching aborted messages release the freeze silently;
+matching committed messages reset the captured editor. Keep errors in the caller's
+operation feedback. Browser preview uses the renderer Discard/Stay dialog with Stay
+focused, and its single native beforeunload warning.
+
+The protection acceptance journey mounts test-only controlled editable values in the
+real BrowserWindow and uses the production protection owner, bundled preload and IPC.
+It verifies invalid drafts survive Stay on window close/app quit/guarded reload,
+clean reversion permits reload, unresponsive Save preparation times out without consent,
+and missing participation aborts with retry guidance. Main-owned cold startup can open
+remembered data before a renderer exists; all public recovery transitions require an
+explicit current participant, including when no database is active.
