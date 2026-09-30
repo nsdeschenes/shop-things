@@ -72,21 +72,30 @@ export default function DeleteCustomer({
     setSelected(null);
     try {
       await mutation.mutateAsync(reference);
-      if (!mounted.current || !scope.isCurrent()) {
+      if (!scope.isCurrent()) {
         return;
       }
 
       application.queryClient.removeQueries({
         queryKey: customerKeys.detail(reference.session, reference.id),
       });
-      void application.queryClient.invalidateQueries({
-        queryKey: ['customers', reference.session, 'list'],
+      const lists = ['customers', reference.session, 'list'];
+      // Inactive reads disable mount refetches; active lists need a fresh read even
+      // when the user left the detail before this response settled.
+      application.queryClient.removeQueries({queryKey: lists, type: 'inactive'});
+      await application.queryClient.invalidateQueries({
+        queryKey: lists,
+        refetchType: 'active',
       });
-      // Reads deliberately disable automatic mount refetches; retire inactive lists
-      // so the destination query fetches persisted data instead of a stale snapshot.
-      application.queryClient.removeQueries({
-        queryKey: ['customers', reference.session, 'list'],
-      });
+      if (!scope.isCurrent()) {
+        return;
+      }
+
+      application.queryClient.removeQueries({queryKey: lists, type: 'inactive'});
+      if (!mounted.current) {
+        return;
+      }
+
       onDeleted();
     } catch {
       // TanStack owns failure feedback. Obsolete completions never navigate or update caches.

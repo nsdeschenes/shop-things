@@ -85,6 +85,56 @@ for (const development of [true, false]) {
   });
 }
 
+test('same-session deletion refreshes an active cached searched list after Back during a held response', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-delete-back-'));
+  const application = await _electron.launch({
+    executablePath,
+    args: [join(root, 'acceptance/electron-entry.mjs')],
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '',
+      SHOP_THINGS_ACCEPTANCE_DATA: directory,
+      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
+      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/',
+    },
+  });
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByText('3 results', {exact: true})).toBeVisible();
+    const search = page.getByRole('textbox', {name: 'Search customers'});
+    await search.fill('Alpha');
+    await search.press('Enter');
+    await page.getByRole('link', {name: 'Alpha One'}).click();
+    await application.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceFault', {
+        channel: 'shop-things:customers.delete',
+        hold: true,
+      });
+    });
+    await confirm(page);
+    await expect
+      .poll(() =>
+        application.evaluate(() => Reflect.get(globalThis, 'acceptanceHeldRead')?.channel)
+      )
+      .toBe('shop-things:customers.delete');
+    await page.getByRole('link', {name: 'Back to customers'}).click();
+    await expect(search).toHaveValue('Alpha');
+    await expect(page.getByRole('link', {name: 'Alpha One'})).toBeVisible();
+    await application.evaluate(() => {
+      Reflect.get(globalThis, 'acceptanceReleaseRead')();
+    });
+    await expect(
+      page.getByRole('heading', {name: 'No matching customers'})
+    ).toBeVisible();
+    await expect(page.getByRole('link', {name: 'Alpha One'})).toHaveCount(0);
+    await expect(page.getByText('Customer deleted.', {exact: true})).toHaveCount(0);
+    await expect(search).toHaveValue('Alpha');
+  } finally {
+    await application.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
 test('real stale revision fails safely and late prior-session deletion cannot navigate the replacement view', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-delete-races-'));
   const application = await _electron.launch({
