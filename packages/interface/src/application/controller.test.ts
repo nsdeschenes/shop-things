@@ -363,3 +363,73 @@ test('failed status reconciliation keeps customer requests gated until explicit 
     (await f.application.request('one', async () => ({status: 'success'}))).status
   ).toBe('success');
 });
+
+test('protected customer replacement permits only its coordinated get and suppresses old-session adoption', async () => {
+  const f = fixture();
+  await f.application.start();
+  const preview = createPreviewClient();
+  const previewState = await preview.database.status();
+  if (previewState.status !== 'success') {
+    throw new Error('Fixture state failed');
+  }
+
+  const created = await preview.customers.create({
+    session: previewState.value.session!,
+    values: {
+      firstName: 'Saved',
+      lastName: '',
+      address: '',
+      city: '',
+      province: '',
+      postalCode: '',
+      homePhone: '',
+      email: '',
+      stock: 0,
+      balance: '0.00',
+      previousBalance: '0.00',
+      donate: false,
+      comments: '',
+    },
+  });
+  if (created.status !== 'success') {
+    throw new Error('Fixture create failed');
+  }
+
+  const read = deferred<Awaited<ReturnType<typeof f.client.customers.get>>>();
+  f.client.customers.get = () => read.promise;
+  let draft = 'Draft';
+  f.application.protection.registerEditor({
+    values: () => ({name: draft}),
+    baseline: () => ({name: 'Saved'}),
+    reset: () => {
+      draft = 'Reset';
+    },
+  });
+  f.client.drafts.confirmDiscard = async () => ({
+    status: 'success',
+    value: {approved: true},
+  });
+  let adopted = false;
+  const replacement = f.application.reloadCustomer(
+    {session: 'one', id: created.value.customer.id},
+    () => {
+      adopted = true;
+    }
+  );
+  await Promise.resolve();
+  expect(f.application.protection.getState().frozen).toBe(true);
+  expect(
+    (
+      await f.application.request('one', client =>
+        client.customers.delete({reference: created.value.reference})
+      )
+    ).status
+  ).toBe('error');
+  f.emit({...f.first, version: 2, session: 'two'});
+  read.resolve({status: 'success', value: created.value});
+  await expect(replacement).rejects.toSatisfy(isCancelledError);
+  expect(adopted).toBe(false);
+  expect(draft).toBe('Draft');
+  expect(f.application.protection.getState().frozen).toBe(false);
+  f.application.dispose();
+});

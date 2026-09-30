@@ -122,10 +122,13 @@ export default function CustomerForm({
   const update = useMutation(updateCustomerOptions(application));
   const [saved, setSaved] = useState<CustomerRecord | null>(initialRecord ?? null);
   const [error, setError] = useState<string | null>(null);
-  const [blocked, setBlocked] = useState(false);
+  const [blocked, setBlocked] = useState<'stale' | 'deleted' | null>(null);
   const [registered, setRegistered] = useState(false);
+  const [defaults, setDefaults] = useState(
+    customerFormOptions(initialRecord?.customer).defaultValues
+  );
   const draftRef = useRef({
-    baseline: customerFormOptions(initialRecord?.customer).defaultValues,
+    baseline: defaults,
     saved: initialRecord
       ? structuredClone(initialRecord)
       : (null as CustomerRecord | null),
@@ -133,6 +136,7 @@ export default function CustomerForm({
   });
   const form = useAppForm({
     ...customerFormOptions(initialRecord?.customer),
+    defaultValues: defaults,
     onSubmitInvalid: focusInvalidField,
     onSubmit: async ({value}) => {
       if (
@@ -195,7 +199,9 @@ export default function CustomerForm({
                 failure instanceof CustomerRequestError &&
                 ['STALE_REVISION', 'CUSTOMER_DELETED'].includes(failure.error.code)
               ) {
-                setBlocked(true);
+                setBlocked(
+                  failure.error.code === 'CUSTOMER_DELETED' ? 'deleted' : 'stale'
+                );
               }
 
               const fields =
@@ -283,23 +289,65 @@ export default function CustomerForm({
     }
   }, [error, disabled]);
 
+  async function reloadSavedCustomer() {
+    const reference = draftRef.current.saved?.reference;
+    if (!reference || disabled || pending || blocked === 'deleted') {
+      return;
+    }
+
+    setError(null);
+    try {
+      await application.reloadCustomer(reference, record => {
+        const baseline = customerFormOptions(record.customer).defaultValues;
+        draftRef.current.saved = record;
+        draftRef.current.baseline = baseline;
+        setDefaults(baseline);
+        form.reset(baseline);
+        setSaved(record);
+        setBlocked(null);
+        queryClient.setQueryData(
+          customerKeys.detail(session, record.customer.id),
+          record
+        );
+        application.protection.changed();
+      });
+    } catch (failure) {
+      if (!isCancelledError(failure)) {
+        if (
+          failure instanceof CustomerRequestError &&
+          failure.error.code === 'CUSTOMER_DELETED'
+        ) {
+          setBlocked('deleted');
+        }
+
+        setError(
+          failure instanceof Error
+            ? failure.message
+            : 'Could not reload the customer. Try again.'
+        );
+      }
+    }
+  }
+
   return (
     <PageShell
       title={
-        initialRecord
-          ? 'Edit Customer'
-          : saved
-            ? protection.dirty
-              ? 'Customer saved — unsaved edits'
-              : 'Customer saved'
-            : 'New Customer'
+        blocked === 'deleted'
+          ? 'Customer not found'
+          : initialRecord
+            ? 'Edit Customer'
+            : saved
+              ? protection.dirty
+                ? 'Customer saved — unsaved edits'
+                : 'Customer saved'
+              : 'New Customer'
       }
       stickyHeader
       actions={
         <div {...stylex.props(styles.actions)}>
           <Button
             variant="primary"
-            disabled={disabled || pending || blocked}
+            disabled={disabled || pending || blocked !== null}
             onClick={() => form.handleSubmit()}
           >
             Save
@@ -316,11 +364,52 @@ export default function CustomerForm({
       }
     >
       {error && <p role="alert">{error}</p>}
-      {blocked && (
-        <p>Reload this customer before saving again. Your edits are retained.</p>
+      {blocked === 'stale' && (
+        <p>
+          The saved customer changed. Reload before saving again. Your edits are retained.
+        </p>
+      )}
+      {blocked === 'deleted' && (
+        <p>This customer no longer exists. Your edits are retained for copying.</p>
+      )}
+      {saved && blocked !== 'deleted' && (
+        <section>
+          <p>Reload saved customer replaces your draft with the saved values.</p>
+          <Button
+            disabled={disabled || pending}
+            onClick={() => {
+              void reloadSavedCustomer();
+            }}
+          >
+            Reload customer
+          </Button>
+        </section>
       )}
       {unavailable && (
-        <p role="alert">The database is unavailable. Your edits are retained.</p>
+        <section role="alert">
+          <p>The database is unavailable. Your edits are retained.</p>
+          <p>{state.error}</p>
+          <Button
+            disabled={state.reconciling || state.pendingTransition || protection.frozen}
+            onClick={() => {
+              void application.reconcile();
+            }}
+          >
+            Check database status
+          </Button>
+          <Button
+            disabled={state.reconciling || state.pendingTransition || protection.frozen}
+            onClick={() => {
+              void application.transition('retry').then(result => {
+                if (result.status === 'error') {
+                  setError(result.error.message);
+                }
+              });
+            }}
+          >
+            Retry database
+          </Button>
+        </section>
       )}
       {!initialRecord && (
         <p>Customer number: {saved?.customer.customerNumber ?? 'Assigned when saved'}</p>
@@ -345,6 +434,7 @@ export default function CustomerForm({
                   <form.AppField name="customerNumber">
                     {field => (
                       <field.TextField
+                        readOnly={blocked === 'deleted'}
                         label="Customer number"
                         inputMode="numeric"
                         style={styles.wide}
@@ -356,6 +446,7 @@ export default function CustomerForm({
                   <form.AppField key={config.name} name={config.name}>
                     {field => (
                       <field.TextField
+                        readOnly={blocked === 'deleted'}
                         label={config.label}
                         inputMode={config.inputMode}
                         style={
@@ -373,7 +464,7 @@ export default function CustomerForm({
               </p>
             </fieldset>
             <fieldset
-              disabled={disabled}
+              disabled={disabled || blocked === 'deleted'}
               {...stylex.props(styles.fieldset, styles.compactFieldset)}
             >
               <legend {...stylex.props(styles.legend)}>Donation Preference</legend>
@@ -390,6 +481,7 @@ export default function CustomerForm({
                   <form.AppField key={config.name} name={config.name}>
                     {field => (
                       <field.TextField
+                        readOnly={blocked === 'deleted'}
                         label={config.label}
                         inputMode={config.inputMode}
                       />
@@ -407,6 +499,7 @@ export default function CustomerForm({
               {field => (
                 <field.TextareaField
                   disabled={disabled}
+                  readOnly={blocked === 'deleted'}
                   label="Comments"
                   style={styles.growingSection}
                 />

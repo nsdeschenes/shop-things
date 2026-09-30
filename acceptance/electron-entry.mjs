@@ -131,4 +131,15 @@ if (process.env.SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS) {
   );
 }
 
+if (process.env.SHOP_THINGS_ACCEPTANCE_RECOVERY) {
+  const {ActionService} = await import('../packages/electron/dist/actionService.js');
+  // Capture the real method and apply it to the production instance below.
+  // oxlint-disable-next-line typescript/unbound-method
+  const start = ActionService.prototype.start;
+  ActionService.prototype.start = function (...args) {
+    globalThis.acceptanceService = this;
+    return start.apply(this, args);
+  };
+}
+
 await import('../packages/electron/dist/main.js');

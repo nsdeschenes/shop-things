@@ -66,8 +66,18 @@ function RouteComponent() {
     application.protection.subscribe,
     application.protection.getState
   );
+  const [stale, setStale] = useState(false);
+  const [deleted, setDeleted] = useState(false);
   const [editing, setEditing] = useState<CustomerRecord | null>(null);
-  useEffect(() => application.onSessionChanged(() => setEditing(null)), [application]);
+  useEffect(
+    () =>
+      application.onSessionChanged(() => {
+        setEditing(null);
+        setDeleted(false);
+        setStale(false);
+      }),
+    [application]
+  );
   const {customerId} = Route.useParams();
   const navigate = Route.useNavigate();
   const id = Number(customerId);
@@ -82,6 +92,7 @@ function RouteComponent() {
     enabled: !disabled && validId,
   });
   const missing =
+    deleted ||
     !validId ||
     (record.error instanceof CustomerRequestError &&
       record.error.error.code === 'CUSTOMER_DELETED');
@@ -103,7 +114,11 @@ function RouteComponent() {
         application={application}
         session={editing.reference.session}
         initialRecord={editing}
-        onSaved={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          setDeleted(false);
+          setStale(false);
+        }}
       />
     );
   }
@@ -145,7 +160,7 @@ function RouteComponent() {
         <section role="alert">
           <p>{record.error.message}</p>
           <Button
-            disabled={disabled}
+            disabled={disabled || stale}
             onClick={() => {
               void record.refetch();
             }}
@@ -190,7 +205,7 @@ function RouteComponent() {
         <div {...stylex.props(styles.actions)}>
           {back}
           <Button
-            disabled={disabled}
+            disabled={disabled || stale}
             onClick={() => {
               if (record.data) {
                 setEditing(structuredClone(record.data));
@@ -204,6 +219,9 @@ function RouteComponent() {
             application={application}
             record={record.data}
             disabled={disabled}
+            onStale={() => setStale(true)}
+            onReloaded={() => setStale(false)}
+            onMissing={() => setDeleted(true)}
             onDeleted={() => {
               void navigate({
                 to: '/customers',

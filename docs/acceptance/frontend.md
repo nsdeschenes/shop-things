@@ -41,3 +41,16 @@ Before integration, baseline `fced36767131f8a1d65c8bcc8395499ac342c99c`
 passed `pnpm test` (68 tests across contract, database, Electron, interface and
 scripts) and `pnpm build` on macOS arm64 using Node 26.5.0 and pnpm 12.4.2.
 These establish the starting backend/build prerequisites, not renderer acceptance.
+
+## Customer recovery supporting checks
+
+Ticket #63 adds `acceptance/recovery.spec.ts` using the built BrowserWindow,
+preload and IPC with real temporary databases. It covers concurrent external
+updates/deletes, Stay and failed reload retention, frozen delayed reads,
+successful fresh-reference adoption, copyable deleted drafts, stale Delete,
+unavailable database state and cancelled/failed/successful protected Retry.
+The unavailable case closes the production service handle through the test-only
+launcher; injected faults and holds retain the actual transport. Chromium also
+checks temporary saved-customer reload with Stay/Discard.
+
+These local macOS checks supplement the deferred Linux/native GUI acceptance.

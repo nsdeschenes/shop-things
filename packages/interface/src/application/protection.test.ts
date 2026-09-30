@@ -170,3 +170,62 @@ test('aborting preparation while Save waits cannot publish a late reply or reset
   await expect(preparing).rejects.toThrow('aborted');
   expect(f.resets()).toBe(0);
 });
+
+test('replacement grants permission without resetting and commits only a successful current read', async () => {
+  const f = fixture();
+  f.edit({balance: '-'});
+  let reads = 0;
+  let commits = 0;
+  f.client.drafts.confirmDiscard = async () => ({status: 'cancelled'});
+  expect(
+    await f.owner.replaceDraft(
+      async () => {
+        reads++;
+        return 'fresh';
+      },
+      () => {
+        commits++;
+      }
+    )
+  ).toBe(false);
+  expect(reads).toBe(0);
+  f.client.drafts.confirmDiscard = async () => ({
+    status: 'success',
+    value: {approved: true},
+  });
+  await expect(
+    f.owner.replaceDraft(
+      async () => {
+        throw new Error('Read failed');
+      },
+      () => {
+        commits++;
+      }
+    )
+  ).rejects.toThrow('Read failed');
+  expect(f.values().balance).toBe('-');
+  expect(f.resets()).toBe(0);
+  expect(f.owner.getState().frozen).toBe(false);
+  let finish!: () => void;
+  const replacing = f.owner.replaceDraft(
+    async () => {
+      await new Promise<void>(done => {
+        finish = done;
+      });
+      return 'fresh';
+    },
+    value => {
+      expect(value).toBe('fresh');
+      commits++;
+    }
+  );
+  await Promise.resolve();
+  expect(f.owner.getState().frozen).toBe(true);
+  expect(await f.owner.blockNavigation('/customers')).toBe(true);
+  await expect(f.owner.prepare(request)).rejects.toThrow('Another');
+  finish();
+  expect(await replacing).toBe(true);
+  expect(commits).toBe(1);
+  expect(f.resets()).toBe(0);
+  expect(f.values().balance).toBe('-');
+});
