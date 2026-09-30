@@ -6,6 +6,10 @@ import {app, dialog, ipcMain} from 'electron';
 // Test-only launcher isolates settings and records actual IPC delivery; the application,
 // BrowserWindow, bundled preload, renderer and backend are the built production code.
 app.setPath('userData', process.env.SHOP_THINGS_ACCEPTANCE_DATA);
+if (process.env.SHOP_THINGS_ACCEPTANCE_BOUNDARY) {
+  await import('./boundary-observer.mjs');
+}
+
 globalThis.acceptanceIpc = [];
 globalThis.acceptanceDialogs = [];
 globalThis.acceptanceDiscard = false;
