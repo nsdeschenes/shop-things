@@ -38,6 +38,8 @@ export async function sourceVersion() {
     join(root, 'pnpm-lock.yaml'),
     join(root, 'pnpm-workspace.yaml'),
     join(root, 'tsconfig.json'),
+    join(root, 'packages/interface/index.html'),
+    ...(await paths(join(root, 'packages/interface/public'))),
     ...(await paths(join(root, 'scripts'))),
   ];
   for (const name of ['contract', 'db', 'electron', 'interface']) {

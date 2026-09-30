@@ -22,6 +22,8 @@ export default defineConfig({
     react(),
   ],
   server: {
+    // Electron's cooperative watcher owns updates before a document can replace drafts.
+    hmr: false,
     host: '127.0.0.1',
     strictPort: true,
   },

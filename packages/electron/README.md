@@ -14,7 +14,9 @@ Linux glibc x64 packaged backend acceptance requires the corresponding package a
 `pnpm dev` first builds all prerequisites and preload, then starts Vite and Electron.
 Changes trigger serialized rebuilds. The supervisor asks Electron to quit through its
 private parent-process channel and waits for startup/current database work to finish.
-Rejected or timed-out shutdown leaves the app open; it never forcibly kills Electron.
+Rejected or timed-out shutdown leaves the app open and resumes watching; it never
+forcibly kills Electron. Renderer HMR is disabled. Type `r` and press Enter in the
+development terminal to retry a rejected restart or failed build without a source edit.
 New or failed emission prevents a replacement launch. Test watch commands run serialized
 checks after source changes, including contract mutation checks.
 
