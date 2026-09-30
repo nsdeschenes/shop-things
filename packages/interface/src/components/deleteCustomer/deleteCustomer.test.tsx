@@ -4,6 +4,7 @@ import {act, render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, test} from 'vitest';
 
+import renderRoute from '../../../test/renderRoute';
 import {createApplication} from '../../application/controller';
 import {customerKeys} from '../../application/customers';
 import createPreviewClient from '../../application/preview';
@@ -166,4 +167,31 @@ test('obsolete deletion completion cannot navigate or invalidate a new session c
   expect(f.deleted()).toBe(0);
   expect(f.application.queryClient.getQueryData(key)).toBeDefined();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+test('deletion refreshes previously visited lists and searches through history', async () => {
+  const user = userEvent.setup();
+  const {router} = renderRoute('/customers');
+  await user.click(await screen.findByRole('link', {name: 'Add customer'}));
+  await user.type(await screen.findByRole('textbox', {name: 'First name'}), 'Temporary');
+  await user.click(screen.getByRole('button', {name: 'Save'}));
+  await screen.findByRole('heading', {name: 'Temporary'});
+  await user.click(screen.getByRole('link', {name: 'Back to customers'}));
+  await screen.findByRole('link', {name: 'Temporary'});
+  await user.type(screen.getByRole('textbox', {name: 'Search customers'}), 'Temp');
+  await waitFor(() => expect(router.state.location.search).toMatchObject({q: 'Temp'}));
+  await user.click(await screen.findByRole('link', {name: 'Temporary'}));
+  await screen.findByRole('heading', {name: 'Temporary'});
+  await confirm(user);
+  expect(await screen.findByText('Customer deleted.')).toBeVisible();
+  expect(
+    await screen.findByRole('heading', {name: 'No Matching Customers'})
+  ).toBeVisible();
+  expect(screen.getByRole('textbox', {name: 'Search customers'})).toHaveValue('Temp');
+  router.history.back();
+  expect(await screen.findByRole('heading', {name: 'Customer Not Found'})).toBeVisible();
+  await user.click(screen.getByRole('link', {name: 'Back to customers'}));
+  await user.click(await screen.findByRole('button', {name: 'Clear'}));
+  expect(await screen.findByRole('heading', {name: 'No Customers Yet'})).toBeVisible();
+  expect(screen.queryByRole('link', {name: 'Temporary'})).not.toBeInTheDocument();
 });
