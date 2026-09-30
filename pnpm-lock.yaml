@@ -125,6 +125,9 @@ importers:
       esbuild:
         specifier: ^0.28.0
         version: 0.28.2
+      tsdown:
+        specifier: ^0.23.0
+        version: 0.23.0(typescript@7.0.2)
       typescript:
         specifier: ^7
         version: 7.0.2

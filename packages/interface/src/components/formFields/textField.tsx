@@ -1,18 +1,19 @@
-import { Field } from "@base-ui/react/field";
-import type { ComponentProps } from "react";
-import * as stylex from "@stylexjs/stylex";
-import Input from "../input/input";
-import formContexts from "../../forms/formContexts";
-import styles from "./fieldStyles";
+import {Field} from '@base-ui/react/field';
+import * as stylex from '@stylexjs/stylex';
+import type {ComponentProps} from 'react';
+
+import formContexts from '../../forms/formContexts';
+import Input from '../input/input';
+import styles from './fieldStyles';
 
 type Props = {
   label: string;
-  inputMode?: ComponentProps<typeof Input>["inputMode"];
+  inputMode?: ComponentProps<typeof Input>['inputMode'];
   uppercase?: boolean;
   style?: stylex.StyleXStyles;
 };
 
-export default function TextField({ label, inputMode, uppercase, style }: Props) {
+export default function TextField({label, inputMode, uppercase, style}: Props) {
   const field = formContexts.useFieldContext<string>();
   return (
     <Field.Root
@@ -28,11 +29,13 @@ export default function TextField({ label, inputMode, uppercase, style }: Props)
         inputMode={inputMode}
         value={field.state.value}
         onBlur={field.handleBlur}
-        onValueChange={(value) => field.handleChange(uppercase ? value.toUpperCase() : value)}
+        onValueChange={value =>
+          field.handleChange(uppercase ? value.toUpperCase() : value)
+        }
       />
       {field.state.meta.errors.length > 0 && (
         <Field.Error match {...stylex.props(styles.error)}>
-          {field.state.meta.errors.map((error) => error?.message).join(" ")}
+          {field.state.meta.errors.map(error => error?.message).join(' ')}
         </Field.Error>
       )}
     </Field.Root>

@@ -2,11 +2,11 @@
 
 ### Issue tracker
 
-Issues and specs live in GitHub Issues; use the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues and specs live in GitHub Issues; use the `gh` CLI. See `docs/agents/issueTracker.md`.
 
 ### Triage labels
 
-Use the default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+Use the default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triageLabels.md`.
 
 ### Domain docs
 

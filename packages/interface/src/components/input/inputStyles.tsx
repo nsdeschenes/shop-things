@@ -1,15 +1,16 @@
-import * as stylex from "@stylexjs/stylex";
-import { colors } from "../../styles/colors.stylex";
-import { spacing } from "../../styles/spacing.stylex";
-import { typography } from "../../styles/typography.stylex";
-import { radii } from "../../styles/radii.stylex";
-import { controls } from "../../styles/controls.stylex";
+import * as stylex from '@stylexjs/stylex';
+
+import {colors} from '../../styles/colors.stylex';
+import {controls} from '../../styles/controls.stylex';
+import {radii} from '../../styles/radii.stylex';
+import {spacing} from '../../styles/spacing.stylex';
+import {typography} from '../../styles/typography.stylex';
 
 const inputStyles = stylex.create({
   input: {
     borderColor: colors.controlBorder,
     borderRadius: radii.control,
-    borderStyle: "solid",
+    borderStyle: 'solid',
     borderWidth: controls.borderWidth,
     paddingBlock: spacing.space10,
     paddingInline: spacing.space12,
@@ -22,8 +23,8 @@ const inputStyles = stylex.create({
     outlineOffset: controls.focusOffset,
     minHeight: 42,
     minWidth: 0,
-    width: "100%",
-    "::placeholder": { color: colors.placeholder },
+    width: '100%',
+    '::placeholder': {color: colors.placeholder},
   },
 });
 

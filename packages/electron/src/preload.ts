@@ -1,3 +1,5 @@
-import { contextBridge, ipcRenderer } from "electron";
-import { createPreloadBridge } from "./preload-bridge.js";
-contextBridge.exposeInMainWorld("shopThings", createPreloadBridge(ipcRenderer));
+import {contextBridge, ipcRenderer} from 'electron';
+
+import {createPreloadBridge} from './preloadBridge.js';
+
+contextBridge.exposeInMainWorld('shopThings', createPreloadBridge(ipcRenderer));

@@ -47,11 +47,11 @@ npx tsdown-migrate
 ## Basic Configuration
 
 ```ts
-import { defineConfig } from "tsdown";
+import {defineConfig} from 'tsdown';
 
 export default defineConfig({
-  entry: ["./src/index.ts"],
-  format: ["esm", "cjs"],
+  entry: ['./src/index.ts'],
+  format: ['esm', 'cjs'],
   dts: true,
   clean: true,
 });
@@ -134,8 +134,8 @@ export default defineConfig({
 
 ```ts
 export default defineConfig({
-  entry: ["src/index.ts"],
-  format: ["esm", "cjs"],
+  entry: ['src/index.ts'],
+  format: ['esm', 'cjs'],
   dts: true,
   clean: true,
 });
@@ -146,11 +146,11 @@ export default defineConfig({
 ```ts
 export default defineConfig({
   entry: {
-    index: "src/index.ts",
-    utils: "src/utils.ts",
-    cli: "src/cli.ts",
+    index: 'src/index.ts',
+    utils: 'src/utils.ts',
+    cli: 'src/cli.ts',
   },
-  format: ["esm", "cjs"],
+  format: ['esm', 'cjs'],
   dts: true,
 });
 ```
@@ -159,10 +159,10 @@ export default defineConfig({
 
 ```ts
 export default defineConfig({
-  entry: ["src/index.ts"],
-  format: ["iife"],
-  globalName: "MyLib",
-  platform: "browser",
+  entry: ['src/index.ts'],
+  format: ['iife'],
+  globalName: 'MyLib',
+  platform: 'browser',
   minify: true,
 });
 ```
@@ -171,14 +171,14 @@ export default defineConfig({
 
 ```ts
 export default defineConfig({
-  entry: ["src/index.tsx"],
-  format: ["esm", "cjs"],
+  entry: ['src/index.tsx'],
+  format: ['esm', 'cjs'],
   dts: true,
   deps: {
-    neverBundle: ["react", "react-dom"],
+    neverBundle: ['react', 'react-dom'],
   },
   inputOptions: {
-    jsx: { runtime: "automatic" },
+    jsx: {runtime: 'automatic'},
   },
 });
 ```
@@ -187,9 +187,9 @@ export default defineConfig({
 
 ```ts
 export default defineConfig({
-  entry: ["src/**/*.ts", "!**/*.test.ts"],
+  entry: ['src/**/*.ts', '!**/*.test.ts'],
   unbundle: true, // Preserve file structure
-  format: ["esm"],
+  format: ['esm'],
   dts: true,
 });
 ```
@@ -198,23 +198,23 @@ export default defineConfig({
 
 ```ts
 export default defineConfig({
-  entry: ["src/index.ts"],
-  format: ["esm", "cjs"],
+  entry: ['src/index.ts'],
+  format: ['esm', 'cjs'],
   dts: true,
-  failOnWarn: "ci-only", // opt-in: fail on warnings in CI
-  publint: "ci-only",
-  attw: "ci-only",
+  failOnWarn: 'ci-only', // opt-in: fail on warnings in CI
+  publint: 'ci-only',
+  attw: 'ci-only',
 });
 ```
 
 ### WASM Support
 
 ```ts
-import { wasm } from "rolldown-plugin-wasm";
-import { defineConfig } from "tsdown";
+import {wasm} from 'rolldown-plugin-wasm';
+import {defineConfig} from 'tsdown';
 
 export default defineConfig({
-  entry: ["src/index.ts"],
+  entry: ['src/index.ts'],
   plugins: [wasm()],
 });
 ```
@@ -223,10 +223,10 @@ export default defineConfig({
 
 ```ts
 export default defineConfig({
-  entry: ["src/index.ts"],
-  format: ["esm", "cjs"],
+  entry: ['src/index.ts'],
+  format: ['esm', 'cjs'],
   dts: true,
-  target: "chrome100",
+  target: 'chrome100',
   css: {
     preprocessorOptions: {
       scss: {
@@ -241,7 +241,7 @@ export default defineConfig({
 
 ```ts
 export default defineConfig({
-  entry: ["src/cli.ts"],
+  entry: ['src/cli.ts'],
   exe: true,
 });
 ```
@@ -250,12 +250,12 @@ export default defineConfig({
 
 ```ts
 export default defineConfig({
-  entry: ["src/cli.ts"],
+  entry: ['src/cli.ts'],
   exe: {
     targets: [
-      { platform: "linux", arch: "x64", nodeVersion: "25.7.0" },
-      { platform: "darwin", arch: "arm64", nodeVersion: "25.7.0" },
-      { platform: "win", arch: "x64", nodeVersion: "25.7.0" },
+      {platform: 'linux', arch: 'x64', nodeVersion: '25.7.0'},
+      {platform: 'darwin', arch: 'arm64', nodeVersion: '25.7.0'},
+      {platform: 'win', arch: 'x64', nodeVersion: '25.7.0'},
     ],
   },
 });
@@ -265,15 +265,15 @@ export default defineConfig({
 
 ```ts
 export default defineConfig({
-  entry: ["src/index.ts"],
-  format: ["esm", "cjs"],
+  entry: ['src/index.ts'],
+  format: ['esm', 'cjs'],
   dts: true,
   hooks: {
-    "build:before": async (context) => {
-      console.log("Building...");
+    'build:before': async context => {
+      console.log('Building...');
     },
-    "build:done": async (context) => {
-      console.log("Build complete!");
+    'build:done': async context => {
+      console.log('Build complete!');
     },
   },
 });
@@ -288,14 +288,14 @@ Export an array for multiple build configurations:
 ```ts
 export default defineConfig([
   {
-    entry: ["src/index.ts"],
-    format: ["esm", "cjs"],
+    entry: ['src/index.ts'],
+    format: ['esm', 'cjs'],
     dts: true,
   },
   {
-    entry: ["src/cli.ts"],
-    format: ["esm"],
-    platform: "node",
+    entry: ['src/cli.ts'],
+    format: ['esm'],
+    platform: 'node',
   },
 ]);
 ```
@@ -305,11 +305,11 @@ export default defineConfig([
 Use functions for dynamic configuration:
 
 ```ts
-export default defineConfig((options) => {
+export default defineConfig(options => {
   const isDev = options.watch;
   return {
-    entry: ["src/index.ts"],
-    format: ["esm", "cjs"],
+    entry: ['src/index.ts'],
+    format: ['esm', 'cjs'],
     minify: !isDev,
     sourcemap: isDev,
   };
@@ -322,9 +322,9 @@ Use glob patterns to build multiple packages:
 
 ```ts
 export default defineConfig({
-  workspace: "packages/*",
-  entry: ["src/index.ts"],
-  format: ["esm", "cjs"],
+  workspace: 'packages/*',
+  entry: ['src/index.ts'],
+  format: ['esm', 'cjs'],
   dts: true,
 });
 ```

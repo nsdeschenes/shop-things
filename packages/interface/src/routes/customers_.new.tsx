@@ -1,7 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
-import CustomerForm from "../components/customerForm/customerForm";
+import {createFileRoute} from '@tanstack/react-router';
 
-export const Route = createFileRoute("/customers_/new")({
+import CustomerForm from '../components/customerForm/customerForm';
+
+export const Route = createFileRoute('/customers_/new')({
   component: RouteComponent,
 });
 

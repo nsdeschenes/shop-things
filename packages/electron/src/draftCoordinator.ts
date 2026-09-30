@@ -1,18 +1,21 @@
 /* oxlint-disable import/no-named-export -- Protected lifecycle APIs are shared with the IPC adapter. */
-import { randomUUID } from "node:crypto";
-import { draftReplySchema } from "@shop-things/contract/schemas";
-import type { DraftRequest, DraftResolution } from "@shop-things/contract";
+import {randomUUID} from 'node:crypto';
+
+import type {DraftRequest, DraftResolution} from '@shop-things/contract';
+import {draftReplySchema} from '@shop-things/contract/schemas';
 
 export interface DraftParticipant {
   documentId: string;
   prepare(request: DraftRequest): void;
   resolve(resolution: DraftResolution): void;
 }
+
 export interface DraftLease {
   hasUnsavedDraft: boolean;
   assertCurrent(): void;
-  finish(outcome: DraftResolution["outcome"]): void;
+  finish(outcome: DraftResolution['outcome']): void;
 }
+
 interface PendingPreparation {
   participant: DraftParticipant;
   request: DraftRequest;
@@ -41,7 +44,12 @@ export class DraftCoordinator {
 
   reply(participant: DraftParticipant, payload: unknown): boolean {
     const pending = this.pending;
-    if (!pending || pending.participant !== participant || pending.replied || !pending.valid) {
+    if (
+      !pending ||
+      pending.participant !== participant ||
+      pending.replied ||
+      !pending.valid
+    ) {
       return false;
     }
 
@@ -68,10 +76,10 @@ export class DraftCoordinator {
   async prepare(): Promise<DraftLease> {
     const participant = this.participant;
     if (!participant || this.pending) {
-      throw new Error("The current editor cannot prepare a protected transition");
+      throw new Error('The current editor cannot prepare a protected transition');
     }
 
-    const request = { requestId: randomUUID(), documentId: participant.documentId };
+    const request = {requestId: randomUUID(), documentId: participant.documentId};
     let pending!: PendingPreparation;
     const hasUnsavedDraft = await new Promise<boolean>((complete, fail) => {
       pending = {
@@ -92,6 +100,7 @@ export class DraftCoordinator {
         this.abort();
       }
     });
+
     return {
       hasUnsavedDraft,
       assertCurrent: () => {
@@ -100,10 +109,10 @@ export class DraftCoordinator {
           this.participant !== participant ||
           participant.documentId !== request.documentId
         ) {
-          throw new Error("The prepared editor document changed");
+          throw new Error('The prepared editor document changed');
         }
       },
-      finish: (outcome) => {
+      finish: outcome => {
         this.finish(pending, outcome);
       },
     };
@@ -115,10 +124,11 @@ export class DraftCoordinator {
       return;
     }
 
-    pending.fail(new Error("The editor did not complete draft preparation"));
-    this.finish(pending, "aborted");
+    pending.fail(new Error('The editor did not complete draft preparation'));
+    this.finish(pending, 'aborted');
   }
-  private finish(pending: PendingPreparation, outcome: DraftResolution["outcome"]): void {
+
+  private finish(pending: PendingPreparation, outcome: DraftResolution['outcome']): void {
     if (!pending.valid) {
       return;
     }
@@ -130,7 +140,7 @@ export class DraftCoordinator {
     }
 
     try {
-      pending.participant.resolve({ ...pending.request, outcome });
+      pending.participant.resolve({...pending.request, outcome});
     } catch {
       /* The document may already be gone. */
     }

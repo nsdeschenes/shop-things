@@ -1,13 +1,14 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
-import * as stylex from "@stylexjs/stylex";
-import { spacing } from "../styles/spacing.stylex";
+import * as stylex from '@stylexjs/stylex';
+import {createFileRoute, redirect} from '@tanstack/react-router';
 
-export const Route = createFileRoute("/")({
+import {spacing} from '../styles/spacing.stylex';
+
+export const Route = createFileRoute('/')({
   component: Index,
   loader: () => {
     const loadedDB = true;
     if (loadedDB) {
-      throw redirect({ to: "/customers" });
+      throw redirect({to: '/customers'});
     }
   },
 });

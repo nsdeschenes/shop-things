@@ -1,11 +1,12 @@
-import { Field } from "@base-ui/react/field";
-import * as stylex from "@stylexjs/stylex";
-import formContexts from "../../forms/formContexts";
-import styles from "./fieldStyles";
+import {Field} from '@base-ui/react/field';
+import * as stylex from '@stylexjs/stylex';
 
-type Props = { label: string; style?: stylex.StyleXStyles };
+import formContexts from '../../forms/formContexts';
+import styles from './fieldStyles';
 
-export default function TextareaField({ label, style }: Props) {
+type Props = {label: string; style?: stylex.StyleXStyles};
+
+export default function TextareaField({label, style}: Props) {
   const field = formContexts.useFieldContext<string>();
   return (
     <Field.Root

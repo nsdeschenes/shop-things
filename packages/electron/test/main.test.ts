@@ -1,5 +1,6 @@
-import { fileURLToPath } from "node:url";
-import { beforeEach, expect, test, vi } from "vitest";
+import {fileURLToPath} from 'node:url';
+
+import {beforeEach, expect, test, vi} from 'vitest';
 
 // Electron APIs require a desktop runtime; mock that boundary and run the real entry point.
 const electron = vi.hoisted(() => {
@@ -10,66 +11,73 @@ const electron = vi.hoisted(() => {
       whenReady: vi.fn<() => Promise<void>>(),
       on: vi.fn<(event: string, listener: () => void) => void>(),
       quit: vi.fn(),
-      getPath: vi.fn(() => "/tmp/shop-things-main-test-empty-settings"),
+      getPath: vi.fn(() => '/tmp/shop-things-main-test-empty-settings'),
       isPackaged: false,
     },
-    ipcMain: { handle: vi.fn(), removeHandler: vi.fn(), on: vi.fn(), removeListener: vi.fn() },
+    ipcMain: {
+      handle: vi.fn(),
+      removeHandler: vi.fn(),
+      on: vi.fn(),
+      removeListener: vi.fn(),
+    },
     BrowserWindow: Object.assign(
-      vi.fn(function (this: { loadURL: typeof loadURL; loadFile: typeof loadFile }) {
+      vi.fn(function (this: {loadURL: typeof loadURL; loadFile: typeof loadFile}) {
         this.loadURL = loadURL;
         this.loadFile = loadFile;
       }),
-      { getAllWindows: vi.fn<() => object[]>() },
+      {getAllWindows: vi.fn<() => object[]>()}
     ),
     loadURL,
     loadFile,
   };
 });
 
-vi.mock("electron", () => electron);
+vi.mock('electron', () => electron);
 
 beforeEach(() => {
   vi.resetModules();
   vi.resetAllMocks();
   vi.unstubAllEnvs();
-  vi.stubEnv("VITE_DEV_SERVER_URL", "");
+  vi.stubEnv('VITE_DEV_SERVER_URL', '');
   electron.app.whenReady.mockResolvedValue(undefined);
-  electron.app.getPath.mockReturnValue("/tmp/shop-things-main-test-empty-settings");
+  electron.app.getPath.mockReturnValue('/tmp/shop-things-main-test-empty-settings');
   electron.BrowserWindow.getAllWindows.mockReturnValue([]);
 });
 
 async function startApp() {
-  await import("../src/main.ts");
+  await import('../src/main.ts');
   await vi.waitFor(() => expect(electron.BrowserWindow).toHaveBeenCalledTimes(1));
 }
 
-test("loads the development server when configured", async () => {
-  vi.stubEnv("VITE_DEV_SERVER_URL", "http://127.0.0.1:5173");
+test('loads the development server when configured', async () => {
+  vi.stubEnv('VITE_DEV_SERVER_URL', 'http://127.0.0.1:5173');
   await startApp();
 
   expect(electron.BrowserWindow).toHaveBeenCalledWith({
     width: 800,
     height: 600,
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
+    webPreferences: {contextIsolation: true, sandbox: true, nodeIntegration: false},
   });
-  expect(electron.loadURL).toHaveBeenCalledWith("http://127.0.0.1:5173");
+  expect(electron.loadURL).toHaveBeenCalledWith('http://127.0.0.1:5173');
   expect(electron.loadFile).not.toHaveBeenCalled();
 });
 
-test("loads the bundled renderer without a development server", async () => {
+test('loads the bundled renderer without a development server', async () => {
   await startApp();
 
   expect(electron.loadFile).toHaveBeenCalledWith(
-    fileURLToPath(new URL("../src/renderer/index.html", import.meta.url)),
+    fileURLToPath(new URL('../src/renderer/index.html', import.meta.url))
   );
   expect(electron.loadURL).not.toHaveBeenCalled();
 });
 
-test("activation opens a window only when none remain", async () => {
+test('activation opens a window only when none remain', async () => {
   await startApp();
-  const activate = electron.app.on.mock.calls.find(([event]) => event === "activate")?.[1];
+  const activate = electron.app.on.mock.calls.find(
+    ([event]) => event === 'activate'
+  )?.[1];
   if (!activate) {
-    throw new Error("The app did not register an activation listener");
+    throw new Error('The app did not register an activation listener');
   }
 
   electron.BrowserWindow.getAllWindows.mockReturnValue([{}]);
@@ -81,45 +89,49 @@ test("activation opens a window only when none remain", async () => {
   expect(electron.BrowserWindow).toHaveBeenCalledTimes(2);
 });
 
-test("keeps preload and renderer-dependent protection inactive", async () => {
+test('keeps preload and renderer-dependent protection inactive', async () => {
   await startApp();
   expect(electron.BrowserWindow).toHaveBeenCalledWith({
     width: 800,
     height: 600,
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
+    webPreferences: {contextIsolation: true, sandbox: true, nodeIntegration: false},
   });
   const status = electron.ipcMain.handle.mock.calls.find(
-    ([channel]) => channel === "shop-things:database.status",
+    ([channel]) => channel === 'shop-things:database.status'
   )?.[1];
   expect(
     await status?.(
-      { sender: {}, senderFrame: {} },
-      { documentId: "arbitrary", arguments: undefined },
-    ),
-  ).toMatchObject({ error: { code: "UNAUTHORIZED" } });
-  const closed = electron.app.on.mock.calls.find(([event]) => event === "window-all-closed")?.[1];
+      {sender: {}, senderFrame: {}},
+      {documentId: 'arbitrary', arguments: undefined}
+    )
+  ).toMatchObject({error: {code: 'UNAUTHORIZED'}});
+  const closed = electron.app.on.mock.calls.find(
+    ([event]) => event === 'window-all-closed'
+  )?.[1];
   closed?.();
-  expect(electron.app.quit).toHaveBeenCalledTimes(process.platform === "darwin" ? 0 : 1);
+  expect(electron.app.quit).toHaveBeenCalledTimes(process.platform === 'darwin' ? 0 : 1);
 });
 
-test("placeholder quit waits startup, avoids creating a window and closes the backend once", async () => {
-  const { FileDatabaseSettings } = await import("../src/settings.js");
-  const { ActionService } = await import("../src/action-service.js");
+test('placeholder quit waits startup, avoids creating a window and closes the backend once', async () => {
+  const {FileDatabaseSettings} = await import('../src/settings.js');
+  const {ActionService} = await import('../src/actionService.js');
   let complete!: (value: null) => void;
-  const reading = new Promise<null>((resolve) => {
+  const reading = new Promise<null>(resolve => {
     complete = resolve;
   });
-  const read = vi.spyOn(FileDatabaseSettings.prototype, "read").mockReturnValue(reading);
-  const close = vi.spyOn(ActionService.prototype, "closeUnprotectedWhenIdle");
+  const read = vi.spyOn(FileDatabaseSettings.prototype, 'read').mockReturnValue(reading);
+  const close = vi.spyOn(ActionService.prototype, 'closeUnprotectedWhenIdle');
   try {
-    await import("../src/main.ts");
+    await import('../src/main.ts');
     await vi.waitFor(() => expect(electron.ipcMain.handle).toHaveBeenCalled());
-    const quitting = electron.app.on.mock.calls.find(([event]) => event === "before-quit")?.[1];
+    const quitting = electron.app.on.mock.calls.find(
+      ([event]) => event === 'before-quit'
+    )?.[1];
     if (!quitting) {
-      throw new Error("Missing shutdown listener");
+      throw new Error('Missing shutdown listener');
     }
 
-    const event = { preventDefault: vi.fn() };
+    const event = {preventDefault: vi.fn()};
     Reflect.apply(quitting, undefined, [event]);
     Reflect.apply(quitting, undefined, [event]);
     expect(event.preventDefault).toHaveBeenCalledTimes(2);
@@ -135,17 +147,17 @@ test("placeholder quit waits startup, avoids creating a window and closes the ba
   }
 });
 
-test("development parent quit requests enter the ordinary application shutdown path", async () => {
-  vi.stubEnv("VITE_DEV_SERVER_URL", "http://127.0.0.1:5173");
-  const descriptor = Object.getOwnPropertyDescriptor(process, "send");
-  if (typeof process.send !== "function") {
-    Object.defineProperty(process, "send", { configurable: true, value: () => true });
+test('development parent quit requests enter the ordinary application shutdown path', async () => {
+  vi.stubEnv('VITE_DEV_SERVER_URL', 'http://127.0.0.1:5173');
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'send');
+  if (typeof process.send !== 'function') {
+    Object.defineProperty(process, 'send', {configurable: true, value: () => true});
   }
 
   const originalOn = process.on.bind(process);
   let messageListener: ((message: unknown) => void) | null = null;
-  const on = vi.spyOn(process, "on").mockImplementation((event, listener) => {
-    if (event === "message") {
+  const on = vi.spyOn(process, 'on').mockImplementation((event, listener) => {
+    if (event === 'message') {
       messageListener = listener;
       return process;
     }
@@ -155,19 +167,19 @@ test("development parent quit requests enter the ordinary application shutdown p
   try {
     await startApp();
     if (!messageListener) {
-      throw new Error("Missing development control listener");
+      throw new Error('Missing development control listener');
     }
 
-    Reflect.apply(messageListener, undefined, [{ type: "unrelated" }]);
+    Reflect.apply(messageListener, undefined, [{type: 'unrelated'}]);
     expect(electron.app.quit).not.toHaveBeenCalled();
-    Reflect.apply(messageListener, undefined, [{ type: "shop-things:quit" }]);
+    Reflect.apply(messageListener, undefined, [{type: 'shop-things:quit'}]);
     expect(electron.app.quit).toHaveBeenCalledOnce();
   } finally {
     on.mockRestore();
     if (descriptor) {
-      Object.defineProperty(process, "send", descriptor);
+      Object.defineProperty(process, 'send', descriptor);
     } else {
-      Reflect.deleteProperty(process, "send");
+      Reflect.deleteProperty(process, 'send');
     }
   }
 });

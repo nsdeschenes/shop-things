@@ -1,4 +1,4 @@
-import { createFormHookContexts } from "@tanstack/react-form";
+import {createFormHookContexts} from '@tanstack/react-form';
 
 const formContexts = createFormHookContexts();
 

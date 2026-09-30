@@ -1,15 +1,15 @@
 /* oxlint-disable import/no-named-export -- Shared build/development process boundaries. */
-import { spawn } from "node:child_process";
+import {spawn} from 'node:child_process';
 
 export function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: "inherit", ...options });
-    child.once("error", reject);
-    child.once("exit", (code, signal) => {
+    const child = spawn(command, args, {stdio: 'inherit', ...options});
+    child.once('error', reject);
+    child.once('exit', (code, signal) => {
       if (code === 0) {
         resolve();
       } else {
-        reject(new Error(`${command} ${args.join(" ")} failed (${signal ?? code})`));
+        reject(new Error(`${command} ${args.join(' ')} failed (${signal ?? code})`));
       }
     });
   });
@@ -24,18 +24,21 @@ export function requestOrderlyExit(child, timeoutMs = 10_000) {
     return Promise.resolve(false);
   }
 
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     function finish(exited) {
       clearTimeout(timer);
-      child.removeListener("exit", onExit);
+      child.removeListener('exit', onExit);
       resolve(exited);
     }
 
-    const onExit = () => finish(true);
+    function onExit() {
+      finish(true);
+    }
+
     const timer = setTimeout(finish, timeoutMs, false);
-    child.once("exit", onExit);
+    child.once('exit', onExit);
     try {
-      child.send({ type: "shop-things:quit" }, (error) => {
+      child.send({type: 'shop-things:quit'}, error => {
         if (error) {
           finish(false);
         }
@@ -47,8 +50,8 @@ export function requestOrderlyExit(child, timeoutMs = 10_000) {
 }
 
 export class RestartSupervisor {
-  constructor({ version, stop, build, start, report = console.error }) {
-    this.options = { version, stop, build, start, report };
+  constructor({version, stop, build, start, report = console.error}) {
+    this.options = {version, stop, build, start, report};
     this.attempted = null;
     this.running = null;
   }
@@ -72,7 +75,9 @@ export class RestartSupervisor {
     while (version !== this.attempted) {
       this.attempted = version;
       if (!(await this.options.stop())) {
-        this.options.report(new Error("Restart was not approved. The application remains open."));
+        this.options.report(
+          new Error('Restart was not approved. The application remains open.')
+        );
         return;
       }
 

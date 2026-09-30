@@ -1,30 +1,31 @@
 /* oxlint-disable import/no-named-export -- Build tasks are also consumed by the development supervisor. */
-import { createHash } from "node:crypto";
-import { readFile, readdir, realpath, rm } from "node:fs/promises";
-import { createRequire, builtinModules } from "node:module";
-import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { runCommand } from "./processes.mjs";
+import {createHash} from 'node:crypto';
+import {readFile, readdir, realpath, rm} from 'node:fs/promises';
+import {createRequire, builtinModules} from 'node:module';
+import {dirname, join, relative, resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
-export const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const electronRoot = join(root, "packages/electron");
-const requireElectron = createRequire(join(electronRoot, "package.json"));
+import {runCommand} from './processes.mjs';
+
+export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const electronRoot = join(root, 'packages/electron');
+const requireElectron = createRequire(join(electronRoot, 'package.json'));
 const pnpmScript = process.env.npm_execpath;
 const javascriptExtension = /\.[cm]?js$/;
 const configurationFile = /^(?:tsconfig.*\.json|vite\.config\.ts|tsdown\.config\.ts)$/;
 const prohibitedDependency = /(?:^|\/)(?:electron|drizzle-orm|@tursodatabase|db)(?:\/|$)/;
 export function pnpm(args, options = {}) {
   return pnpmScript && javascriptExtension.test(pnpmScript)
-    ? runCommand(process.execPath, [pnpmScript, ...args], { cwd: root, ...options })
-    : runCommand("pnpm", args, { cwd: root, ...options });
+    ? runCommand(process.execPath, [pnpmScript, ...args], {cwd: root, ...options})
+    : runCommand('pnpm', args, {cwd: root, ...options});
 }
 
 async function paths(directory) {
   let entries;
   try {
-    entries = await readdir(directory, { withFileTypes: true });
+    entries = await readdir(directory, {withFileTypes: true});
   } catch (error) {
-    if (error.code === "ENOENT") {
+    if (error.code === 'ENOENT') {
       return [];
     }
 
@@ -46,20 +47,20 @@ async function paths(directory) {
 
 export async function sourceVersion() {
   const files = [
-    join(root, "package.json"),
-    join(root, "pnpm-lock.yaml"),
-    join(root, "pnpm-workspace.yaml"),
-    join(root, "tsconfig.json"),
-    ...(await paths(join(root, "scripts"))),
+    join(root, 'package.json'),
+    join(root, 'pnpm-lock.yaml'),
+    join(root, 'pnpm-workspace.yaml'),
+    join(root, 'tsconfig.json'),
+    ...(await paths(join(root, 'scripts'))),
   ];
-  for (const name of ["contract", "db", "electron", "interface"]) {
-    const packageRoot = join(root, "packages", name);
+  for (const name of ['contract', 'db', 'electron', 'interface']) {
+    const packageRoot = join(root, 'packages', name);
     files.push(
-      ...(await paths(join(packageRoot, "src"))),
-      ...(await paths(join(packageRoot, "test"))),
-      ...(await paths(join(packageRoot, "scripts"))),
-      ...(await paths(join(packageRoot, "migrations"))),
-      join(packageRoot, "package.json"),
+      ...(await paths(join(packageRoot, 'src'))),
+      ...(await paths(join(packageRoot, 'test'))),
+      ...(await paths(join(packageRoot, 'scripts'))),
+      ...(await paths(join(packageRoot, 'migrations'))),
+      join(packageRoot, 'package.json')
     );
     for (const entry of await readdir(packageRoot)) {
       if (configurationFile.test(entry)) {
@@ -70,27 +71,31 @@ export async function sourceVersion() {
 
   for (const packageRoot of [
     root,
-    ...["contract", "db", "electron", "interface"].map((name) => join(root, "packages", name)),
+    ...['contract', 'db', 'electron', 'interface'].map(name =>
+      join(root, 'packages', name)
+    ),
   ]) {
-    const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
-    const requirePackage = createRequire(join(packageRoot, "package.json"));
+    const manifest = JSON.parse(
+      await readFile(join(packageRoot, 'package.json'), 'utf8')
+    );
+    const requirePackage = createRequire(join(packageRoot, 'package.json'));
     for (const dependency of Object.keys({
       ...manifest.dependencies,
       ...manifest.devDependencies,
     })) {
-      if (dependency.startsWith("@shop-things/")) {
+      if (dependency.startsWith('@shop-things/')) {
         continue;
       }
 
       let dependencyManifest = null;
       for (const directory of requirePackage.resolve.paths(dependency) ?? []) {
-        const candidate = join(directory, dependency, "package.json");
+        const candidate = join(directory, dependency, 'package.json');
         try {
           await readFile(candidate);
           dependencyManifest = await realpath(candidate);
           break;
         } catch (error) {
-          if (error.code !== "ENOENT") {
+          if (error.code !== 'ENOENT') {
             throw error;
           }
         }
@@ -104,50 +109,57 @@ export async function sourceVersion() {
     }
   }
 
-  const hash = createHash("sha256");
+  const hash = createHash('sha256');
   for (const path of files.sort((left, right) => left.localeCompare(right))) {
     hash.update(relative(root, path));
     hash.update(await readFile(path));
   }
 
-  return hash.digest("hex");
+  return hash.digest('hex');
 }
 
 export async function prepare() {
-  await pnpm(["--filter", "@shop-things/contract", "build"]);
-  await pnpm(["--filter", "@shop-things/db", "build"]);
+  await pnpm(['--filter', '@shop-things/contract', 'build']);
+  await pnpm(['--filter', '@shop-things/db', 'build']);
 }
 
 async function compileElectron() {
-  await rm(join(electronRoot, "dist"), { recursive: true, force: true });
+  await rm(join(electronRoot, 'dist'), {recursive: true, force: true});
   await pnpm([
-    "--filter",
-    "electron",
-    "exec",
-    "tsc",
-    "--noEmit",
-    "false",
-    "--allowImportingTsExtensions",
-    "false",
-    "--rootDir",
-    "src",
-    "--outDir",
-    "dist",
-    "--incremental",
-    "false",
+    '--filter',
+    'electron',
+    'exec',
+    'tsc',
+    '--noEmit',
+    'false',
+    '--allowImportingTsExtensions',
+    'false',
+    '--rootDir',
+    'src',
+    '--outDir',
+    'dist',
+    '--incremental',
+    'false',
   ]);
-  await runCommand(process.execPath, ["scripts/build-preload.mjs"], { cwd: electronRoot });
+  await runCommand(process.execPath, ['scripts/buildPreload.mjs'], {cwd: electronRoot});
 }
 
 async function compileInterface(build) {
-  await pnpm(["--filter", "@shop-things/interface", "exec", "tsc", "-b", "--force"]);
-  await pnpm(["--filter", "@shop-things/interface", "exec", "tsc", "-p", "tsconfig.contract.json"]);
+  await pnpm(['--filter', '@shop-things/interface', 'exec', 'tsc', '-b', '--force']);
+  await pnpm([
+    '--filter',
+    '@shop-things/interface',
+    'exec',
+    'tsc',
+    '-p',
+    'tsconfig.contract.json',
+  ]);
   if (build) {
-    await pnpm(["--filter", "@shop-things/interface", "exec", "vite", "build"]);
+    await pnpm(['--filter', '@shop-things/interface', 'exec', 'vite', 'build']);
   }
 }
 
-export async function buildAll({ interfaceBuild = true } = {}) {
+export async function buildAll({interfaceBuild = true} = {}) {
   await prepare();
   await compileElectron();
   await compileInterface(interfaceBuild);
@@ -155,9 +167,11 @@ export async function buildAll({ interfaceBuild = true } = {}) {
 }
 
 export async function inspectBrowserDependencies() {
-  const { build } = await import(requireElectron.resolve("esbuild"));
+  const {build} = await import(requireElectron.resolve('esbuild'));
   const prohibited = prohibitedDependency;
-  const manifest = JSON.parse(await readFile(join(root, "packages/contract/package.json"), "utf8"));
+  const manifest = JSON.parse(
+    await readFile(join(root, 'packages/contract/package.json'), 'utf8')
+  );
   const visited = new Set();
   async function inspectManifest(path) {
     if (visited.has(path)) {
@@ -166,12 +180,12 @@ export async function inspectBrowserDependencies() {
 
     visited.add(path);
     const read = createRequire(path);
-    const value = JSON.parse(await readFile(path, "utf8"));
+    const value = JSON.parse(await readFile(path, 'utf8'));
     for (const dependency of Object.keys(value.dependencies ?? {})) {
       if (
         prohibited.test(dependency) ||
         builtinModules.includes(dependency) ||
-        dependency.startsWith("node:")
+        dependency.startsWith('node:')
       ) {
         throw new Error(`Prohibited contract dependency: ${dependency}`);
       }
@@ -180,147 +194,164 @@ export async function inspectBrowserDependencies() {
     }
   }
 
-  await inspectManifest(join(root, "packages/contract/package.json"));
+  await inspectManifest(join(root, 'packages/contract/package.json'));
   if (
-    Object.values(manifest.exports).some((entry) =>
-      Object.values(entry).some((path) => !path.startsWith("./dist/")),
+    Object.values(manifest.exports).some(entry =>
+      Object.values(entry).some(path => !path.startsWith('./dist/'))
     )
   ) {
-    throw new Error("Contract exports must resolve compiled artifacts");
+    throw new Error('Contract exports must resolve compiled artifacts');
   }
 
   const bundled = await build({
     entryPoints: [
-      join(root, "packages/contract/dist/client.js"),
-      join(root, "packages/contract/dist/schemas.js"),
+      join(root, 'packages/contract/dist/client.js'),
+      join(root, 'packages/contract/dist/schemas.js'),
     ],
     bundle: true,
     write: false,
-    outdir: "contract-inspection",
-    platform: "browser",
+    outdir: 'contract-inspection',
+    platform: 'browser',
     metafile: true,
   });
-  if (Object.keys(bundled.metafile.inputs).some((path) => prohibited.test(path))) {
-    throw new Error("Backend dependency entered the browser contract");
+  if (Object.keys(bundled.metafile.inputs).some(path => prohibited.test(path))) {
+    throw new Error('Backend dependency entered the browser contract');
   }
 
-  if (Object.values(bundled.metafile.outputs).some((output) => output.imports.length !== 0)) {
-    throw new Error("Contract bundle contains unresolved runtime imports");
-  }
-
-  const preload = JSON.parse(await readFile(join(electronRoot, "dist/preload.meta.json"), "utf8"));
   if (
-    Object.values(preload.outputs).some((output) =>
-      output.imports.some((entry) => !entry.external || entry.path !== "electron"),
+    Object.values(bundled.metafile.outputs).some(output => output.imports.length !== 0)
+  ) {
+    throw new Error('Contract bundle contains unresolved runtime imports');
+  }
+
+  const preload = JSON.parse(
+    await readFile(join(electronRoot, 'dist/preload.meta.json'), 'utf8')
+  );
+  if (
+    Object.values(preload.outputs).some(output =>
+      output.imports.some(entry => !entry.external || entry.path !== 'electron')
     )
   ) {
-    throw new Error("Preload bundle has an unexpected runtime import");
+    throw new Error('Preload bundle has an unexpected runtime import');
   }
 }
 
 function testReportArguments(name) {
   const directory = process.env.ACCEPTANCE_REPORT_DIR;
   return directory
-    ? ["--reporter=default", "--reporter=json", `--outputFile=${join(directory, name + ".json")}`]
+    ? [
+        '--reporter=default',
+        '--reporter=json',
+        `--outputFile=${join(directory, name + '.json')}`,
+      ]
     : [];
 }
 
 async function testElectron(smoke = false, watch = false) {
-  await pnpm(["--filter", "electron", "exec", "tsc", "-p", "tsconfig.test.json"]);
-  await pnpm(["--filter", "electron", "exec", "tsc", "-p", "tsconfig.contract.json"]);
+  await pnpm(['--filter', 'electron', 'exec', 'tsc', '-p', 'tsconfig.test.json']);
+  await pnpm(['--filter', 'electron', 'exec', 'tsc', '-p', 'tsconfig.contract.json']);
   await pnpm([
-    "--filter",
-    "electron",
-    "exec",
-    "vitest",
-    ...(watch ? [] : ["run"]),
-    ...(smoke ? ["--config", "vitest.smoke.config.ts"] : []),
-    ...testReportArguments(smoke ? "smoke-tests" : "electron-tests"),
+    '--filter',
+    'electron',
+    'exec',
+    'vitest',
+    ...(watch ? [] : ['run']),
+    ...(smoke ? ['--config', 'vitest.smoke.config.ts'] : []),
+    ...testReportArguments(smoke ? 'smoke-tests' : 'electron-tests'),
   ]);
 }
 
 async function testInterface(watch = false) {
   await pnpm([
-    "--filter",
-    "@shop-things/interface",
-    "exec",
-    "vitest",
-    ...(watch ? [] : ["run"]),
-    ...testReportArguments("interface-tests"),
+    '--filter',
+    '@shop-things/interface',
+    'exec',
+    'vitest',
+    ...(watch ? [] : ['run']),
+    ...testReportArguments('interface-tests'),
   ]);
 }
 
 export async function task(name) {
   switch (name) {
-    case "prepare":
+    case 'prepare':
       return prepare();
-    case "build":
+    case 'build':
       return buildAll();
-    case "electron-build":
-      return buildAll({ interfaceBuild: false });
-    case "preload-build":
+    case 'electron-build':
+      return buildAll({interfaceBuild: false});
+    case 'preload-build':
       await prepare();
-      return runCommand(process.execPath, ["scripts/build-preload.mjs"], { cwd: electronRoot });
-    case "interface-dev":
+      return runCommand(process.execPath, ['scripts/buildPreload.mjs'], {
+        cwd: electronRoot,
+      });
+    case 'interface-dev':
       await prepare();
       await compileInterface(false);
-      return pnpm(["--filter", "@shop-things/interface", "exec", "vite"]);
-    case "interface-build":
+      return pnpm(['--filter', '@shop-things/interface', 'exec', 'vite']);
+    case 'interface-build':
       await prepare();
       return compileInterface(true);
-    case "interface-test":
+    case 'interface-test':
       await prepare();
       await compileInterface(false);
       return testInterface();
-    case "electron-test":
-      await buildAll({ interfaceBuild: false });
+    case 'electron-test':
+      await buildAll({interfaceBuild: false});
       return testElectron();
-    case "electron-smoke":
+    case 'electron-smoke':
       await buildAll();
       return testElectron(true);
-    case "test":
-      await pnpm(["--filter", "@shop-things/contract", "test"]);
+    case 'test':
+      await pnpm(['--filter', '@shop-things/contract', 'test']);
       if (process.env.ACCEPTANCE_REPORT_DIR) {
-        await pnpm(["--filter", "@shop-things/db", "build"]);
-        await pnpm(["--filter", "@shop-things/db", "exec", "tsc", "-p", "tsconfig.test.json"]);
+        await pnpm(['--filter', '@shop-things/db', 'build']);
         await pnpm([
-          "--filter",
-          "@shop-things/db",
-          "exec",
-          "vitest",
-          "run",
-          ...testReportArguments("db-tests"),
+          '--filter',
+          '@shop-things/db',
+          'exec',
+          'tsc',
+          '-p',
+          'tsconfig.test.json',
+        ]);
+        await pnpm([
+          '--filter',
+          '@shop-things/db',
+          'exec',
+          'vitest',
+          'run',
+          ...testReportArguments('db-tests'),
         ]);
       } else {
-        await pnpm(["--filter", "@shop-things/db", "test"]);
+        await pnpm(['--filter', '@shop-things/db', 'test']);
       }
 
-      await pnpm(["--filter", "@shop-things/db", "migrations:check"]);
-      await buildAll({ interfaceBuild: false });
+      await pnpm(['--filter', '@shop-things/db', 'migrations:check']);
+      await buildAll({interfaceBuild: false});
       await testElectron();
       await testInterface();
-      await pnpm(["exec", "tsc", "-p", "scripts/tsconfig.test.json"]);
+      await pnpm(['exec', 'tsc', '-p', 'scripts/tsconfig.test.json']);
       return pnpm([
-        "exec",
-        "vitest",
-        "run",
-        "--config",
-        "scripts/vitest.config.ts",
-        ...testReportArguments("scripts-tests"),
+        'exec',
+        'vitest',
+        'run',
+        '--config',
+        'scripts/vitest.config.ts',
+        ...testReportArguments('scripts-tests'),
       ]);
-    case "electron-watch":
-    case "interface-watch":
-      return task("test-watch");
-    case "test-watch": {
-      const { watchTests } = await import("./development.mjs");
+    case 'electron-watch':
+    case 'interface-watch':
+      return task('test-watch');
+    case 'test-watch': {
+      const {watchTests} = await import('./development.mjs');
       return watchTests();
     }
 
-    case "start":
+    case 'start':
       await buildAll();
-      return runCommand(requireElectron("electron"), ["."], { cwd: electronRoot });
-    case "dev": {
-      const { develop } = await import("./development.mjs");
+      return runCommand(requireElectron('electron'), ['.'], {cwd: electronRoot});
+    case 'dev': {
+      const {develop} = await import('./development.mjs');
       return develop();
     }
 

@@ -1,4 +1,5 @@
-import type { z } from "zod";
+import type {z} from 'zod';
+
 import type {
   actions,
   customerSchema,
@@ -13,7 +14,7 @@ import type {
   draftRequestSchema,
   draftReplySchema,
   draftResolutionSchema,
-} from "./schemas.js";
+} from './schemas.js';
 export type Customer = z.infer<typeof customerSchema>;
 export type CustomerRecord = z.infer<typeof customerRecordSchema>;
 export type CreateCustomerInput = z.infer<typeof createCustomerInputSchema>;
@@ -27,25 +28,33 @@ export type DraftRequest = z.infer<typeof draftRequestSchema>;
 export type DraftReply = z.infer<typeof draftReplySchema>;
 export type DraftResolution = z.infer<typeof draftResolutionSchema>;
 export type ActionName = keyof typeof actions;
-export type ActionArguments = { [K in ActionName]: z.infer<(typeof actions)[K]["arguments"]> };
-export type ActionResults = { [K in ActionName]: z.infer<(typeof actions)[K]["result"]> };
+export type ActionArguments = {
+  [K in ActionName]: z.infer<(typeof actions)[K]['arguments']>;
+};
+export type ActionResults = {[K in ActionName]: z.infer<(typeof actions)[K]['result']>};
 export type ActionMethod<K extends ActionName> = undefined extends ActionArguments[K]
   ? () => Promise<ActionResults[K]>
   : (args: ActionArguments[K]) => Promise<ActionResults[K]>;
-export type ActionHandlers = { [K in ActionName]: ActionMethod<K> };
+export type ActionHandlers = {[K in ActionName]: ActionMethod<K>};
+
 type Group<G extends string> = {
   [K in ActionName as K extends `${G}.${infer M}` ? M : never]: ActionMethod<K>;
 };
+
 export type DraftProtection = {
   prepare: (request: DraftRequest) => Promise<DraftReply>;
   resolve: (resolution: DraftResolution) => void;
 };
+
 export type ShopThingsBridge = {
-  customers: Group<"customers">;
-  database: Group<"database"> & {
+  customers: Group<'customers'>;
+  database: Group<'database'> & {
     onStateChanged: (callback: (state: DatabaseState) => void) => () => void;
   };
-  exports: Group<"exports">;
-  drafts: Group<"drafts"> & { registerProtection: (protection: DraftProtection) => () => void };
+  exports: Group<'exports'>;
+  drafts: Group<'drafts'> & {
+    registerProtection: (protection: DraftProtection) => () => void;
+  };
 };
+
 export type Client = ShopThingsBridge;

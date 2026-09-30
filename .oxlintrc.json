@@ -7,7 +7,7 @@
     "@stylexjs/eslint-plugin",
     "@tanstack/eslint-plugin-query",
     "@tanstack/eslint-plugin-router",
-    { "name": "vitest-js", "specifier": "@vitest/eslint-plugin" },
+    {"name": "vitest-js", "specifier": "@vitest/eslint-plugin"},
     "eslint-plugin-testing-library",
     "eslint-plugin-jest-dom"
   ],
@@ -17,6 +17,7 @@
   "rules": {
     // custom/stylistic rules
     "curly": "error",
+    "func-style": ["error", "declaration"],
     "import/no-named-export": "error",
     "typescript/no-misused-spread": "off",
     "@stylistic/padding-line-between-statements": [
@@ -66,7 +67,7 @@
     "@tanstack/router/create-route-property-order": "error",
     // react
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+    "react/only-export-components": ["warn", {"allowConstantExport": true}]
   },
   "env": {
     "builtin": true
@@ -79,7 +80,7 @@
         "packages/contract/scripts/*.mjs",
         "packages/contract/test/conformance.ts"
       ],
-      "rules": { "import/no-named-export": "off" }
+      "rules": {"import/no-named-export": "off"}
     },
     {
       // StyleX variable and constant groups require named exports.
@@ -179,7 +180,7 @@
     },
     {
       "files": ["packages/contract/test/*.test.mjs"],
-      "rules": { "vitest-js/no-import-node-test": "off" }
+      "rules": {"vitest-js/no-import-node-test": "off"}
     }
   ],
   "options": {
