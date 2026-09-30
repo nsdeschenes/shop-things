@@ -1,27 +1,15 @@
 import {mkdtemp, rm} from 'node:fs/promises';
-import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {fileURLToPath} from 'node:url';
 
-import {_electron, expect, test} from '@playwright/test';
-const root = fileURLToPath(new URL('..', import.meta.url));
-const executablePath = createRequire(
-  new URL('../packages/electron/package.json', import.meta.url)
-)('electron');
+import {expect, test} from '@playwright/test';
+
+import launchElectron from './launchElectron';
 
 test('Edit validates duplicate and unassigned numbers and persists exact text after reopening', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-edit-'));
-  const application = await _electron.launch({
-    executablePath,
-    args: [join(root, 'acceptance/electron-entry.mjs')],
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '',
-      SHOP_THINGS_ACCEPTANCE_DATA: directory,
-      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
-      VITE_DEV_SERVER_URL: '',
-    },
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
   });
   try {
     const page = await application.firstWindow();
@@ -96,16 +84,9 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
 
 test('held Update preserves newer edits through close and rejects retained stale revisions', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-edit-race-'));
-  const application = await _electron.launch({
-    executablePath,
-    args: [join(root, 'acceptance/electron-entry.mjs')],
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '',
-      SHOP_THINGS_ACCEPTANCE_DATA: directory,
-      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
-      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/',
-    },
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
+    VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/',
   });
   try {
     const page = await application.firstWindow();

@@ -26,6 +26,7 @@ export function setPreviewOutcome(client: Client, outcome: PreviewOutcome) {
 
 const digits = /^\d+$/;
 const uppercase = /[A-Z]/g;
+const regexMetacharacters = /[.*+?^${}()|[\]\\]/g;
 
 // One instance per document. Never connect browser preview to native storage.
 export default function createPreviewClient(
@@ -111,9 +112,22 @@ export default function createPreviewClient(
   }
 
   function compareText(first: string, second: string) {
-    const a = first.replace(uppercase, value => value.toLowerCase());
-    const b = second.replace(uppercase, value => value.toLowerCase());
-    return a < b ? -1 : a > b ? 1 : 0;
+    const a = Array.from(
+      first.replace(uppercase, value => value.toLowerCase()),
+      character => character.codePointAt(0)!
+    );
+    const b = Array.from(
+      second.replace(uppercase, value => value.toLowerCase()),
+      character => character.codePointAt(0)!
+    );
+    for (let index = 0; index < Math.min(a.length, b.length); index++) {
+      const difference = a[index]! - b[index]!;
+      if (difference) {
+        return difference;
+      }
+    }
+
+    return a.length - b.length;
   }
 
   let nextId = 1;
@@ -196,7 +210,8 @@ export default function createPreviewClient(
           return error('STALE_SESSION', 'The preview database changed.');
         }
 
-        const needle = query.trim().toLocaleLowerCase();
+        const needle = query.trim();
+        const pattern = new RegExp(needle.replace(regexMetacharacters, '\\$&'), 'iu');
         const number =
           digits.test(needle) && Number.isSafeInteger(Number(needle))
             ? Number(needle)
@@ -205,8 +220,8 @@ export default function createPreviewClient(
           .filter(
             ({customer}) =>
               !needle ||
-              customer.firstName.toLocaleLowerCase().includes(needle) ||
-              customer.lastName.toLocaleLowerCase().includes(needle) ||
+              pattern.test(customer.firstName) ||
+              pattern.test(customer.lastName) ||
               customer.customerNumber === number
           )
           .toSorted(

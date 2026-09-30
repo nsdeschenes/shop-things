@@ -1,28 +1,15 @@
 import {mkdtemp, rm} from 'node:fs/promises';
-import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {fileURLToPath} from 'node:url';
 
-import {_electron, expect, test} from '@playwright/test';
+import {expect, test} from '@playwright/test';
 
-const root = fileURLToPath(new URL('..', import.meta.url));
-const executablePath = createRequire(
-  new URL('../packages/electron/package.json', import.meta.url)
-)('electron');
+import launchElectron from './launchElectron';
 
 test('Create persists exact contacts and decimal balances across guarded reload and database reopen', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-create-'));
-  const application = await _electron.launch({
-    executablePath,
-    args: [join(root, 'acceptance/electron-entry.mjs')],
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '',
-      SHOP_THINGS_ACCEPTANCE_DATA: directory,
-      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
-      VITE_DEV_SERVER_URL: '',
-    },
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
   });
   try {
     const page = await application.firstWindow();
@@ -80,16 +67,9 @@ test('Create persists exact contacts and decimal balances across guarded reload 
 
 test('actual Save races preserve newer edits, prevent duplicates and protect failure versus native close', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-create-races-'));
-  const application = await _electron.launch({
-    executablePath,
-    args: [join(root, 'acceptance/electron-entry.mjs')],
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '',
-      SHOP_THINGS_ACCEPTANCE_DATA: directory,
-      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
-      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/',
-    },
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
+    VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/',
   });
   try {
     const page = await application.firstWindow();
@@ -125,7 +105,7 @@ test('actual Save races preserve newer edits, prevent duplicates and protect fai
     await expect(name).toBeEnabled();
     await expect(name).toHaveValue('Newer');
     await expect(
-      page.getByRole('heading', {name: 'Customer saved — unsaved edits'})
+      page.getByRole('heading', {name: 'Customer Saved — Unsaved Edits'})
     ).toBeVisible();
     expect(
       await application.evaluate(
@@ -244,6 +224,6 @@ test('Chromium preview Create shares validation and safe draft guards with tempo
   await page.getByRole('link', {name: 'Back to customers'}).click();
   await expect(page.getByRole('link', {name: 'Temporary', exact: true})).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('heading', {name: 'No customers yet'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'No Customers Yet'})).toBeVisible();
   expect(new URL(page.url()).searchParams.get('preview')).toBe('true');
 });

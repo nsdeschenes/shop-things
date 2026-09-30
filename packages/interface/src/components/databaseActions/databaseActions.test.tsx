@@ -31,7 +31,7 @@ test('startup gates actions, recovery names the failed file, and BUSY clears pen
   render(<DatabaseActions application={application} />);
   expect(screen.getByRole('button', {name: 'Database'})).toBeDisabled();
   await application.start();
-  expect(await screen.findByRole('heading', {name: 'Recover database'})).toBeVisible();
+  expect(await screen.findByRole('heading', {name: 'Recover Database'})).toBeVisible();
   expect(screen.getByText('Failed remembered file: remembered.sqlite')).toBeVisible();
   expect(screen.queryByText(activeLabel)).not.toBeInTheDocument();
   const user = userEvent.setup();

@@ -394,7 +394,7 @@ test('Restore is available without an active database and enters saved customers
     application = await launch(directory);
     const setup = await application.firstWindow();
     await expect(
-      setup.getByRole('heading', {name: 'Set up your database'})
+      setup.getByRole('heading', {name: 'Set Up Your Database'})
     ).toBeVisible();
     await restore(application, setup, source, join(directory, 'setup-restored.sqlite'));
     await expect(setup.getByText('3 results', {exact: true})).toBeVisible();

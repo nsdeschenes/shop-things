@@ -125,7 +125,7 @@ function RouteComponent() {
 
   if (missing) {
     return (
-      <PageShell title="Customer not found" actions={back}>
+      <PageShell title="Customer Not Found" actions={back}>
         <p>This customer no longer exists.</p>
       </PageShell>
     );
