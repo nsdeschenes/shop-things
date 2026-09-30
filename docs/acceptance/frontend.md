@@ -6,11 +6,10 @@ decisions #47–#52, and acceptance decision
 remain authoritative. This document maps runnable evidence; it is not a release
 certificate or a substitute for the generated same-commit record.
 
-The owner deferred Linux automated execution and all required manual GUI checks
-on September 30, 2026: “Not yet, we can ignore this for now.” Runnable Linux tooling
-is retained. Linux glibc x64 is the required release platform; macOS arm64,
-Windows x64 and Linux arm64 release verification remains explicitly deferred.
-Unsigned local macOS automation supplies supporting evidence only.
+Linux glibc x64 and unsigned macOS arm64 have automated runners. Each report
+identifies the actual target, revision, executed checks, and current outcome.
+Automated success does not establish manual GUI, signing, installation, or
+other-platform verification.
 
 ## Requirement mapping
 
@@ -37,9 +36,9 @@ commit must not invalidate the recorded source commit.
 
 ## Required manual record
 
-Status: **deferred by owner, not executed**. Tester: **not assigned**. Date:
-**not recorded**. Source commit and packaged artifact SHA: **to be supplied by
-actual GUI tester**. Never infer these fields from mocked picker automation.
+Record the tester, date, source commit, packaged artifact SHA, and observed
+results when performing these checks. Do not infer completion from automation
+that controls native picker functions.
 
 | Platform/workflow        | Checklist still requiring actual GUI evidence                                                                                                                                                                                                                                                                                                                  |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -47,10 +46,6 @@ actual GUI tester**. Never infer these fields from mocked picker automation.
 | Development desktop      | Dirty source restart cancelled without process/draft loss; explicit retry; graceful closure before fresh build/replacement; failed prerequisite build prevents launch and fixed source recovers                                                                                                                                                                |
 | Chromium on Linux        | Dirty preview reload/close shows exactly the native unload warning; dismiss preserves edits; confirmed reload resets temporary data; browser-controlled unload limitations recorded                                                                                                                                                                            |
 
-Required Linux automation also remains unexecuted in this session. Actions
-[run 36714438402](https://github.com/nsdeschenes/shop-things/actions/runs/36714438402)
-was denied before job steps by the account Actions budget, as was the earlier
-[run 36704113612](https://github.com/nsdeschenes/shop-things/actions/runs/36704113612).
-Retain these external blockers separately from product failures. Missing, failed,
-or skipped required release checks keep release acceptance incomplete even when
-local supporting automation passes.
+Keep manual and release decisions outside automated reports. Use a current run's
+logs and reports to diagnose execution failures; historical CI incidents do not
+describe a later run's outcome.

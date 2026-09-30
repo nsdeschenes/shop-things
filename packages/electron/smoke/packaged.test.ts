@@ -42,18 +42,12 @@ test('proves the shipped Linux glibc x64 backend and retains commit/artifact evi
   const reportPath = process.env.SMOKE_REPORT_PATH ?? join(release, 'package-smoke.json');
   await mkdir(dirname(reportPath), {recursive: true});
   const report: Record<string, unknown> = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     status: 'running',
     startedAt: new Date().toISOString(),
     executionEnvironment:
       process.env.SMOKE_EXECUTION_ENVIRONMENT ?? 'native Linux glibc x64',
     target: 'linux-x64-glibc',
-    deferred: [
-      'renderer/preload/IPC GUI journey',
-      'macOS arm64',
-      'Windows x64',
-      'Linux arm64',
-    ],
   };
   let failure: unknown;
   await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
