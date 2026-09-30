@@ -4,7 +4,7 @@ import {createCustomerInputSchema} from '@shop-things/contract/schemas';
 import * as stylex from '@stylexjs/stylex';
 import {isCancelledError, useMutation, useQueryClient} from '@tanstack/react-query';
 import {Link, useNavigate} from '@tanstack/react-router';
-import {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import {useEffect, useId, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 
 import type {Application} from '../../application/controller';
 import {
@@ -13,7 +13,6 @@ import {
   customerKeys,
   CustomerRequestError,
 } from '../../application/customers';
-import {sameDraftValues} from '../../application/protection';
 import useDraftProtection from '../../application/useDraftProtection';
 import customerFormOptions from '../../forms/customerFormOptions';
 import useAppForm from '../../forms/useAppForm';
@@ -115,12 +114,15 @@ export default function CustomerForm({
   initialRecord?: CustomerRecord;
   onSaved?: () => void;
 }) {
+  const formId = useId();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const state = useSyncExternalStore(application.subscribe, application.getState);
   const create = useMutation(createCustomerOptions(application, session));
   const update = useMutation(updateCustomerOptions(application));
-  const [saved, setSaved] = useState<CustomerRecord | null>(initialRecord ?? null);
+  const [savedRecord, setSavedRecord] = useState<CustomerRecord | null>(
+    initialRecord ?? null
+  );
   const [error, setError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState<'stale' | 'deleted' | null>(null);
   const [registered, setRegistered] = useState(false);
@@ -173,7 +175,7 @@ export default function CustomerForm({
             }
 
             draftRef.current.saved = result;
-            setSaved(result);
+            setSavedRecord(result);
             draftRef.current.baseline = submitted;
             queryClient.setQueryData(
               customerKeys.detail(session, result.customer.id),
@@ -233,8 +235,7 @@ export default function CustomerForm({
           !navigationState.pendingTransition &&
           !navigationState.reconciling &&
           !navigationState.recoveryRequired &&
-          captured.isCurrent() &&
-          sameDraftValues(form.store.state.values, submitted)
+          captured.isCurrent()
         ) {
           const result: CustomerRecord = completed;
           application.protection.navigateAfterSave(() => {
@@ -276,13 +277,14 @@ export default function CustomerForm({
     !state.database?.available ||
     state.database.session !== session ||
     state.recoveryRequired;
+  const pending = create.isPending || update.isPending || protection.saving;
   const disabled =
+    pending ||
     !registered ||
     protection.frozen ||
     unavailable ||
     state.reconciling ||
     state.pendingTransition;
-  const pending = create.isPending || update.isPending || protection.saving;
   useEffect(() => {
     if (error && !disabled) {
       focusInvalidField();
@@ -291,7 +293,7 @@ export default function CustomerForm({
 
   async function reloadSavedCustomer() {
     const reference = draftRef.current.saved?.reference;
-    if (!reference || disabled || pending || blocked === 'deleted') {
+    if (!reference || disabled || blocked === 'deleted') {
       return;
     }
 
@@ -300,10 +302,10 @@ export default function CustomerForm({
       await application.reloadCustomer(reference, record => {
         const baseline = customerFormOptions(record.customer).defaultValues;
         draftRef.current.saved = record;
+        setSavedRecord(record);
         draftRef.current.baseline = baseline;
         setDefaults(baseline);
         form.reset(baseline);
-        setSaved(record);
         setBlocked(null);
         queryClient.setQueryData(
           customerKeys.detail(session, record.customer.id),
@@ -336,19 +338,16 @@ export default function CustomerForm({
           ? 'Customer Not Found'
           : initialRecord
             ? 'Edit Customer'
-            : saved
-              ? protection.dirty
-                ? 'Customer Saved — Unsaved Edits'
-                : 'Customer Saved'
-              : 'New Customer'
+            : 'New Customer'
       }
       stickyHeader
       actions={
         <div {...stylex.props(styles.actions)}>
           <Button
             variant="primary"
-            disabled={disabled || pending || blocked !== null}
-            onClick={() => form.handleSubmit()}
+            disabled={disabled || blocked !== null}
+            type="submit"
+            form={formId}
           >
             Save
           </Button>
@@ -363,6 +362,7 @@ export default function CustomerForm({
         </div>
       }
     >
+      {pending && <p role="status">Saving customer…</p>}
       {error && <p role="alert">{error}</p>}
       {blocked === 'stale' && (
         <p>
@@ -372,11 +372,11 @@ export default function CustomerForm({
       {blocked === 'deleted' && (
         <p>This customer no longer exists. Your edits are retained for copying.</p>
       )}
-      {saved && blocked !== 'deleted' && (
+      {savedRecord && blocked !== 'deleted' && (
         <section>
           <p>Reload saved customer replaces your draft with the saved values.</p>
           <Button
-            disabled={disabled || pending}
+            disabled={disabled}
             onClick={() => {
               void reloadSavedCustomer();
             }}
@@ -412,13 +412,19 @@ export default function CustomerForm({
         </section>
       )}
       {!initialRecord && (
-        <p>Customer number: {saved?.customer.customerNumber ?? 'Assigned when saved'}</p>
+        <p>
+          Customer number: {savedRecord?.customer.customerNumber ?? 'Assigned when saved'}
+        </p>
       )}
       <Form
+        id={formId}
+        aria-label="Customer details"
         noValidate
         onSubmit={event => {
           event.preventDefault();
-          void form.handleSubmit();
+          if (!disabled && !blocked) {
+            void form.handleSubmit();
+          }
         }}
         {...stylex.props(styles.form)}
       >
@@ -469,7 +475,12 @@ export default function CustomerForm({
             >
               <legend {...stylex.props(styles.legend)}>Donation Preference</legend>
               <form.AppField name="donate">
-                {field => <field.CheckboxField label="Donate" />}
+                {field => (
+                  <field.CheckboxField
+                    disabled={disabled || blocked === 'deleted'}
+                    label="Donate"
+                  />
+                )}
               </form.AppField>
             </fieldset>
           </div>

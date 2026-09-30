@@ -5,7 +5,13 @@ import formContexts from '../../forms/formContexts';
 import Checkbox from '../checkbox/checkbox';
 import styles from './fieldStyles';
 
-export default function CheckboxField({label}: {label: string}) {
+export default function CheckboxField({
+  label,
+  disabled,
+}: {
+  label: string;
+  disabled?: boolean;
+}) {
   const field = formContexts.useFieldContext<boolean>();
   return (
     <Field.Root
@@ -16,6 +22,7 @@ export default function CheckboxField({label}: {label: string}) {
     >
       <Field.Label {...stylex.props(styles.checkbox)}>
         <Checkbox
+          disabled={disabled}
           name={field.name}
           checked={field.state.value}
           onCheckedChange={field.handleChange}

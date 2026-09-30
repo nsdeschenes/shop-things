@@ -65,7 +65,7 @@ test('Create persists exact contacts and decimal balances across guarded reload 
   }
 });
 
-test('actual Save races preserve newer edits, prevent duplicates and protect failure versus native close', async () => {
+test('actual Save freezes edits, prevents duplicates and protects failure versus native close', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-create-races-'));
   const application = await launchElectron(directory, {
     SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
@@ -89,23 +89,21 @@ test('actual Save races preserve newer edits, prevent duplicates and protect fai
       )
       .toBe('shop-things:customers.create');
     await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
-    await name.fill('Newer');
+    await expect(name).toBeDisabled();
+    await expect(page.getByRole('textbox', {name: 'Comments'})).toBeDisabled();
+    await expect(page.getByRole('checkbox', {name: 'Donate'})).toBeDisabled();
+    await page.keyboard.type('Ignored');
+    await page.locator('form').evaluate(form => form.requestSubmit());
     await page.getByRole('link', {name: 'Cancel'}).click();
     await expect(
       page.getByRole('heading', {name: 'New Customer', exact: true})
     ).toBeVisible();
-    await application.evaluate(({BrowserWindow}) =>
-      BrowserWindow.getAllWindows()[0].close()
-    );
-    await expect(name).toBeDisabled();
     await application.evaluate(() => {
       Reflect.get(globalThis, 'acceptanceReleaseRead')();
       Reflect.set(globalThis, 'acceptanceHeldRead', null);
     });
-    await expect(name).toBeEnabled();
-    await expect(name).toHaveValue('Newer');
     await expect(
-      page.getByRole('heading', {name: 'Customer Saved — Unsaved Edits'})
+      page.getByRole('heading', {name: 'Submitted', exact: true})
     ).toBeVisible();
     expect(
       await application.evaluate(
@@ -115,14 +113,7 @@ test('actual Save races preserve newer edits, prevent duplicates and protect fai
           ).length
       )
     ).toBe(1);
-    await page.getByRole('button', {name: 'Save'}).click();
-    await expect(page.getByRole('heading', {name: 'Newer', exact: true})).toBeVisible();
     expect(new URL(page.url()).hash).toBe('#/customers/4');
-    expect(
-      await application.evaluate(() =>
-        Reflect.get(globalThis, 'acceptanceIpc').includes('shop-things:customers.update')
-      )
-    ).toBe(true);
     await page.getByRole('link', {name: 'Back to customers'}).click();
     await expect(page.getByText('4 results', {exact: true})).toBeVisible();
     await page.getByRole('link', {name: 'Add customer'}).click();
@@ -226,4 +217,50 @@ test('Chromium preview Create shares validation and safe draft guards with tempo
   await page.reload();
   await expect(page.getByRole('heading', {name: 'No Customers Yet'})).toBeVisible();
   expect(new URL(page.url()).searchParams.get('preview')).toBe('true');
+});
+
+test('native close waits for an admitted Save and the saved customer survives reopening', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-create-close-'));
+  let application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
+  });
+  try {
+    const page = await application.firstWindow();
+    await page.getByRole('link', {name: 'Add customer'}).click();
+    await page.getByRole('textbox', {name: 'First name'}).fill('Saved before close');
+    await application.evaluate(() =>
+      Reflect.set(globalThis, 'acceptanceFault', {
+        channel: 'shop-things:customers.create',
+        hold: true,
+      })
+    );
+    await page.getByRole('textbox', {name: 'First name'}).press('Enter');
+    await expect
+      .poll(() =>
+        application.evaluate(() => Reflect.get(globalThis, 'acceptanceHeldRead')?.channel)
+      )
+      .toBe('shop-things:customers.create');
+    await application.evaluate(({BrowserWindow}) =>
+      BrowserWindow.getAllWindows()[0].close()
+    );
+    await expect(page.getByRole('textbox', {name: 'First name'})).toBeDisabled();
+    expect(application.windows()).toHaveLength(1);
+    const closed = page.waitForEvent('close');
+    await application.evaluate(() => Reflect.get(globalThis, 'acceptanceReleaseRead')());
+    await closed;
+    await application.close();
+    application = await launchElectron(directory);
+    const reopened = await application.firstWindow();
+    await expect(reopened.getByRole('link', {name: 'Saved before close'})).toBeVisible();
+  } finally {
+    if (application.windows().length) {
+      await application.evaluate(() => {
+        Reflect.get(globalThis, 'acceptanceReleaseRead')?.();
+        Reflect.set(globalThis, 'acceptanceDiscard', true);
+      });
+      await application.close();
+    }
+
+    await rm(directory, {recursive: true, force: true});
+  }
 });
