@@ -1,4 +1,4 @@
-import {mkdtemp, rm} from 'node:fs/promises';
+import {mkdtemp, rm, stat} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -143,6 +143,67 @@ test('failed live handshake never enters preview and Retry restores live registr
     await expect(
       page.getByRole('heading', {name: 'Customers', exact: true})
     ).toBeVisible();
+  } finally {
+    await application.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+test('actual newer database notification wins over a delayed startup status response', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-renderer-order-'));
+  const databasePath = join(directory, 'created.sqlite');
+  const application = await _electron.launch({
+    executablePath: createRequire(
+      new URL('../packages/electron/package.json', import.meta.url)
+    )('electron'),
+    args: [join(root, 'acceptance/electron-entry.mjs')],
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '',
+      SHOP_THINGS_ACCEPTANCE_DATA: directory,
+      SHOP_THINGS_ACCEPTANCE_DELAY_STATUS: 'true',
+      SHOP_THINGS_ACCEPTANCE_CREATE_PATH: databasePath,
+      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/',
+    },
+  });
+  try {
+    const page = await application.firstWindow();
+    await expect
+      .poll(() =>
+        application.evaluate(() => Reflect.get(globalThis, 'acceptanceStatusDelayed'))
+      )
+      .toBe(true);
+    await expect(page.getByRole('status')).toHaveText('Connecting to the application…');
+    const created = await page.evaluate(async () => {
+      const bridge = Reflect.get(window, 'shopThings');
+      return bridge.database.create();
+    });
+    expect(created.status).toBe('success');
+    expect(created.value.selectedPath).toBe(databasePath);
+    expect((await stat(databasePath)).size).toBeGreaterThan(0);
+    // Subscription delivery paints the committed path before the held response is released.
+    await expect(
+      page.getByText(`Live mode · ${databasePath}`, {exact: true})
+    ).toBeVisible();
+    const held = await application.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceHeldStatus')
+    );
+    expect(held.value.version).toBeLessThan(created.value.version);
+    expect(held.value.available).toBe(false);
+    await application.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceReleaseStatus')()
+    );
+    await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
+    await expect(
+      page.getByText(`Live mode · ${databasePath}`, {exact: true})
+    ).toBeVisible();
+    const messages = await application.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceIpc')
+    );
+    expect(messages.indexOf('shop-things:state-subscribe')).toBeLessThan(
+      messages.indexOf('shop-things:database.status')
+    );
   } finally {
     await application.close();
     await rm(directory, {recursive: true, force: true});
