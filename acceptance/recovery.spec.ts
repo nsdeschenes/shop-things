@@ -1,28 +1,15 @@
 import {mkdtemp, rm} from 'node:fs/promises';
-import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {fileURLToPath} from 'node:url';
 
-import {_electron, expect, test} from '@playwright/test';
+import {expect, test} from '@playwright/test';
 
-const root = fileURLToPath(new URL('..', import.meta.url));
-const executablePath = createRequire(
-  new URL('../packages/electron/package.json', import.meta.url)
-)('electron');
+import launchElectron from './launchElectron';
 
 test('real IPC stale reload cancels, fails, freezes, then adopts a fresh reference; deleted drafts remain copyable', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-recovery-'));
-  const application = await _electron.launch({
-    executablePath,
-    args: [join(root, 'acceptance/electron-entry.mjs')],
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '',
-      SHOP_THINGS_ACCEPTANCE_DATA: directory,
-      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
-      VITE_DEV_SERVER_URL: '',
-    },
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
   });
   try {
     const page = await application.firstWindow();
@@ -98,7 +85,7 @@ test('real IPC stale reload cancels, fails, freezes, then adopts a fresh referen
       })
     ).toBe('success');
     await page.getByRole('button', {name: 'Save'}).click();
-    await expect(page.getByRole('heading', {name: 'Customer not found'})).toBeVisible();
+    await expect(page.getByRole('heading', {name: 'Customer Not Found'})).toBeVisible();
     await expect(name).toHaveValue('Copy this draft');
     await expect(name).toHaveAttribute('readonly', '');
     await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
@@ -122,17 +109,9 @@ test('real IPC stale reload cancels, fails, freezes, then adopts a fresh referen
 
 test('unavailable real database retains mounted draft across cancelled and failed Retry, clears only committed new session', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-unavailable-'));
-  const application = await _electron.launch({
-    executablePath,
-    args: [join(root, 'acceptance/electron-entry.mjs')],
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '',
-      SHOP_THINGS_ACCEPTANCE_DATA: directory,
-      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
-      SHOP_THINGS_ACCEPTANCE_RECOVERY: 'true',
-      VITE_DEV_SERVER_URL: '',
-    },
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
+    SHOP_THINGS_ACCEPTANCE_RECOVERY: 'true',
   });
   try {
     const page = await application.firstWindow();
@@ -203,16 +182,8 @@ test('Chromium preview reload guards draft replacement and preserves canonical s
 
 test('real IPC stale Delete stays blocked until fresh reload and deleted selection becomes not found', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-delete-recovery-'));
-  const application = await _electron.launch({
-    executablePath,
-    args: [join(root, 'acceptance/electron-entry.mjs')],
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '',
-      SHOP_THINGS_ACCEPTANCE_DATA: directory,
-      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
-      VITE_DEV_SERVER_URL: '',
-    },
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
   });
   try {
     const page = await application.firstWindow();
@@ -265,7 +236,7 @@ test('real IPC stale Delete stays blocked until fresh reload and deleted selecti
       .getByRole('dialog')
       .getByRole('button', {name: 'Delete customer', exact: true})
       .click();
-    await expect(page.getByRole('heading', {name: 'Customer not found'})).toBeVisible();
+    await expect(page.getByRole('heading', {name: 'Customer Not Found'})).toBeVisible();
     await expect(
       page.getByRole('button', {name: 'Delete customer', exact: true})
     ).toHaveCount(0);

@@ -41,9 +41,9 @@ test('database startup shows loading, first launch cancellation is silent, Creat
     await application.evaluate(() =>
       Reflect.get(globalThis, 'acceptanceReleaseStartup')()
     );
-    await expect(page.getByRole('heading', {name: 'Set up your database'})).toBeVisible();
+    await expect(page.getByRole('heading', {name: 'Set Up Your Database'})).toBeVisible();
     await page.getByRole('button', {name: 'Create database', exact: true}).click();
-    await expect(page.getByRole('heading', {name: 'Set up your database'})).toBeVisible();
+    await expect(page.getByRole('heading', {name: 'Set Up Your Database'})).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
     await application.evaluate(
       (_electron, path) =>
@@ -95,7 +95,7 @@ test('database remembered recovery Retry never creates a missing file and Open r
   const recovery = await launch(directory);
   try {
     const page = await recovery.firstWindow();
-    await expect(page.getByRole('heading', {name: 'Recover database'})).toBeVisible();
+    await expect(page.getByRole('heading', {name: 'Recover Database'})).toBeVisible();
     await expect(page.getByText('Failed remembered file: missing.sqlite')).toBeVisible();
     await expect(page.getByText(activeLabel)).toHaveCount(0);
     await page.getByRole('button', {name: 'Retry remembered database'}).click();
@@ -208,7 +208,7 @@ test('database preview simulations preserve cancelled/failed drafts and reset on
     page.getByText('Active database: Preview: open customers.sqlite')
   ).toBeVisible();
   await page.getByRole('button', {name: 'Simulate remembered-file failure'}).click();
-  await expect(page.getByRole('heading', {name: 'Recover database'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'Recover Database'})).toBeVisible();
   await page
     .getByRole('button', {name: 'Retry remembered database (simulation)'})
     .click();

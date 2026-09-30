@@ -333,13 +333,13 @@ export default function CustomerForm({
     <PageShell
       title={
         blocked === 'deleted'
-          ? 'Customer not found'
+          ? 'Customer Not Found'
           : initialRecord
             ? 'Edit Customer'
             : saved
               ? protection.dirty
-                ? 'Customer saved — unsaved edits'
-                : 'Customer saved'
+                ? 'Customer Saved — Unsaved Edits'
+                : 'Customer Saved'
               : 'New Customer'
       }
       stickyHeader

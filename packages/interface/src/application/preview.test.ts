@@ -235,3 +235,76 @@ test('Restore clones a saved preview backup into a fresh session only after prot
   expect(next.status === 'success' && next.value.customer.id).toBe(2);
   expect(resolutions).toEqual(['aborted', 'aborted', 'committed']);
 });
+
+async function previewNames(names: string[]) {
+  const client = createPreviewClient();
+  const state = await client.database.status();
+  if (state.status !== 'success' || !state.value.session) {
+    throw new Error('Missing session');
+  }
+
+  const session = state.value.session;
+  for (const firstName of names) {
+    await client.customers.create({
+      session,
+      values: {
+        firstName,
+        lastName: '',
+        address: '',
+        city: '',
+        province: '',
+        postalCode: '',
+        homePhone: '',
+        email: '',
+        stock: 0,
+        balance: '0.00',
+        previousBalance: '0.00',
+        donate: false,
+        comments: '',
+      },
+    });
+  }
+
+  return async (query: string) => {
+    const result = await client.customers.list({session, query});
+    if (result.status !== 'success') {
+      throw new Error('Preview list failed');
+    }
+
+    return result.value.map(record => record.customer.firstName);
+  };
+}
+
+test('preview search preserves Unicode simple folding and literal metacharacters', async () => {
+  const list = await previewNames([
+    'ς',
+    'σ',
+    'Σ',
+    'İ',
+    'I',
+    'i',
+    'ı',
+    'ſ',
+    'S',
+    's',
+    '[literal]',
+    '.*',
+    '\\',
+  ]);
+  expect(await list(' σ ')).toEqual(['Σ', 'ς', 'σ']);
+  expect(await list('ς')).toEqual(['Σ', 'ς', 'σ']);
+  expect(await list('i')).toEqual(['[literal]', 'I', 'i']);
+  expect(await list('İ')).toEqual(['İ']);
+  expect(await list('ı')).toEqual(['ı']);
+  expect(await list('s')).toEqual(['S', 's', 'ſ']);
+  expect(await list('ſ')).toEqual(['S', 's', 'ſ']);
+  expect(await list('[')).toEqual(['[literal]']);
+  expect(await list('.*')).toEqual(['.*']);
+  expect(await list('\\')).toEqual(['\\']);
+  expect(await list('001')).toEqual(['ς']);
+});
+
+test('preview ordering uses ASCII NOCASE and codepoints before number and ID ties', async () => {
+  const list = await previewNames(['😀', 'Ｚ', 'a😀', 'aＺ', 'a', 'A', 'É', 'é']);
+  expect(await list('')).toEqual(['a', 'A', 'aＺ', 'a😀', 'É', 'é', 'Ｚ', '😀']);
+});

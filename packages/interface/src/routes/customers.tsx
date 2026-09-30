@@ -167,7 +167,7 @@ function RouteComponent() {
           {customers.data.length === 0 ? (
             <section {...stylex.props(styles.empty)}>
               <h2 {...stylex.props(styles.emptyTitle)}>
-                {q ? 'No matching customers' : 'No customers yet'}
+                {q ? 'No Matching Customers' : 'No Customers Yet'}
               </h2>
               <p>
                 {q

@@ -150,7 +150,7 @@ export default function DatabaseActions({application}: {application: Application
             initialFocus={() => document.getElementById('restore-cancel')}
             {...stylex.props(styles.dialog)}
           >
-            <Dialog.Title>{label('Restore backup into a separate file')}</Dialog.Title>
+            <Dialog.Title>{label('Restore Backup into a Separate File')}</Dialog.Title>
             <Dialog.Description>
               Choose a backup, then a new destination. The restored database opens when
               complete. Your backup and previous working database are preserved. Existing
@@ -190,7 +190,7 @@ export default function DatabaseActions({application}: {application: Application
       )}
       {state.phase === 'ready' && !database?.available && (
         <section aria-label="Database setup">
-          <h1>{database?.selectedPath ? 'Recover database' : 'Set up your database'}</h1>
+          <h1>{database?.selectedPath ? 'Recover Database' : 'Set Up Your Database'}</h1>
           {database?.selectedPath && (
             <>
               <p>

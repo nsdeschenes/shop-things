@@ -374,7 +374,7 @@ try {
   const working = join(userData, 'working.sqlite');
   const backup = join(userData, 'backup.sqlite');
   const csv = join(userData, 'all.csv');
-  await expect(page.getByRole('heading', {name: 'Set up your database'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'Set Up Your Database'})).toBeVisible();
   await picker(working);
   await page.getByRole('button', {name: 'Create database', exact: true}).click();
   await expect(

@@ -1,30 +1,19 @@
 import {mkdtemp, rm} from 'node:fs/promises';
-import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {fileURLToPath} from 'node:url';
 
-import {_electron, expect, test} from '@playwright/test';
+import {expect, test} from '@playwright/test';
+
+import launchElectron from './launchElectron';
 
 const alphaDetailLink = /\/customers\/2\?q=Alpha$/;
-const root = fileURLToPath(new URL('..', import.meta.url));
-const executablePath = createRequire(
-  new URL('../packages/electron/package.json', import.meta.url)
-)('electron');
 
 for (const development of [true, false]) {
   test(`saved customer list/search/detail through actual ${development ? 'development' : 'bundled hash'} renderer IPC`, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'shop-things-customers-'));
-    const application = await _electron.launch({
-      executablePath,
-      args: [join(root, 'acceptance/electron-entry.mjs')],
-      env: {
-        ...process.env,
-        ELECTRON_RUN_AS_NODE: '',
-        SHOP_THINGS_ACCEPTANCE_DATA: directory,
-        SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
-        VITE_DEV_SERVER_URL: development ? 'http://127.0.0.1:5179/' : '',
-      },
+    const application = await launchElectron(directory, {
+      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
+      VITE_DEV_SERVER_URL: development ? 'http://127.0.0.1:5179/' : '',
     });
     try {
       const page = await application.firstWindow();
@@ -72,7 +61,7 @@ for (const development of [true, false]) {
       await search.fill('no such customer');
       await search.press('Enter');
       await expect(
-        page.getByRole('heading', {name: 'No matching customers'})
+        page.getByRole('heading', {name: 'No Matching Customers'})
       ).toBeVisible();
       await expect(page.getByText('0 results', {exact: true})).toBeVisible();
       expect(
@@ -92,16 +81,9 @@ for (const development of [true, false]) {
 
 test('superseded reads stay loading for new targets and cannot paint obsolete success or failure', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-customer-delay-'));
-  const application = await _electron.launch({
-    executablePath,
-    args: [join(root, 'acceptance/electron-entry.mjs')],
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '',
-      SHOP_THINGS_ACCEPTANCE_DATA: directory,
-      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
-      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/',
-    },
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
+    VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/',
   });
   try {
     const page = await application.firstWindow();
@@ -177,7 +159,7 @@ test('superseded reads stay loading for new targets and cannot paint obsolete su
     await page.evaluate(() => {
       location.hash = '/customers/999?q=Zed';
     });
-    await expect(page.getByRole('heading', {name: 'Customer not found'})).toBeVisible();
+    await expect(page.getByRole('heading', {name: 'Customer Not Found'})).toBeVisible();
     await page.getByRole('link', {name: 'Back to customers'}).click();
     await expect(search).toHaveValue('Zed');
     await application.evaluate(() => {
@@ -229,22 +211,67 @@ test('temporary Chromium preview distinguishes empty/search and missing detail a
   page,
 }) => {
   await page.goto('/?preview=true#/customers');
-  await expect(page.getByRole('heading', {name: 'No customers yet'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'No Customers Yet'})).toBeVisible();
   await expect(page.getByText('0 results', {exact: true})).toBeVisible();
   await page.getByRole('textbox', {name: 'Search customers'}).fill('Alpha');
   await page.getByRole('textbox', {name: 'Search customers'}).press('Enter');
-  await expect(page.getByRole('heading', {name: 'No matching customers'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'No Matching Customers'})).toBeVisible();
   await page.evaluate(() => {
     location.hash = '/customers/999?q=Alpha';
   });
-  await expect(page.getByRole('heading', {name: 'Customer not found'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'Customer Not Found'})).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('heading', {name: 'Customer not found'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'Customer Not Found'})).toBeVisible();
   await page.getByRole('link', {name: 'Customer records Shop Things'}).click();
   await expect(page.getByRole('textbox', {name: 'Search customers'})).toHaveValue(
     'Alpha'
   );
   expect(new URL(page.url()).searchParams.get('preview')).toBe('true');
   await page.getByRole('button', {name: 'Clear'}).click();
-  await expect(page.getByRole('heading', {name: 'No customers yet'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'No Customers Yet'})).toBeVisible();
+});
+
+test('Chromium preview preserves canonical Unicode search and supplementary name ordering', async ({
+  page,
+}) => {
+  await page.goto('/?preview=true#/customers');
+  for (const name of ['ς', 'σ', 'İ', 'i', 'ſ', 's', 'Ｚ', '😀', '[literal]']) {
+    await page.getByRole('link', {name: 'Add customer'}).click();
+    await page.getByRole('textbox', {name: 'First name'}).fill(name);
+    await page.getByRole('button', {name: 'Save'}).click();
+    await expect(page.getByRole('heading', {name, exact: true})).toBeVisible();
+    await page.getByRole('link', {name: 'Back to customers'}).click();
+  }
+
+  const search = page.getByRole('textbox', {name: 'Search customers'});
+  await search.fill('σ');
+  await search.press('Enter');
+  await expect(page.getByText('2 results', {exact: true})).toBeVisible();
+  await expect(page.locator('tbody a')).toHaveText(['ς', 'σ']);
+  await search.fill('i');
+  await search.press('Enter');
+  await expect(page.getByText('2 results', {exact: true})).toBeVisible();
+  await expect(page.locator('tbody a')).toHaveText(['[literal]', 'i']);
+  await search.fill('s');
+  await search.press('Enter');
+  await expect(page.getByText('2 results', {exact: true})).toBeVisible();
+  await expect(page.locator('tbody a')).toHaveText(['s', 'ſ']);
+  await search.fill('[literal]');
+  await search.press('Enter');
+  await expect(page.getByText('1 result', {exact: true})).toBeVisible();
+  await expect(page.locator('tbody a')).toHaveText(['[literal]']);
+  await search.fill('');
+  await search.press('Enter');
+  await expect(page.getByText('9 results', {exact: true})).toBeVisible();
+  await expect(page.locator('tbody a')).toHaveText([
+    '[literal]',
+    'i',
+    's',
+    'İ',
+    'ſ',
+    'ς',
+    'σ',
+    'Ｚ',
+    '😀',
+  ]);
 });

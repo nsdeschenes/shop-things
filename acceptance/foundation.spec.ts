@@ -1,12 +1,10 @@
 import {mkdtemp, rm, stat} from 'node:fs/promises';
-import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {fileURLToPath} from 'node:url';
 
-import {_electron, expect, test} from '@playwright/test';
+import {expect, test} from '@playwright/test';
 
-const root = fileURLToPath(new URL('..', import.meta.url));
+import launchElectron from './launchElectron';
 
 for (const parameter of ['', '?preview=false', '?preview=TRUE', '?preview=empty']) {
   test(`browser disables preview with ${parameter || 'no switch'}`, async ({page}) => {
@@ -39,24 +37,15 @@ test('explicit preview survives routing and reload without native storage', asyn
 for (const development of [true, false]) {
   test(`real Electron ${development ? 'development resource' : 'bundled HTML'} bootstrap`, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'shop-things-renderer-'));
-    const application = await _electron.launch({
-      executablePath: createRequire(
-        new URL('../packages/electron/package.json', import.meta.url)
-      )('electron'),
-      args: [join(root, 'acceptance/electron-entry.mjs')],
-      env: {
-        ...process.env,
-        ELECTRON_RUN_AS_NODE: '',
-        SHOP_THINGS_ACCEPTANCE_DATA: directory,
-        SHOP_THINGS_ACCEPTANCE_DENY_HANDSHAKE: 'true',
-        VITE_DEV_SERVER_URL: development ? 'http://127.0.0.1:5179/' : '',
-      },
+    const application = await launchElectron(directory, {
+      SHOP_THINGS_ACCEPTANCE_DENY_HANDSHAKE: 'true',
+      VITE_DEV_SERVER_URL: development ? 'http://127.0.0.1:5179/' : '',
     });
     try {
       const page = await application.firstWindow();
       await expect(page.getByText('Live mode', {exact: false})).toBeVisible();
       await expect(
-        page.getByRole('heading', {name: 'Set up your database', exact: true})
+        page.getByRole('heading', {name: 'Set Up Your Database', exact: true})
       ).toBeVisible();
       expect(
         await application.evaluate(() => Reflect.get(globalThis, 'acceptanceIpc'))
@@ -85,12 +74,12 @@ for (const development of [true, false]) {
       }, url.href);
       await expect(page.getByText('Live mode', {exact: false})).toBeVisible();
       await expect(
-        page.getByRole('heading', {name: 'Set up your database', exact: true})
+        page.getByRole('heading', {name: 'Set Up Your Database', exact: true})
       ).toBeVisible();
       await expect(page.getByRole('textbox', {name: 'First name'})).toHaveCount(0);
       await page.reload();
       await expect(
-        page.getByRole('heading', {name: 'Set up your database'})
+        page.getByRole('heading', {name: 'Set Up Your Database'})
       ).toBeVisible();
       await page.evaluate(() => {
         window.open('https://example.com');
@@ -111,7 +100,7 @@ for (const development of [true, false]) {
             'document.querySelector("h1").textContent'
           )
         )
-      ).toBe('Set up your database');
+      ).toBe('Set Up Your Database');
       const protectedStatus = await application.evaluate(({BrowserWindow}) =>
         BrowserWindow.getAllWindows()[0]!.webContents.executeJavaScript(
           'window.shopThings.database.status()'
@@ -127,18 +116,9 @@ for (const development of [true, false]) {
 
 test('failed live handshake never enters preview and Retry restores live registration', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-renderer-retry-'));
-  const application = await _electron.launch({
-    executablePath: createRequire(
-      new URL('../packages/electron/package.json', import.meta.url)
-    )('electron'),
-    args: [join(root, 'acceptance/electron-entry.mjs')],
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '',
-      SHOP_THINGS_ACCEPTANCE_DATA: directory,
-      SHOP_THINGS_ACCEPTANCE_DENY_HANDSHAKE: 'always',
-      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/?preview=true',
-    },
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_DENY_HANDSHAKE: 'always',
+    VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/?preview=true',
   });
   try {
     const page = await application.firstWindow();
@@ -150,7 +130,7 @@ test('failed live handshake never enters preview and Retry restores live registr
     });
     await page.getByRole('button', {name: 'Retry'}).click();
     await expect(
-      page.getByRole('heading', {name: 'Set up your database', exact: true})
+      page.getByRole('heading', {name: 'Set Up Your Database', exact: true})
     ).toBeVisible();
   } finally {
     await application.close();
@@ -160,19 +140,10 @@ test('failed live handshake never enters preview and Retry restores live registr
 test('actual newer database notification wins over a delayed startup status response', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-renderer-order-'));
   const databasePath = join(directory, 'created.sqlite');
-  const application = await _electron.launch({
-    executablePath: createRequire(
-      new URL('../packages/electron/package.json', import.meta.url)
-    )('electron'),
-    args: [join(root, 'acceptance/electron-entry.mjs')],
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '',
-      SHOP_THINGS_ACCEPTANCE_DATA: directory,
-      SHOP_THINGS_ACCEPTANCE_DELAY_STATUS: 'true',
-      SHOP_THINGS_ACCEPTANCE_CREATE_PATH: databasePath,
-      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/',
-    },
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_DELAY_STATUS: 'true',
+    SHOP_THINGS_ACCEPTANCE_CREATE_PATH: databasePath,
+    VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/',
   });
   try {
     const page = await application.firstWindow();

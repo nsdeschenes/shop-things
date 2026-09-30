@@ -33,7 +33,7 @@ test('native preview unload warning preserves a dismissed invalid draft and acce
   await page.reload();
   expect(dialogs).toEqual(['beforeunload', 'beforeunload']);
   await page.getByRole('link', {name: 'Customer records Shop Things'}).click();
-  await expect(page.getByText('No customers yet', {exact: true})).toBeVisible();
+  await expect(page.getByText('No Customers Yet', {exact: true})).toBeVisible();
   expect(
     await page.evaluate(async () => ({
       local: localStorage.length,
