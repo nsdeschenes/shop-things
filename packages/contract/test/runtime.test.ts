@@ -1,14 +1,13 @@
-import {afterEach, assert, expect, test, vi} from 'vitest';
-
 import type {
   DatabaseState,
   DraftProtection,
   DraftResolution,
   ShopThingsBridge,
-} from '../dist/index.js';
+} from '@shop-things/contract';
+import {afterEach, assert, expect, test, vi} from 'vitest';
 
 afterEach(() => vi.unstubAllGlobals());
-import {createClient, getClient} from '../dist/client.js';
+import {createClient, getClient} from '@shop-things/contract/client';
 import {
   actions,
   databaseStateSchema,
@@ -16,7 +15,7 @@ import {
   draftReplySchema,
   draftResolutionSchema,
   customerRecordSchema,
-} from '../dist/schemas.js';
+} from '@shop-things/contract/schemas';
 
 const unavailableBridge = /bridge is unavailable/;
 const mismatchedReply = /does not match/;
@@ -165,9 +164,9 @@ test('named calls preserve outcomes and contain rejected or malformed transport'
     return {status: 'success', value: record};
   };
 
-  // @ts-expect-error Generated identity must be rejected at runtime too.
   const invalid = await client.customers.create({
     session: 's',
+    // @ts-expect-error Generated identity must be rejected at runtime too.
     values: {...values, id: 2},
   });
   expect(invalid).toMatchObject({status: 'error', error: {code: 'VALIDATION'}});
