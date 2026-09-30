@@ -14,14 +14,18 @@ Linux glibc x64 packaged backend acceptance requires the corresponding package a
 `pnpm dev` first builds all prerequisites and preload, then starts Vite and Electron.
 Changes trigger serialized rebuilds. The supervisor asks Electron to quit through its
 private parent-process channel and waits for startup/current database work to finish.
-Rejected or timed-out shutdown leaves the app open; it never forcibly kills Electron.
+Rejected or timed-out shutdown leaves the app open and resumes watching; it never
+forcibly kills Electron. Renderer HMR is disabled. Type `r` and press Enter in the
+development terminal to retry a rejected restart or failed build without a source edit.
 New or failed emission prevents a replacement launch. Test watch commands run serialized
 checks after source changes, including contract mutation checks.
 
-The preload stays unattached and renderer authorization/protected hooks stay inactive.
-Actual renderer refresh, draft preservation during watcher restarts, native-dialog GUI,
-and navigation/security journeys remain deferred to renderer integration. Build/process
-checks exercise emitted code and controlled participants rather than a connected GUI.
+The sandboxed preload is attached and exact-resource renderer authorization is active.
+The renderer owns one subscription and a document-scoped draft participant. Native close,
+quit, and reload wait for Save and require correlated draft approval; guarded reload keeps
+the database session open. Editors remain unavailable until the CRUD integration stage.
+Watcher draft preservation belongs to the next stage. See `acceptance/README.md` for
+actual renderer checks, controlled editable coverage, and platform deferrals.
 
 Run `node --experimental-strip-types scripts/acceptance.ts` from a clean committed checkout on Linux glibc x64
 to install, run all required checks without skipped cases, build/package, and execute

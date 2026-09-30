@@ -10,10 +10,11 @@ type Props = {
   label: string;
   inputMode?: ComponentProps<typeof Input>['inputMode'];
   uppercase?: boolean;
+  readOnly?: boolean;
   style?: stylex.StyleXStyles;
 };
 
-export default function TextField({label, inputMode, uppercase, style}: Props) {
+export default function TextField({label, inputMode, uppercase, style, readOnly}: Props) {
   const field = formContexts.useFieldContext<string>();
   return (
     <Field.Root
@@ -25,6 +26,7 @@ export default function TextField({label, inputMode, uppercase, style}: Props) {
     >
       <Field.Label {...stylex.props(styles.label)}>{label}</Field.Label>
       <Input
+        readOnly={readOnly}
         name={field.name}
         inputMode={inputMode}
         value={field.state.value}
@@ -35,7 +37,7 @@ export default function TextField({label, inputMode, uppercase, style}: Props) {
       />
       {field.state.meta.errors.length > 0 && (
         <Field.Error match {...stylex.props(styles.error)}>
-          {field.state.meta.errors.map(error => error?.message).join(' ')}
+          {[...new Set(field.state.meta.errors.map(error => error?.message))].join(' ')}
         </Field.Error>
       )}
     </Field.Root>

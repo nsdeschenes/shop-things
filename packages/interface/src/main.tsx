@@ -1,9 +1,11 @@
 import * as stylex from '@stylexjs/stylex';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {QueryClientProvider} from '@tanstack/react-query';
 import {RouterProvider, createRouter} from '@tanstack/react-router';
 import {StrictMode} from 'react';
 import ReactDOM from 'react-dom/client';
 
+import {createApplication} from './application/controller';
+import createApplicationHistory from './application/history';
 import {routeTree} from './routeTree.gen';
 import {typography} from './styles/typography.stylex';
 
@@ -18,12 +20,22 @@ const styles = stylex.create({
 
 document.body.classList.add(...(stylex.props(styles.body).className?.split(' ') ?? []));
 
-const queryClient = new QueryClient();
+const application = createApplication(window.location.href);
+const queryClient = application.queryClient;
+void application.start();
+window.addEventListener('pagehide', () => application.dispose());
+window.addEventListener('pageshow', event => {
+  if (event.persisted) {
+    void application.start();
+  }
+});
 
 const router = createRouter({
+  history: createApplicationHistory(),
   routeTree,
   context: {
     queryClient,
+    application,
   },
 });
 

@@ -78,6 +78,14 @@ export class RestartSupervisor {
     });
     return this.running;
   }
+  retry(): Promise<void> {
+    if (this.running) {
+      return this.running;
+    }
+
+    this.attempted = null;
+    return this.refresh();
+  }
   async checkAndCycle() {
     const version = await this.options.version();
     if (version !== this.attempted) {

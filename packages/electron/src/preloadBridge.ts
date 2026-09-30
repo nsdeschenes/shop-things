@@ -32,15 +32,43 @@ export function createPreloadBridge(
 ): ShopThingsBridge {
   let document: Promise<string> | null = null;
 
-  function getDocument() {
-    document ??= ipc.invoke(controls.handshake).then(value => {
-      if (!isToken(value)) {
-        throw new Error('The renderer document is unavailable.');
+  const registrations = new Set<Promise<void>>();
+
+  function getDocument(): Promise<string> {
+    document ??= (async () => {
+      // Renderer scripts can execute before dom-ready grants authorization.
+      // Retry only the same main-owned handshake; never change its trust policy.
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const value = await ipc.invoke(controls.handshake);
+        if (isToken(value)) {
+          return value;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
 
-      return value;
+      throw new Error('The renderer document is unavailable.');
+    })().catch(error => {
+      document = null;
+      throw error;
     });
     return document;
+  }
+
+  function register(
+    channel: string,
+    payload: Record<string, string>,
+    active: () => boolean
+  ) {
+    const ready = getDocument().then(async documentId => {
+      if (active() && (await ipc.invoke(channel, {documentId, ...payload})) !== true) {
+        throw new Error('The renderer registration is unavailable.');
+      }
+    });
+    registrations.add(ready);
+    // Retain failures until the owner disposes this registration and retries.
+    void ready.catch(() => {});
+    return () => registrations.delete(ready);
   }
 
   function call<A, R>(
@@ -49,6 +77,7 @@ export function createPreloadBridge(
   ) {
     return async (args: A): Promise<R> => {
       try {
+        await Promise.all(registrations);
         const result = definition.result.safeParse(
           await ipc.invoke(`shop-things:${name}`, {
             documentId: await getDocument(),
@@ -105,19 +134,18 @@ export function createPreloadBridge(
         }
 
         ipc.on(controls.stateChanged, listener);
-        void getDocument()
-          .then(documentId => {
-            if (active) {
-              ipc.send(controls.stateSubscribe, {documentId, subscriptionId});
-            }
-          })
-          .catch(() => {});
+        const stopRegistration = register(
+          controls.stateSubscribe,
+          {subscriptionId},
+          () => active
+        );
         return () => {
           if (!active) {
             return;
           }
 
           active = false;
+          stopRegistration();
           ipc.removeListener(controls.stateChanged, listener);
           void getDocument()
             .then(documentId =>
@@ -206,19 +234,18 @@ export function createPreloadBridge(
 
         ipc.on(controls.draftPrepare, prepare);
         ipc.on(controls.draftResolve, resolve);
-        void getDocument()
-          .then(documentId => {
-            if (active) {
-              ipc.send(controls.draftRegister, {documentId, registrationId});
-            }
-          })
-          .catch(() => {});
+        const stopRegistration = register(
+          controls.draftRegister,
+          {registrationId},
+          () => active
+        );
         return () => {
           if (!active) {
             return;
           }
 
           active = false;
+          stopRegistration();
           ipc.removeListener(controls.draftPrepare, prepare);
           ipc.removeListener(controls.draftResolve, resolve);
           void getDocument()

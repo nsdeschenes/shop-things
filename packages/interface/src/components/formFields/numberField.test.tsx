@@ -1,16 +1,20 @@
 import {render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, test} from 'vitest';
+import {z} from 'zod';
 
-import previewCustomer from '../../fixtures/previewCustomer';
-import customerFormOptions from '../../forms/customerFormOptions';
 import useAppForm from '../../forms/useAppForm';
 
 const initialNumberPattern = /^1001$/;
 const editedNumberPattern = /^2002$/;
 
 function CustomerNumberForm() {
-  const form = useAppForm(customerFormOptions(previewCustomer));
+  const form = useAppForm({
+    defaultValues: {customerNumber: 1001 as number | null},
+    validators: {
+      onChange: z.object({customerNumber: z.number({error: 'Enter a customer number.'})}),
+    },
+  });
   return (
     <>
       <form.AppField name="customerNumber">

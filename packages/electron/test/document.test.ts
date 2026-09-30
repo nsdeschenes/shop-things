@@ -2,7 +2,7 @@ import {EventEmitter} from 'node:events';
 
 import {expect, test} from 'vitest';
 
-import {trackAuthorizedDocument} from '../src/document.js';
+import {isTrustedRendererUrl, trackAuthorizedDocument} from '../src/document.js';
 class Contents extends EventEmitter {
   mainFrame = {url: 'file:///app/renderer/index.html'};
   isDestroyed() {
@@ -37,4 +37,59 @@ test('document authorization changes on same-URL navigation and rejects unapprov
   expect(contents.listenerCount('dom-ready')).toBe(0);
   expect(contents.listenerCount('did-start-navigation')).toBe(0);
   expect(contents.listenerCount('destroyed')).toBe(0);
+});
+
+test('allows only routing state around the configured renderer resource', () => {
+  expect(
+    isTrustedRendererUrl(
+      'http://127.0.0.1:5173/?preview=true#/customers/2',
+      'http://127.0.0.1:5173/'
+    )
+  ).toBe(true);
+  for (const candidate of [
+    'http://127.0.0.1:5174/',
+    'http://localhost:5173/',
+    'http://127.0.0.1:5173/other',
+    'http://127.0.0.1:5173/?other=true',
+    'http://127.0.0.1:5173/?preview=false',
+  ]) {
+    expect(isTrustedRendererUrl(candidate, 'http://127.0.0.1:5173/')).toBe(false);
+  }
+
+  expect(
+    isTrustedRendererUrl(
+      'file:///app/renderer/index.html#/customers/2',
+      'file:///app/renderer/index.html'
+    )
+  ).toBe(true);
+  expect(
+    isTrustedRendererUrl('file:///other/index.html', 'file:///app/renderer/index.html')
+  ).toBe(false);
+});
+
+test('same-document hash routing retains authorization and document identity', () => {
+  const contents = new Contents();
+  const tracked = trackAuthorizedDocument(contents, contents.mainFrame.url);
+  contents.emit('dom-ready');
+  const document = tracked.currentDocument();
+  contents.mainFrame.url += '#/customers/2';
+  contents.emit('did-start-navigation', {}, contents.mainFrame.url, true, true);
+  expect(tracked.currentDocument()).toBe(document);
+  expect(document?.url).toBe(contents.mainFrame.url);
+  tracked.dispose();
+});
+
+test('blocked external attempts retain the document while an actual navigation commit revokes it', () => {
+  const contents = new Contents();
+  const tracked = trackAuthorizedDocument(contents, contents.mainFrame.url);
+  contents.emit('dom-ready');
+  const current = tracked.currentDocument();
+  contents.emit('did-start-navigation', {}, 'https://example.com', false, true);
+  expect(tracked.currentDocument()).toBe(current);
+  contents.mainFrame.url = 'https://example.com';
+  contents.emit('did-navigate');
+  expect(tracked.currentDocument()).toBeNull();
+  contents.emit('dom-ready');
+  expect(tracked.currentDocument()).toBeNull();
+  tracked.dispose();
 });

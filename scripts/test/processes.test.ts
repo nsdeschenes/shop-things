@@ -14,11 +14,13 @@ async function childProcess(mode: 'accept' | 'deny') {
     [
       '-e',
       `
+    let denied = ${JSON.stringify(mode)} === 'deny';
     process.on('message', message => {
       if(message.type === 'shop-things:quit') {
-        if(${JSON.stringify(mode)} === 'deny') process.send({denied:true});
+        if(denied) process.send({denied:true});
         else setTimeout(() => {process.send({closed:true});process.disconnect();},40);
       }
+      if(message.type === 'approve-test') {denied = false;process.send({approved:true});}
       if(message.type === 'finish-test') process.disconnect();
     });
     process.send({ready:true});
@@ -73,8 +75,11 @@ test('failed builds prevent launches until a successful cycle', async () => {
     await expect(readFile(launchPath)).rejects.toMatchObject({code: 'ENOENT'});
     expect(failures.length).toBe(1);
     failing = false;
-    await writeFile(versionPath, '2');
+    // An explicit retry must work even when dependencies/build conditions changed
+    // without changing the observed source version.
     await supervisor.refresh();
+    await expect(readFile(launchPath)).rejects.toMatchObject({code: 'ENOENT'});
+    await supervisor.retry();
     expect(await readFile(launchPath, 'utf8')).toBe('launched\n');
   } finally {
     await rm(directory, {recursive: true, force: true});
@@ -123,7 +128,7 @@ test('a denied real application shutdown prevents destructive rebuild or replace
     launches = 0;
   const supervisor = new RestartSupervisor({
     version: async () => 'changed',
-    stop: () => requestOrderlyExit(child, 40),
+    stop: () => requestOrderlyExit(child, 500),
     build: async () => {
       builds++;
     },
@@ -138,9 +143,25 @@ test('a denied real application shutdown prevents destructive rebuild or replace
     expect(launches).toBe(0);
     expect(child.exitCode).toBe(null);
     expect(child.killed).toBe(false);
+    await supervisor.refresh();
+    expect(builds).toBe(0);
+    // Concurrent explicit retries share a single graceful stop attempt.
+    const firstRetry = supervisor.retry();
+    expect(supervisor.retry()).toBe(firstRetry);
+    await firstRetry;
+    expect(builds).toBe(0);
+    expect(child.exitCode).toBe(null);
     expect(child.killed).toBe(false);
+    child.send({type: 'approve-test'});
+    await once(child, 'message');
+    await supervisor.retry();
+    expect(child.exitCode).toBe(0);
+    expect(builds).toBe(1);
+    expect(launches).toBe(1);
   } finally {
-    child.send({type: 'finish-test'});
-    await once(child, 'exit');
+    if (child.connected && child.exitCode === null) {
+      child.send({type: 'finish-test'});
+      await once(child, 'exit');
+    }
   }
 });

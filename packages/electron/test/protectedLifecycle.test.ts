@@ -9,12 +9,12 @@ import {fixture, migrationsFolder, success, values} from './backendFixture.js';
 function simulatedEditor(coordinator: DraftCoordinator) {
   const editor = {
     frozen: false,
-    draft: 'unsaved',
+    draft: '',
     selection: 1 as number | null,
     requests: [] as DraftRequest[],
     resolutions: [] as DraftResolution[],
     respond: true,
-    dirty: true,
+    dirty: false,
   };
   const participant = {
     documentId: 'document-1',
@@ -35,7 +35,18 @@ function simulatedEditor(coordinator: DraftCoordinator) {
     },
   };
   const unregister = coordinator.register(participant);
-  return {editor, participant, unregister};
+  return {
+    editor,
+    participant,
+    unregister,
+    edit() {
+      editor.dirty = true;
+      editor.draft = 'unsaved';
+      editor.selection = 1;
+      editor.requests = [];
+      editor.resolutions = [];
+    },
+  };
 }
 
 test('protected switch/reopen rotates sessions while failure after discard preserves selection and draft', async () => {
@@ -44,6 +55,7 @@ test('protected switch/reopen rotates sessions while failure after discard prese
   const f = await fixture({drafts});
   try {
     const original = success(await f.service.handlers['database.create']());
+    participant.edit();
     const record = success(
       await f.service.handlers['customers.create']({session: original.session!, values})
     );
@@ -113,6 +125,7 @@ test('timeout, malformed, missing and failing preparation safely abort and corre
   const f = await fixture({drafts});
   try {
     const original = success(await f.service.handlers['database.create']());
+    participant.edit();
     f.choices.open = f.choices.create;
     participant.editor.respond = false;
     expect(await f.service.handlers['database.open']()).toMatchObject({status: 'error'});
@@ -191,6 +204,7 @@ test('pending close blocks admissions, waits active work, then aborts or closes 
   });
   try {
     const state = success(await service.handlers['database.create']());
+    participant.edit();
     const operation = service.handlers['customers.list']({
       session: state.session!,
       query: '',
@@ -253,6 +267,7 @@ test('document replacement during candidate migration closes candidate and prese
   });
   try {
     const state = success(await service.handlers['database.create']());
+    participant.edit();
     f.choices.open = f.choices.create;
     expect(await service.handlers['database.open']()).toMatchObject({status: 'error'});
     expect(candidateClosed).toBe(true);
@@ -275,6 +290,7 @@ test('close preparation timeout and discard dialog failure keep the connection a
   const f = await fixture({drafts});
   try {
     const state = success(await f.service.handlers['database.create']());
+    participant.edit();
     participant.editor.respond = false;
     expect(await f.service.requestClose()).toMatchObject({status: 'error'});
     expect(f.service.status()).toEqual(state);
@@ -306,6 +322,7 @@ test('close preparation timeout and discard dialog failure keep the connection a
 test('editor discard approval permits navigation without clearing draft before navigation commits', async () => {
   const drafts = new DraftCoordinator();
   const participant = simulatedEditor(drafts);
+  participant.edit();
   const f = await fixture({drafts});
   try {
     f.choices.discard = false;
@@ -324,6 +341,70 @@ test('editor discard approval permits navigation without clearing draft before n
     expect(participant.editor.requests).toEqual([]);
   } finally {
     participant.unregister();
+    await f.cleanup();
+  }
+});
+
+test('guarded reload preserves database/session and aborted scheduling retains draft', async () => {
+  const drafts = new DraftCoordinator();
+  const participant = simulatedEditor(drafts);
+  const f = await fixture({drafts});
+  try {
+    const state = success(await f.service.handlers['database.create']());
+    participant.edit();
+    let reloads = 0;
+    f.choices.discard = false;
+    expect(
+      await f.service.requestReload(() => {
+        reloads++;
+      })
+    ).toEqual({status: 'cancelled'});
+    expect(reloads).toBe(0);
+    expect(f.service.status()).toEqual(state);
+    expect(participant.editor.draft).toBe('unsaved');
+    f.choices.discard = true;
+    expect(
+      await f.service.requestReload(() => {
+        throw new Error('Could not schedule reload');
+      })
+    ).toMatchObject({status: 'error'});
+    expect(participant.editor.draft).toBe('unsaved');
+    expect(participant.editor.resolutions.at(-1)?.outcome).toBe('aborted');
+    expect(
+      success(
+        await f.service.requestReload(() => {
+          reloads++;
+        })
+      )
+    ).toEqual({reloaded: true});
+    expect(reloads).toBe(1);
+    expect(f.service.status()).toEqual(state);
+    expect(participant.editor.resolutions.at(-1)?.outcome).toBe('committed');
+  } finally {
+    participant.unregister();
+    await f.cleanup();
+  }
+});
+
+test('recovery with no active database still requires explicit participant and protects retained draft', async () => {
+  const drafts = new DraftCoordinator();
+  const f = await fixture({drafts});
+  try {
+    expect(await f.service.handlers['database.create']()).toMatchObject({
+      status: 'error',
+    });
+    expect(f.service.status().available).toBe(false);
+    const participant = simulatedEditor(drafts);
+    participant.edit();
+    f.choices.discard = false;
+    expect(await f.service.handlers['database.create']()).toEqual({status: 'cancelled'});
+    expect(participant.editor.draft).toBe('unsaved');
+    expect(f.service.status().available).toBe(false);
+    f.choices.discard = true;
+    success(await f.service.handlers['database.create']());
+    expect(participant.editor.resolutions.at(-1)?.outcome).toBe('committed');
+    participant.unregister();
+  } finally {
     await f.cleanup();
   }
 });

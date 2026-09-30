@@ -2,13 +2,10 @@ import {render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, test} from 'vitest';
 
-import previewCustomer from '../../fixtures/previewCustomer';
-import customerFormOptions from '../../forms/customerFormOptions';
 import useAppForm from '../../forms/useAppForm';
-import type Customer from '../../types/customer';
 
-function ProvinceForm({customer}: {customer?: Customer}) {
-  const form = useAppForm(customerFormOptions(customer));
+function ProvinceForm({province = 'NS'}: {province?: string}) {
+  const form = useAppForm({defaultValues: {province: province.toUpperCase()}});
   return (
     <>
       <form.AppField name="province">{field => <field.ProvinceField />}</form.AppField>
@@ -49,7 +46,7 @@ test('defaults to NS and allows filtering and selecting Canadian province codes'
 });
 
 test('preserves an existing province and normalizes its code to uppercase', () => {
-  render(<ProvinceForm customer={{...previewCustomer, province: 'bc'}} />);
+  render(<ProvinceForm province="bc" />);
   expect(screen.getByRole('combobox', {name: 'Province'})).toHaveValue('BC');
   expect(screen.getByLabelText('Selected province')).toHaveTextContent('BC');
 });

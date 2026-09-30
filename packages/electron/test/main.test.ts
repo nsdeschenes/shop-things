@@ -1,3 +1,4 @@
+import {EventEmitter} from 'node:events';
 import {fileURLToPath} from 'node:url';
 
 import {beforeEach, expect, test, vi} from 'vitest';
@@ -14,6 +15,8 @@ const electron = vi.hoisted(() => {
       getPath: vi.fn(() => '/tmp/shop-things-main-test-empty-settings'),
       isPackaged: false,
     },
+    Menu: {buildFromTemplate: vi.fn(), setApplicationMenu: vi.fn()},
+    dialog: {showMessageBox: vi.fn(async () => ({response: 0}))},
     ipcMain: {
       handle: vi.fn(),
       removeHandler: vi.fn(),
@@ -24,6 +27,17 @@ const electron = vi.hoisted(() => {
       vi.fn(function (this: {loadURL: typeof loadURL; loadFile: typeof loadFile}) {
         this.loadURL = loadURL;
         this.loadFile = loadFile;
+        Object.assign(this, {
+          on: vi.fn(),
+          close: vi.fn(),
+          isDestroyed: () => false,
+          webContents: Object.assign(new EventEmitter(), {
+            mainFrame: {url: ''},
+            isDestroyed: () => false,
+            send: vi.fn(),
+            setWindowOpenHandler: vi.fn(),
+          }),
+        });
       }),
       {getAllWindows: vi.fn<() => object[]>()}
     ),
@@ -56,7 +70,12 @@ test('loads the development server when configured', async () => {
   expect(electron.BrowserWindow).toHaveBeenCalledWith({
     width: 800,
     height: 600,
-    webPreferences: {contextIsolation: true, sandbox: true, nodeIntegration: false},
+    webPreferences: {
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      preload: fileURLToPath(new URL('../src/preload.cjs', import.meta.url)),
+    },
   });
   expect(electron.loadURL).toHaveBeenCalledWith('http://127.0.0.1:5173');
   expect(electron.loadFile).not.toHaveBeenCalled();
@@ -89,12 +108,17 @@ test('activation opens a window only when none remain', async () => {
   expect(electron.BrowserWindow).toHaveBeenCalledTimes(2);
 });
 
-test('keeps preload and renderer-dependent protection inactive', async () => {
+test('attaches sandboxed preload while rejecting unknown senders', async () => {
   await startApp();
   expect(electron.BrowserWindow).toHaveBeenCalledWith({
     width: 800,
     height: 600,
-    webPreferences: {contextIsolation: true, sandbox: true, nodeIntegration: false},
+    webPreferences: {
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      preload: fileURLToPath(new URL('../src/preload.cjs', import.meta.url)),
+    },
   });
   const status = electron.ipcMain.handle.mock.calls.find(
     ([channel]) => channel === 'shop-things:database.status'
@@ -112,7 +136,7 @@ test('keeps preload and renderer-dependent protection inactive', async () => {
   expect(electron.app.quit).toHaveBeenCalledTimes(process.platform === 'darwin' ? 0 : 1);
 });
 
-test('placeholder quit waits startup, avoids creating a window and closes the backend once', async () => {
+test('quit waits startup and missing participant keeps the backend and window open', async () => {
   const {FileDatabaseSettings} = await import('../src/settings.js');
   const {ActionService} = await import('../src/actionService.js');
   let complete!: (value: null) => void;
@@ -120,7 +144,7 @@ test('placeholder quit waits startup, avoids creating a window and closes the ba
     complete = resolve;
   });
   const read = vi.spyOn(FileDatabaseSettings.prototype, 'read').mockReturnValue(reading);
-  const close = vi.spyOn(ActionService.prototype, 'closeUnprotectedWhenIdle');
+  const close = vi.spyOn(ActionService.prototype, 'requestClose');
   try {
     await import('../src/main.ts');
     await vi.waitFor(() => expect(electron.ipcMain.handle).toHaveBeenCalled());
@@ -137,8 +161,9 @@ test('placeholder quit waits startup, avoids creating a window and closes the ba
     expect(event.preventDefault).toHaveBeenCalledTimes(2);
     expect(electron.app.quit).not.toHaveBeenCalled();
     complete(null);
-    await vi.waitFor(() => expect(electron.app.quit).toHaveBeenCalled());
-    expect(electron.BrowserWindow).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(close).toHaveBeenCalled());
+    expect(electron.app.quit).not.toHaveBeenCalled();
+    expect(electron.BrowserWindow).toHaveBeenCalledOnce();
     expect(close).toHaveBeenCalledOnce();
   } finally {
     complete(null);

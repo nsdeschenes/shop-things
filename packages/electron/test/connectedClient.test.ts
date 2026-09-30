@@ -155,8 +155,8 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
     state = applyNewerDatabaseState(state, next);
   });
   let frozen = false,
-    unsavedDraft = 'local unsaved edits',
-    selection: number | null = 1;
+    unsavedDraft = '',
+    selection: number | null = null;
   const unregister = client.drafts.registerProtection({
     async prepare(request) {
       frozen = true;
@@ -182,6 +182,8 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
     const initial = client.database.status();
     await initialStarted;
     const createdState = success(await client.database.create());
+    unsavedDraft = 'local unsaved edits';
+    selection = 1;
     expect(createdState.selectedPath).toBe(workingPath);
     expect(connections.size).toBe(1);
     releaseInitial();
