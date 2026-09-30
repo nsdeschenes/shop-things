@@ -5,8 +5,10 @@ import {render} from '@testing-library/react';
 import {createApplication} from '../src/application/controller';
 import {routeTree} from '../src/routeTree.gen';
 
-export default function renderRoute(path: string) {
-  const application = createApplication('http://localhost/?preview=true', false);
+export default function renderRoute(
+  path: string,
+  application = createApplication('http://localhost/?preview=true', false)
+) {
   void application.start();
   const queryClient = application.queryClient;
   const router = createRouter({

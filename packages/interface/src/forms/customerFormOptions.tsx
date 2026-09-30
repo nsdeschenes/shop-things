@@ -1,24 +1,32 @@
+import type {Customer} from '@shop-things/contract';
 import {formOptions} from '@tanstack/react-form';
 
 import customerFormSchema from './customerFormSchema';
 
-export default function customerFormOptions() {
+export default function customerFormOptions(customer?: Customer) {
   return formOptions({
-    validators: {onBlur: customerFormSchema, onSubmit: customerFormSchema},
+    validators: {
+      onBlur: customerFormSchema(Boolean(customer)),
+      onSubmit: customerFormSchema(Boolean(customer)),
+    },
     defaultValues: {
-      firstName: '',
-      lastName: '',
-      address: '',
-      city: '',
-      province: '',
-      postalCode: '',
-      homePhone: '',
-      email: '',
-      stock: '0',
-      previousBalance: '0.00',
-      balance: '0.00',
-      donate: false,
-      comments: '',
+      customerNumber:
+        customer?.customerNumber === null || customer?.customerNumber === undefined
+          ? ''
+          : String(customer.customerNumber),
+      firstName: customer?.firstName ?? '',
+      lastName: customer?.lastName ?? '',
+      address: customer?.address ?? '',
+      city: customer?.city ?? '',
+      province: customer?.province ?? '',
+      postalCode: customer?.postalCode ?? '',
+      homePhone: customer?.homePhone ?? '',
+      email: customer?.email ?? '',
+      stock: String(customer?.stock ?? 0),
+      previousBalance: customer?.previousBalance ?? '0.00',
+      balance: customer?.balance ?? '0.00',
+      donate: customer?.donate ?? false,
+      comments: customer?.comments ?? '',
     },
   });
 }

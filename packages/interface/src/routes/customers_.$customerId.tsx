@@ -1,11 +1,13 @@
+import type {CustomerRecord} from '@shop-things/contract';
 import * as stylex from '@stylexjs/stylex';
 import {isCancelledError, useQuery} from '@tanstack/react-query';
 import {createFileRoute, Link, useRouterState} from '@tanstack/react-router';
-import {useSyncExternalStore} from 'react';
+import {useEffect, useState, useSyncExternalStore} from 'react';
 
 import {CustomerRequestError, customerDetailOptions} from '../application/customers';
 import Button from '../components/button/button';
 import buttonStyles from '../components/button/buttonStyles';
+import CustomerForm from '../components/customerForm/customerForm';
 import DeleteCustomer from '../components/deleteCustomer/deleteCustomer';
 import PageShell from '../components/pageShell/pageShell';
 import {breakpoints} from '../styles/breakpoints.stylex';
@@ -16,6 +18,7 @@ import {spacing} from '../styles/spacing.stylex';
 import {typography} from '../styles/typography.stylex';
 
 export const Route = createFileRoute('/customers_/$customerId')({
+  remountDeps: ({params}) => params.customerId,
   component: RouteComponent,
 });
 
@@ -63,6 +66,8 @@ function RouteComponent() {
     application.protection.subscribe,
     application.protection.getState
   );
+  const [editing, setEditing] = useState<CustomerRecord | null>(null);
+  useEffect(() => application.onSessionChanged(() => setEditing(null)), [application]);
   const {customerId} = Route.useParams();
   const navigate = Route.useNavigate();
   const id = Number(customerId);
@@ -90,6 +95,18 @@ function RouteComponent() {
       Back to customers
     </Link>
   );
+
+  if (editing && editing.customer.id === id) {
+    return (
+      <CustomerForm
+        key={editing.customer.id}
+        application={application}
+        session={editing.reference.session}
+        initialRecord={editing}
+        onSaved={() => setEditing(null)}
+      />
+    );
+  }
 
   if (missing) {
     return (
@@ -172,7 +189,16 @@ function RouteComponent() {
       actions={
         <div {...stylex.props(styles.actions)}>
           {back}
-          <Button disabled>Edit customer</Button>
+          <Button
+            disabled={disabled}
+            onClick={() => {
+              if (record.data) {
+                setEditing(structuredClone(record.data));
+              }
+            }}
+          >
+            Edit customer
+          </Button>
           <DeleteCustomer
             key={`${record.data.reference.session}:${record.data.reference.id}:${record.data.reference.revision}`}
             application={application}

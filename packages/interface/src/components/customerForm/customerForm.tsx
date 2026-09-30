@@ -107,28 +107,39 @@ function focusInvalidField() {
 export default function CustomerForm({
   application,
   session,
+  initialRecord,
+  onSaved,
 }: {
   application: Application;
   session: string;
+  initialRecord?: CustomerRecord;
+  onSaved?: () => void;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const state = useSyncExternalStore(application.subscribe, application.getState);
   const create = useMutation(createCustomerOptions(application, session));
   const update = useMutation(updateCustomerOptions(application));
-  const [saved, setSaved] = useState<CustomerRecord | null>(null);
+  const [saved, setSaved] = useState<CustomerRecord | null>(initialRecord ?? null);
   const [error, setError] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState(false);
   const [registered, setRegistered] = useState(false);
   const draftRef = useRef({
-    baseline: customerFormOptions().defaultValues,
-    saved: null as CustomerRecord | null,
+    baseline: customerFormOptions(initialRecord?.customer).defaultValues,
+    saved: initialRecord
+      ? structuredClone(initialRecord)
+      : (null as CustomerRecord | null),
     submitting: false,
   });
   const form = useAppForm({
-    ...customerFormOptions(),
+    ...customerFormOptions(initialRecord?.customer),
     onSubmitInvalid: focusInvalidField,
     onSubmit: async ({value}) => {
-      if (draftRef.current.submitting || application.protection.getState().frozen) {
+      if (
+        blocked ||
+        draftRef.current.submitting ||
+        application.protection.getState().frozen
+      ) {
         return;
       }
 
@@ -140,14 +151,17 @@ export default function CustomerForm({
       try {
         await application.protection.save(async () => {
           try {
+            const {customerNumber, ...editable} = submitted;
             const values = createCustomerInputSchema.parse({
-              ...submitted,
+              ...editable,
               stock: Number(submitted.stock),
             });
             const result = draftRef.current.saved
               ? await update.mutateAsync({
                   reference: draftRef.current.saved.reference,
-                  changes: values,
+                  changes: initialRecord
+                    ? {...values, customerNumber: Number(customerNumber)}
+                    : values,
                 })
               : await create.mutateAsync(values);
             if (!captured.isCurrent()) {
@@ -177,6 +191,13 @@ export default function CustomerForm({
             completed = result;
           } catch (failure) {
             if (captured.isCurrent() && !isCancelledError(failure)) {
+              if (
+                failure instanceof CustomerRequestError &&
+                ['STALE_REVISION', 'CUSTOMER_DELETED'].includes(failure.error.code)
+              ) {
+                setBlocked(true);
+              }
+
               const fields =
                 failure instanceof CustomerRequestError
                   ? failure.error.fieldErrors
@@ -200,13 +221,18 @@ export default function CustomerForm({
             throw failure;
           }
         });
+        const navigationState = application.getState();
         if (
           completed &&
+          !navigationState.pendingTransition &&
+          !navigationState.reconciling &&
+          !navigationState.recoveryRequired &&
           captured.isCurrent() &&
           sameDraftValues(form.store.state.values, submitted)
         ) {
           const result: CustomerRecord = completed;
           application.protection.navigateAfterSave(() => {
+            onSaved?.();
             void navigate({
               to: '/customers/$customerId',
               params: {customerId: String(result.customer.id)},
@@ -260,18 +286,20 @@ export default function CustomerForm({
   return (
     <PageShell
       title={
-        saved
-          ? protection.dirty
-            ? 'Customer saved — unsaved edits'
-            : 'Customer saved'
-          : 'New Customer'
+        initialRecord
+          ? 'Edit Customer'
+          : saved
+            ? protection.dirty
+              ? 'Customer saved — unsaved edits'
+              : 'Customer saved'
+            : 'New Customer'
       }
       stickyHeader
       actions={
         <div {...stylex.props(styles.actions)}>
           <Button
             variant="primary"
-            disabled={disabled || pending}
+            disabled={disabled || pending || blocked}
             onClick={() => form.handleSubmit()}
           >
             Save
@@ -288,10 +316,15 @@ export default function CustomerForm({
       }
     >
       {error && <p role="alert">{error}</p>}
+      {blocked && (
+        <p>Reload this customer before saving again. Your edits are retained.</p>
+      )}
       {unavailable && (
         <p role="alert">The database is unavailable. Your edits are retained.</p>
       )}
-      <p>Customer number: {saved?.customer.customerNumber ?? 'Assigned when saved'}</p>
+      {!initialRecord && (
+        <p>Customer number: {saved?.customer.customerNumber ?? 'Assigned when saved'}</p>
+      )}
       <Form
         noValidate
         onSubmit={event => {
@@ -308,6 +341,17 @@ export default function CustomerForm({
             >
               <legend {...stylex.props(styles.legend)}>Identity and Contact</legend>
               <div {...stylex.props(styles.grid)}>
+                {initialRecord && (
+                  <form.AppField name="customerNumber">
+                    {field => (
+                      <field.TextField
+                        label="Customer number"
+                        inputMode="numeric"
+                        style={styles.wide}
+                      />
+                    )}
+                  </form.AppField>
+                )}
                 {identityFields.map(config => (
                   <form.AppField key={config.name} name={config.name}>
                     {field => (
