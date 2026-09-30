@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Temporary preview controls stay outside the public contract. */
 import type {
   Client,
   CustomerRecord,
@@ -11,123 +10,21 @@ import {
   updateCustomerInputSchema,
 } from '@shop-things/contract/schemas';
 
-import {getPreviewBackup, recordPreviewBackup, recordPreviewExport} from './previewFiles';
-
-export type PreviewOutcome = 'success' | 'cancelled' | 'error';
-const outcomes = new WeakMap<Client, (outcome: PreviewOutcome) => void>();
-const recoveries = new WeakMap<Client, () => void>();
-export function simulatePreviewRecovery(client: Client) {
-  recoveries.get(client)?.();
-}
-
-export function setPreviewOutcome(client: Client, outcome: PreviewOutcome) {
-  outcomes.get(client)?.(outcome);
-}
-
-const digits = /^\d+$/;
-const uppercase = /[A-Z]/g;
-const regexMetacharacters = /[.*+?^${}()|[\]\\]/g;
-
 // One instance per document. Never connect browser preview to native storage.
 export default function createPreviewClient(
   confirmDiscard: () => Promise<boolean> = async () => false
 ): Client {
-  let state: DatabaseState = {
+  const state: DatabaseState = {
     available: true,
-    selectedPath: 'Preview: temporary customers.sqlite',
+    selectedPath: null,
     session: crypto.randomUUID(),
     version: 1,
   };
   const customers: CustomerRecord[] = [];
-  const listeners = new Set<(state: DatabaseState) => void>();
-  let participant: Parameters<Client['drafts']['registerProtection']>[0] | null = null;
-  let outcome: PreviewOutcome = 'success';
-  async function transition(
-    action: string,
-    snapshot: ReturnType<typeof getPreviewBackup> = null
-  ) {
-    const owner = participant;
-    if (!owner) {
-      return error(
-        'INTERNAL',
-        'The preview could not prepare this operation. Try again.'
-      );
-    }
-
-    const request = {requestId: crypto.randomUUID(), documentId: crypto.randomUUID()};
-    let committed = false;
-    try {
-      const reply = await owner.prepare(request);
-      if (
-        participant !== owner ||
-        reply.requestId !== request.requestId ||
-        reply.documentId !== request.documentId
-      ) {
-        return error('INTERNAL', 'The preview document changed. Try again.');
-      }
-
-      if (reply.hasUnsavedDraft && !(await confirmDiscard())) {
-        return {status: 'cancelled' as const};
-      }
-
-      if (outcome === 'cancelled') {
-        return {status: 'cancelled' as const};
-      }
-
-      if (outcome === 'error') {
-        return error(
-          'DATABASE_UNAVAILABLE',
-          'Simulated file failure. Choose another name or location and try again.'
-        );
-      }
-
-      const session = crypto.randomUUID();
-      const restored =
-        snapshot?.customers.map(record => ({
-          customer: {...record.customer},
-          reference: {session, id: record.customer.id, revision: crypto.randomUUID()},
-        })) ?? [];
-      customers.splice(0, customers.length, ...restored);
-      nextId = snapshot?.nextId ?? 1;
-      state = {
-        available: true,
-        selectedPath: `Preview: ${action} customers.sqlite`,
-        session,
-        version: state.version + 1,
-      };
-      for (const listener of listeners) {
-        listener(structuredClone(state));
-      }
-
-      committed = true;
-      return {status: 'success' as const, value: structuredClone(state)};
-    } catch {
-      return error(
-        'INTERNAL',
-        'The preview could not prepare this operation. Try again.'
-      );
-    } finally {
-      owner.resolve({...request, outcome: committed ? 'committed' : 'aborted'});
-    }
-  }
-
   function compareText(first: string, second: string) {
-    const a = Array.from(
-      first.replace(uppercase, value => value.toLowerCase()),
-      character => character.codePointAt(0)!
-    );
-    const b = Array.from(
-      second.replace(uppercase, value => value.toLowerCase()),
-      character => character.codePointAt(0)!
-    );
-    for (let index = 0; index < Math.min(a.length, b.length); index++) {
-      const difference = a[index]! - b[index]!;
-      if (difference) {
-        return difference;
-      }
-    }
-
-    return a.length - b.length;
+    const a = first.toLowerCase();
+    const b = second.toLowerCase();
+    return a < b ? -1 : a > b ? 1 : 0;
   }
 
   let nextId = 1;
@@ -173,34 +70,8 @@ export default function createPreviewClient(
     );
   }
 
-  async function savedFile(session: string, action: 'backup' | 'csv') {
-    if (!state.available || !current(session)) {
-      return error('STALE_SESSION', 'The preview database changed.');
-    }
-
-    if (outcome === 'cancelled') {
-      return {status: 'cancelled' as const};
-    }
-
-    if (outcome === 'error') {
-      return error(
-        'INTERNAL',
-        'Simulated file failure. Choose another name or location and try again.'
-      );
-    }
-
-    if (action === 'backup') {
-      recordPreviewBackup(client, {customers, nextId});
-    } else {
-      recordPreviewExport(client, customers);
-    }
-
-    return {
-      status: 'success' as const,
-      value: {
-        path: `Preview: ${action === 'backup' ? 'customers-backup.sqlite' : 'all-saved-customers.csv'}`,
-      },
-    };
+  async function unsupported() {
+    return error('INTERNAL', 'File operations are unavailable in browser preview.');
   }
 
   const client: Client = {
@@ -210,26 +81,19 @@ export default function createPreviewClient(
           return error('STALE_SESSION', 'The preview database changed.');
         }
 
-        const needle = query.trim();
-        const pattern = new RegExp(needle.replace(regexMetacharacters, '\\$&'), 'iu');
-        const number =
-          digits.test(needle) && Number.isSafeInteger(Number(needle))
-            ? Number(needle)
-            : -1;
+        const needle = query.trim().toLowerCase();
         const value = customers
           .filter(
             ({customer}) =>
               !needle ||
-              pattern.test(customer.firstName) ||
-              pattern.test(customer.lastName) ||
-              customer.customerNumber === number
+              customer.firstName.toLowerCase().includes(needle) ||
+              customer.lastName.toLowerCase().includes(needle) ||
+              String(customer.customerNumber) === needle
           )
           .toSorted(
             (first, second) =>
               compareText(first.customer.lastName, second.customer.lastName) ||
               compareText(first.customer.firstName, second.customer.firstName) ||
-              (first.customer.customerNumber ?? -1) -
-                (second.customer.customerNumber ?? -1) ||
               first.customer.id - second.customer.id
           );
         return {status: 'success', value: structuredClone(value)};
@@ -341,61 +205,21 @@ export default function createPreviewClient(
     },
     database: {
       status: async () => ({status: 'success', value: structuredClone(state)}),
-      retry: () => transition('retry'),
-      create: () => transition('create'),
-      open: () => transition('open'),
-      backup: ({session}) => savedFile(session, 'backup'),
-      restore: () => {
-        const snapshot = getPreviewBackup(client);
-        return snapshot
-          ? transition('restored', snapshot)
-          : Promise.resolve(
-              error(
-                'DATABASE_UNAVAILABLE',
-                'Simulated restore needs a saved backup. Back up the temporary database first.'
-              )
-            );
-      },
-      onStateChanged: listener => {
-        listeners.add(listener);
-        return () => {
-          listeners.delete(listener);
-        };
-      },
+      retry: unsupported,
+      create: unsupported,
+      open: unsupported,
+      backup: unsupported,
+      restore: unsupported,
+      onStateChanged: () => () => {},
     },
-    exports: {csv: ({session}) => savedFile(session, 'csv')},
+    exports: {csv: unsupported},
     drafts: {
       confirmDiscard: async () =>
         (await confirmDiscard())
           ? {status: 'success', value: {approved: true}}
           : {status: 'cancelled'},
-      registerProtection: owner => {
-        participant = owner;
-        return () => {
-          if (participant === owner) {
-            participant = null;
-          }
-        };
-      },
+      registerProtection: () => () => {},
     },
   };
-  recoveries.set(client, () => {
-    state = {
-      available: false,
-      selectedPath: 'Preview: remembered customers.sqlite',
-      session: null,
-      version: state.version + 1,
-      recoveryError: {
-        code: 'DATABASE_UNAVAILABLE',
-        message: 'Simulated remembered-file failure. Retry or choose Create/Open.',
-      },
-    };
-    for (const listener of listeners) {
-      listener(structuredClone(state));
-    }
-  });
-  outcomes.set(client, value => {
-    outcome = value;
-  });
   return client;
 }

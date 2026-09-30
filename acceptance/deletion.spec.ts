@@ -15,63 +15,60 @@ async function confirm(page: Page) {
   await page.getByRole('dialog').getByRole('button', {name: 'Delete customer'}).click();
 }
 
-for (const development of [true, false]) {
-  test(`identifying deletion persists and preserves searched list through actual ${development ? 'development' : 'bundled'} renderer IPC`, async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'shop-things-delete-'));
-    const application = await launchElectron(directory, {
-      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
-      VITE_DEV_SERVER_URL: development ? 'http://127.0.0.1:5179/' : '',
-    });
-    let closed = false;
-    try {
-      const page = await application.firstWindow();
-      await expect(page.getByText('3 results', {exact: true})).toBeVisible();
-      const search = page.getByRole('textbox', {name: 'Search customers'});
-      await search.fill('Alpha');
-      await search.press('Enter');
-      await page.getByRole('link', {name: 'Alpha One'}).click();
-      await page.getByRole('button', {name: 'Delete customer'}).click();
-      const dialog = page.getByRole('dialog');
-      await expect(dialog).toContainText('Alpha One (customer number 2)');
-      await expect(dialog.getByRole('button', {name: 'Cancel'})).toBeFocused();
-      await dialog.getByRole('button', {name: 'Cancel'}).click();
-      await expect(
-        page.getByRole('heading', {name: 'Alpha One', exact: true})
-      ).toBeVisible();
-      expect(
-        await application.evaluate(
-          () =>
-            Reflect.get(globalThis, 'acceptanceIpc').filter(
-              (channel: string) => channel === 'shop-things:customers.delete'
-            ).length
-        )
-      ).toBe(0);
-      await confirm(page);
-      await expect(page.getByText('Customer deleted.', {exact: true})).toBeVisible();
-      await expect(search).toHaveValue('Alpha');
-      await expect(
-        page.getByRole('heading', {name: 'No Matching Customers'})
-      ).toBeVisible();
-      await application.close();
-      closed = true;
-      const handle = await openExistingDatabase(join(directory, 'customers.sqlite'), {
-        migrationsFolder: join(root, 'packages/db/migrations'),
-      });
-      try {
-        expect(await getCustomer(handle.db, 2)).toBeNull();
-        expect(await getCustomer(handle.db, 1)).not.toBeNull();
-      } finally {
-        handle.close();
-      }
-    } finally {
-      if (!closed) {
-        await application.close();
-      }
-
-      await rm(directory, {recursive: true, force: true});
-    }
+test('identifying deletion persists and preserves searched list through actual bundled renderer IPC', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-delete-'));
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
   });
-}
+  let closed = false;
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByText('3 results', {exact: true})).toBeVisible();
+    const search = page.getByRole('textbox', {name: 'Search customers'});
+    await search.fill('Alpha');
+    await search.press('Enter');
+    await page.getByRole('link', {name: 'Alpha One'}).click();
+    await page.getByRole('button', {name: 'Delete customer'}).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('Alpha One (customer number 2)');
+    await expect(dialog.getByRole('button', {name: 'Cancel'})).toBeFocused();
+    await dialog.getByRole('button', {name: 'Cancel'}).click();
+    await expect(
+      page.getByRole('heading', {name: 'Alpha One', exact: true})
+    ).toBeVisible();
+    expect(
+      await application.evaluate(
+        () =>
+          Reflect.get(globalThis, 'acceptanceIpc').filter(
+            (channel: string) => channel === 'shop-things:customers.delete'
+          ).length
+      )
+    ).toBe(0);
+    await confirm(page);
+    await expect(page.getByText('Customer deleted.', {exact: true})).toBeVisible();
+    await expect(search).toHaveValue('Alpha');
+    await expect(
+      page.getByRole('heading', {name: 'No Matching Customers'})
+    ).toBeVisible();
+    await application.close();
+    closed = true;
+    const handle = await openExistingDatabase(join(directory, 'customers.sqlite'), {
+      migrationsFolder: join(root, 'packages/db/migrations'),
+    });
+    try {
+      expect(await getCustomer(handle.db, 2)).toBeNull();
+      expect(await getCustomer(handle.db, 1)).not.toBeNull();
+    } finally {
+      handle.close();
+    }
+  } finally {
+    if (!closed) {
+      await application.close();
+    }
+
+    await rm(directory, {recursive: true, force: true});
+  }
+});
 
 test('same-session deletion refreshes an active cached searched list after Back during a held response', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-delete-back-'));

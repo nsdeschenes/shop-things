@@ -1,9 +1,10 @@
-import {screen, waitFor} from '@testing-library/react';
+import {act, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, test} from 'vitest';
 
 import renderRoute from '../../../test/renderRoute';
 import {createApplication} from '../../application/controller';
+import {customerKeys} from '../../application/customers';
 import createPreviewClient from '../../application/preview';
 
 test('empty defaults validate on Save and preserve arbitrary contacts and exact balances', async () => {
@@ -50,7 +51,7 @@ test('empty defaults validate on Save and preserve arbitrary contacts and exact 
 
 test('invalid decimal drafts and failed Save retain entered values and route guards', async () => {
   const user = userEvent.setup();
-  const {application} = renderRoute('/customers/new');
+  const {application, router} = renderRoute('/customers/new');
   await user.type(await screen.findByRole('textbox', {name: 'First name'}), 'Ada');
   const stock = screen.getByRole('textbox', {name: 'Items in stock'});
   await user.clear(stock);
@@ -75,9 +76,16 @@ test('invalid decimal drafts and failed Save retain entered values and route gua
   await waitFor(() => expect(stay).toHaveFocus());
   await user.keyboard('{Enter}');
   expect(balance).toHaveValue('1.234');
+  expect(router.state.location.pathname).toBe('/customers/new');
+  expect(application.protection.getState().frozen).toBe(false);
+  await user.click(screen.getByRole('link', {name: 'Customer records Shop Things'}));
+  await user.click(await screen.findByRole('button', {name: 'Discard'}));
+  await screen.findByRole('heading', {name: 'Customers'});
+  expect(router.state.location.pathname).toBe('/customers');
+  expect(application.protection.isDirty()).toBe(false);
 });
 
-test('Edit retains exact loaded strings and original revision across cache replacement', async () => {
+test('Edit retains exact loaded strings and original revision across background refresh', async () => {
   const user = userEvent.setup();
   const {application, router} = renderRoute('/customers');
   await screen.findByRole('link', {name: 'Add customer'});
@@ -132,10 +140,11 @@ test('Edit retains exact loaded strings and original revision across cache repla
     throw new Error('Preview external update failed');
   }
 
-  application.queryClient.setQueryData(
-    ['customers', session, 'detail', created.value.customer.id],
-    changed.value
-  );
+  await act(async () => {
+    await application.queryClient.invalidateQueries({
+      queryKey: customerKeys.detail(session, created.value.customer.id),
+    });
+  });
   expect(name).toHaveValue('Retained draft');
   await user.click(screen.getByRole('button', {name: 'Save'}));
   expect(
@@ -226,4 +235,35 @@ test('a queued file transition suppresses clean Save navigation even before nati
   await opening;
   expect(router.state.location.pathname).toBe('/customers/new');
   expect(screen.getByRole('textbox', {name: 'First name'})).toHaveValue('Saved');
+});
+
+test('create and edit refresh previously visited lists and searches through history', async () => {
+  const user = userEvent.setup();
+  const {router} = renderRoute('/customers');
+  await screen.findByRole('heading', {name: 'No Customers Yet'});
+  await user.type(screen.getByRole('textbox', {name: 'Search customers'}), 'Ada');
+  await screen.findByRole('heading', {name: 'No Matching Customers'});
+  await user.click(screen.getByRole('link', {name: 'Add customer'}));
+  await user.type(await screen.findByRole('textbox', {name: 'First name'}), 'Ada');
+  await user.click(screen.getByRole('button', {name: 'Save'}));
+  await screen.findByRole('heading', {name: 'Ada'});
+  await user.click(screen.getByRole('link', {name: 'Back to customers'}));
+  expect(await screen.findByRole('link', {name: 'Ada'})).toBeVisible();
+  expect(screen.getByRole('textbox', {name: 'Search customers'})).toHaveValue('Ada');
+  await user.click(screen.getByRole('button', {name: 'Clear'}));
+  expect(await screen.findByRole('link', {name: 'Ada'})).toBeVisible();
+  await user.click(screen.getByRole('link', {name: 'Ada'}));
+  await user.click(await screen.findByRole('button', {name: 'Edit customer'}));
+  const name = screen.getByRole('textbox', {name: 'First name'});
+  await user.clear(name);
+  await user.type(name, 'Grace');
+  await user.click(screen.getByRole('button', {name: 'Save'}));
+  await screen.findByRole('heading', {name: 'Grace'});
+  router.history.go(-2);
+  expect(await screen.findByRole('link', {name: 'Grace'})).toBeVisible();
+  expect(screen.queryByRole('link', {name: 'Ada'})).not.toBeInTheDocument();
+  await user.type(screen.getByRole('textbox', {name: 'Search customers'}), 'Ada');
+  expect(
+    await screen.findByRole('heading', {name: 'No Matching Customers'})
+  ).toBeVisible();
 });
