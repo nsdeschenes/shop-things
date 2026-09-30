@@ -74,3 +74,109 @@ test('invalid decimal drafts and failed Save retain entered values and route gua
   await user.keyboard('{Enter}');
   expect(balance).toHaveValue('1.234');
 });
+
+test('Edit retains exact loaded strings and original revision across cache replacement', async () => {
+  const user = userEvent.setup();
+  const {application, router} = renderRoute('/customers');
+  await screen.findByRole('link', {name: 'Add customer'});
+  const session = application.getState().database!.session!;
+  const values = {
+    firstName: 'Loaded',
+    lastName: '',
+    address: '',
+    city: '',
+    province: 'custom province',
+    postalCode: 'aB cd',
+    homePhone: '+1 (902) 555',
+    email: 'contact text',
+    stock: 0,
+    balance: '-1.23',
+    previousBalance: '0.00',
+    donate: false,
+    comments: '',
+  };
+  const created = await application.request(session, client =>
+    client.customers.create({session, values})
+  );
+  if (created.status !== 'success') {
+    throw new Error('Preview create failed');
+  }
+
+  await router.navigate({
+    to: '/customers/$customerId',
+    params: {customerId: String(created.value.customer.id)},
+  });
+  await user.click(await screen.findByRole('button', {name: 'Edit customer'}));
+  const number = screen.getByRole('textbox', {name: 'Customer number'});
+  expect(screen.getByRole('textbox', {name: 'Province'})).toHaveValue('custom province');
+  expect(screen.getByRole('textbox', {name: 'Postal code'})).toHaveValue('aB cd');
+  await user.clear(number);
+  await user.type(number, '-');
+  await user.click(screen.getByRole('button', {name: 'Save'}));
+  expect(number).toHaveValue('-');
+  await waitFor(() => expect(number).toHaveFocus());
+  await user.clear(number);
+  await user.type(number, '11');
+  const name = screen.getByRole('textbox', {name: 'First name'});
+  await user.clear(name);
+  await user.type(name, 'Retained draft');
+  const changed = await application.request(session, client =>
+    client.customers.update({
+      reference: created.value.reference,
+      changes: {firstName: 'External'},
+    })
+  );
+  if (changed.status !== 'success') {
+    throw new Error('Preview external update failed');
+  }
+
+  application.queryClient.setQueryData(
+    ['customers', session, 'detail', created.value.customer.id],
+    changed.value
+  );
+  expect(name).toHaveValue('Retained draft');
+  await user.click(screen.getByRole('button', {name: 'Save'}));
+  expect(
+    await screen.findByText('This customer changed. Reload before saving.')
+  ).toBeVisible();
+  expect(name).toHaveValue('Retained draft');
+  expect(number).toHaveValue('11');
+  expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
+});
+
+test('changing immutable route ID remounts the editing capture and history returns to detail', async () => {
+  const user = userEvent.setup();
+  const {application, router} = renderRoute('/customers');
+  await screen.findByRole('link', {name: 'Add customer'});
+  const session = application.getState().database!.session!;
+  const values = {
+    firstName: 'First',
+    lastName: '',
+    address: '',
+    city: '',
+    province: '',
+    postalCode: '',
+    homePhone: '',
+    email: '',
+    stock: 0,
+    balance: '0.00',
+    previousBalance: '0.00',
+    donate: false,
+    comments: '',
+  };
+  await application.request(session, client =>
+    client.customers.create({session, values})
+  );
+  await application.request(session, client =>
+    client.customers.create({session, values: {...values, firstName: 'Second'}})
+  );
+  await router.navigate({to: '/customers/$customerId', params: {customerId: '1'}});
+  await user.click(await screen.findByRole('button', {name: 'Edit customer'}));
+  expect(screen.getByRole('textbox', {name: 'First name'})).toHaveValue('First');
+  await router.navigate({to: '/customers/$customerId', params: {customerId: '2'}});
+  await user.click(await screen.findByRole('button', {name: 'Edit customer'}));
+  expect(screen.getByRole('textbox', {name: 'First name'})).toHaveValue('Second');
+  router.history.back();
+  expect(await screen.findByRole('heading', {name: 'First'})).toBeVisible();
+  expect(screen.queryByRole('textbox', {name: 'First name'})).not.toBeInTheDocument();
+});

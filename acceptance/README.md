@@ -95,3 +95,18 @@ retained input when quit preparation waits on the failed Save. Chromium exercise
 canonical draft validation, Stay default focus, temporary Create, saved detail/list,
 and refresh clearing the document's temporary records. These checks remain local
 macOS arm64/Chromium evidence; the authorized Linux acceptance deferral still applies.
+
+### Retained Edit references (#61)
+
+`edit.spec.ts` proves real IPC Update persistence after database reopen, authoritative
+duplicate-number feedback, explicit assignment of a previously unnumbered record,
+and exact loaded/typed contact and decimal text. A held Update permits newer edits,
+blocks repeat Save and route navigation, waits during native close preparation,
+and retains the newer draft after Stay. Its next Save uses the returned fresh
+reference. An external actual Update then makes the retained editor revision stale;
+Save keeps the draft and blocks further writes, including during quit Stay.
+Chromium proves equivalent temporary editing and leading-zero numeric search.
+Source tests supplement this with query-cache replacement that cannot substitute
+the editor's reference, preview read cloning, and number ordering before ID ties.
+The explicit guarded reload control belongs to #63. Platform acceptance remains
+subject to the existing authorized Linux deferral.

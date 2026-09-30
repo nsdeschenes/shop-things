@@ -10,6 +10,9 @@ import {
   updateCustomerInputSchema,
 } from '@shop-things/contract/schemas';
 
+const digits = /^\d+$/;
+const uppercase = /[A-Z]/g;
+
 // One instance per document. Never connect browser preview to native storage.
 export default function createPreviewClient(
   confirmDiscard: () => Promise<boolean> = async () => false
@@ -21,6 +24,12 @@ export default function createPreviewClient(
     version: 1,
   };
   const customers: CustomerRecord[] = [];
+  function compareText(first: string, second: string) {
+    const a = first.replace(uppercase, value => value.toLowerCase());
+    const b = second.replace(uppercase, value => value.toLowerCase());
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+
   let nextId = 1;
 
   function error(code: ContractError['code'], message: string) {
@@ -82,24 +91,24 @@ export default function createPreviewClient(
         }
 
         const needle = query.trim().toLocaleLowerCase();
+        const number =
+          digits.test(needle) && Number.isSafeInteger(Number(needle))
+            ? Number(needle)
+            : -1;
         const value = customers
           .filter(
             ({customer}) =>
               !needle ||
               customer.firstName.toLocaleLowerCase().includes(needle) ||
               customer.lastName.toLocaleLowerCase().includes(needle) ||
-              String(customer.customerNumber) === needle
+              customer.customerNumber === number
           )
           .toSorted(
             (first, second) =>
-              first.customer.lastName.localeCompare(second.customer.lastName, undefined, {
-                sensitivity: 'base',
-              }) ||
-              first.customer.firstName.localeCompare(
-                second.customer.firstName,
-                undefined,
-                {sensitivity: 'base'}
-              ) ||
+              compareText(first.customer.lastName, second.customer.lastName) ||
+              compareText(first.customer.firstName, second.customer.firstName) ||
+              (first.customer.customerNumber ?? -1) -
+                (second.customer.customerNumber ?? -1) ||
               first.customer.id - second.customer.id
           );
         return {status: 'success', value: structuredClone(value)};
@@ -114,7 +123,7 @@ export default function createPreviewClient(
 
         const record = customers.find(customer => customer.customer.id === id);
         return record
-          ? {status: 'success', value: record}
+          ? {status: 'success', value: structuredClone(record)}
           : {
               status: 'error',
               error: {
