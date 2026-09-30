@@ -6,8 +6,11 @@ Behavior and required evidence: decisions #47–#52, especially
 
 ## Completion status
 
-Implementation and acceptance are in progress. No renderer or GUI acceptance
-has been certified by this record.
+Implementation and local validation are in progress. On September 30, 2026,
+the owner explicitly deferred Linux automated acceptance and the required
+native-dialog GUI checklist for this session ("Not yet, we can ignore this for
+now"). These checks remain required for Linux release acceptance; they do not
+block this implementation PR. No Linux renderer or GUI acceptance is certified.
 
 ## Required evidence
 
