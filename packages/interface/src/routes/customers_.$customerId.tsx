@@ -6,6 +6,7 @@ import {useSyncExternalStore} from 'react';
 import {CustomerRequestError, customerDetailOptions} from '../application/customers';
 import Button from '../components/button/button';
 import buttonStyles from '../components/button/buttonStyles';
+import DeleteCustomer from '../components/deleteCustomer/deleteCustomer';
 import PageShell from '../components/pageShell/pageShell';
 import {breakpoints} from '../styles/breakpoints.stylex';
 import {colors} from '../styles/colors.stylex';
@@ -60,6 +61,7 @@ function RouteComponent() {
     application.protection.getState
   );
   const {customerId} = Route.useParams();
+  const navigate = Route.useNavigate();
   const id = Number(customerId);
   const validId =
     customerIdPattern.test(customerId) && Number.isSafeInteger(id) && id > 0;
@@ -135,7 +137,7 @@ function RouteComponent() {
     );
   }
 
-  if (!customer) {
+  if (!customer || !record.data) {
     return null;
   }
 
@@ -168,7 +170,19 @@ function RouteComponent() {
         <div {...stylex.props(styles.actions)}>
           {back}
           <Button disabled>Edit customer</Button>
-          <Button disabled>Delete customer</Button>
+          <DeleteCustomer
+            key={`${record.data.reference.session}:${record.data.reference.id}:${record.data.reference.revision}`}
+            application={application}
+            record={record.data}
+            disabled={disabled}
+            onDeleted={() => {
+              void navigate({
+                to: '/customers',
+                search: previous => previous,
+                state: previous => ({...previous, customerNotice: 'Customer deleted.'}),
+              });
+            }}
+          />
         </div>
       }
     >

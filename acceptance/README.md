@@ -72,3 +72,12 @@ outer preview switches from hash-route search parameters.
 Local run on September 30, 2026: all 14 renderer/protection/customer checks and 26
 interface checks passed on macOS arm64. Linux/packaged artifact and manual acceptance
 remain deferred as recorded above; these local runs do not certify release acceptance.
+
+`deletion.spec.ts` drives identifying confirmation/cancellation and deletion through
+actual development-resource and bundled hash renderers, then independently reopens
+the real database after graceful Electron closure. It also creates a genuine revision
+conflict through the named IPC update action and delays an actual deletion completion
+across a committed session change. This verifies retained references, no stale retry,
+searched-list cache retirement and suppression of obsolete success navigation.
+Chromium create/delete preview coverage joins the Create implementation; injected
+preview-client component checks alone do not certify the complete browser UI workflow.
