@@ -1,6 +1,7 @@
 /* oxlint-disable import/no-named-export -- Application bootstrap and shared state owner. */
-import type {Client, DatabaseState} from '@shop-things/contract';
+import type {Client, DatabaseState, DraftRequest} from '@shop-things/contract';
 import {applyNewerDatabaseState, getClient} from '@shop-things/contract/client';
+import {QueryClient} from '@tanstack/react-query';
 
 import createPreviewClient from './preview';
 
@@ -9,23 +10,75 @@ export interface ApplicationState {
   phase: 'loading' | 'ready' | 'error';
   database: DatabaseState | null;
   error: string | null;
+  pendingTransition: boolean;
+  reconciling: boolean;
+  recoveryRequired: boolean;
 }
+
+export interface RequestScope {
+  signal?: AbortSignal;
+  isRelevant?: () => boolean;
+  coalesceKey?: string;
+}
+
+export const obsolete = {status: 'obsolete'} as const;
+const unavailable = {
+  status: 'error',
+  error: {
+    code: 'DATABASE_UNAVAILABLE',
+    message: 'Wait for an available database before trying again.',
+  },
+} as const;
+const busy = {
+  status: 'error',
+  error: {
+    code: 'BUSY',
+    message: 'Wait for the current operation to finish, then try again.',
+  },
+} as const;
 
 export function createApplication(
   url: string,
-  attached = Reflect.has(window, 'shopThings')
+  attached = Reflect.has(window, 'shopThings'),
+  options: {client?: Client; queryClient?: QueryClient} = {}
 ) {
   const mode = attached
     ? 'live'
     : new URL(url).searchParams.get('preview') === 'true'
       ? 'preview'
       : 'unavailable';
-  let client: Client | null = null;
-  let state: ApplicationState = {mode, phase: 'loading', database: null, error: null};
+  const queryClient =
+    options.queryClient ??
+    new QueryClient({
+      defaultOptions: {
+        queries: {retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false},
+        mutations: {retry: false},
+      },
+    });
+  let client: Client | null = options.client ?? null;
+  let state: ApplicationState = {
+    mode,
+    phase: 'loading',
+    database: null,
+    error: null,
+    pendingTransition: false,
+    reconciling: false,
+    recoveryRequired: false,
+  };
   let generation = 0;
   let stopState: (() => void) | null = null;
   let stopProtection: (() => void) | null = null;
+  let protectionRequest: DraftRequest | null = null;
+  let pendingSessionChange: {
+    database: DatabaseState;
+    previousSession: string | null;
+  } | null = null;
+  let lastAvailableSession: string | null = null;
+  let reconcilePromise: Promise<void> | null = null;
+  let queue: Promise<unknown> = Promise.resolve();
+  const searches = new Map<string, object>();
   const listeners = new Set<() => void>();
+  const sessionListeners = new Set<(database: DatabaseState) => void>();
 
   function publish(next: ApplicationState) {
     state = next;
@@ -34,11 +87,214 @@ export function createApplication(
     }
   }
 
+  function flushSessionChange() {
+    if (!pendingSessionChange || protectionRequest) {
+      return;
+    }
+
+    const {database, previousSession} = pendingSessionChange;
+    pendingSessionChange = null;
+    if (previousSession !== null) {
+      void queryClient.cancelQueries({queryKey: ['customers', previousSession]});
+      queryClient.removeQueries({queryKey: ['customers', previousSession]});
+    }
+
+    for (const listener of sessionListeners) {
+      listener(database);
+    }
+  }
+
+  function acceptDatabase(database: DatabaseState) {
+    const previous = state.database;
+    const accepted = applyNewerDatabaseState(previous, database);
+    if (accepted === previous) {
+      return;
+    }
+
+    publish({...state, database: accepted});
+    // An unavailable state retains the route/draft. A new available session resets it.
+    if (
+      previous !== null &&
+      accepted.available &&
+      previous.session !== accepted.session
+    ) {
+      pendingSessionChange = {database: accepted, previousSession: lastAvailableSession};
+      flushSessionChange();
+    }
+
+    if (accepted.available) {
+      lastAvailableSession = accepted.session;
+    }
+  }
+
+  function isCurrentSession(session: string) {
+    return (
+      state.phase === 'ready' &&
+      state.database?.available === true &&
+      state.database.session === session
+    );
+  }
+
+  function serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const result = queue.then(operation, operation);
+    queue = result.catch(() => {});
+    return result;
+  }
+
+  async function reconcile() {
+    if (reconcilePromise) {
+      return reconcilePromise;
+    }
+
+    const attempt = generation;
+    publish({...state, reconciling: true, recoveryRequired: true});
+    reconcilePromise = (async () => {
+      try {
+        const result = await client?.database.status();
+        if (attempt !== generation) {
+          return;
+        }
+
+        if (result?.status === 'success') {
+          acceptDatabase(result.value);
+          publish({...state, recoveryRequired: false, error: null});
+        } else {
+          publish({
+            ...state,
+            error:
+              result?.status === 'error'
+                ? result.error.message
+                : 'Could not check the database. Try again.',
+          });
+        }
+      } finally {
+        if (attempt === generation) {
+          reconcilePromise = null;
+          publish({...state, reconciling: false});
+        }
+      }
+    })();
+    return reconcilePromise;
+  }
+
+  async function request<T extends {status: string}>(
+    session: string,
+    operation: (client: Client) => Promise<T>,
+    scope: RequestScope = {}
+  ): Promise<T | typeof obsolete | typeof unavailable | typeof busy> {
+    if (!isCurrentSession(session) || !client || state.recoveryRequired) {
+      return unavailable;
+    }
+
+    if (state.pendingTransition || state.reconciling || protectionRequest) {
+      return busy;
+    }
+
+    const attempt = generation;
+    const token = {};
+    if (scope.coalesceKey) {
+      searches.set(scope.coalesceKey, token);
+    }
+
+    function relevant() {
+      return (
+        attempt === generation &&
+        isCurrentSession(session) &&
+        !scope.signal?.aborted &&
+        (scope.isRelevant?.() ?? true) &&
+        (!scope.coalesceKey || searches.get(scope.coalesceKey) === token)
+      );
+    }
+
+    return serialize(async () => {
+      try {
+        if (!relevant()) {
+          return obsolete;
+        }
+
+        if (state.recoveryRequired) {
+          return unavailable;
+        }
+
+        if (state.pendingTransition || protectionRequest || state.reconciling) {
+          return busy;
+        }
+
+        const result = await operation(client!);
+        if (!relevant()) {
+          return obsolete;
+        }
+
+        if (result.status === 'error' && 'error' in result) {
+          const error = result.error;
+          if (
+            typeof error === 'object' &&
+            error !== null &&
+            'code' in error &&
+            (error.code === 'STALE_SESSION' || error.code === 'DATABASE_UNAVAILABLE')
+          ) {
+            await reconcile();
+            if (!relevant()) {
+              return obsolete;
+            }
+          }
+        }
+
+        return result;
+      } finally {
+        if (scope.coalesceKey && searches.get(scope.coalesceKey) === token) {
+          searches.delete(scope.coalesceKey);
+        }
+      }
+    });
+  }
+
+  async function transition(action: 'create' | 'open' | 'restore' | 'retry') {
+    if (!client || state.phase !== 'ready') {
+      return unavailable;
+    }
+
+    if (state.pendingTransition || state.reconciling || protectionRequest) {
+      return busy;
+    }
+
+    const attempt = generation;
+    publish({...state, pendingTransition: true, error: null});
+    try {
+      return await serialize(async () => {
+        if (attempt !== generation) {
+          return obsolete;
+        }
+
+        const result = await client!.database[action]();
+        if (attempt !== generation) {
+          return obsolete;
+        }
+
+        if (result.status === 'success') {
+          acceptDatabase(result.value);
+          publish({...state, recoveryRequired: false, error: null});
+        }
+
+        return result;
+      });
+    } finally {
+      if (attempt === generation) {
+        publish({...state, pendingTransition: false});
+      }
+    }
+  }
+
   function dispose() {
     generation++;
     stopState?.();
     stopProtection?.();
     stopState = stopProtection = null;
+    protectionRequest = null;
+    pendingSessionChange = null;
+    reconcilePromise = null;
+    searches.clear();
+    publish({...state, phase: 'loading', pendingTransition: false, reconciling: false});
   }
 
   async function start() {
@@ -49,21 +305,41 @@ export function createApplication(
       return;
     }
 
-    publish({...state, phase: 'loading', error: null});
+    publish({
+      ...state,
+      phase: 'loading',
+      error: null,
+      pendingTransition: false,
+      reconciling: false,
+    });
     try {
       client ??= mode === 'live' ? getClient() : createPreviewClient();
       stopState = client.database.onStateChanged(database => {
         if (attempt === generation) {
-          publish({
-            ...state,
-            database: applyNewerDatabaseState(state.database, database),
-          });
+          acceptDatabase(database);
         }
       });
-      // Editors are unavailable in this stage. Replace this participant before enabling them.
+      // Editors remain unavailable. Stage 57 replaces the clean reply with shared draft state.
       stopProtection = client.drafts.registerProtection({
-        prepare: async request => ({...request, hasUnsavedDraft: false}),
-        resolve: () => {},
+        prepare: async request => {
+          protectionRequest = request;
+          return {...request, hasUnsavedDraft: false};
+        },
+        resolve: resolution => {
+          if (
+            protectionRequest?.requestId !== resolution.requestId ||
+            protectionRequest.documentId !== resolution.documentId
+          ) {
+            return;
+          }
+
+          protectionRequest = null;
+          if (resolution.outcome === 'committed') {
+            flushSessionChange();
+          } else {
+            pendingSessionChange = null;
+          }
+        },
       });
       const result = await client.database.status();
       if (attempt !== generation) {
@@ -76,11 +352,8 @@ export function createApplication(
         );
       }
 
-      publish({
-        ...state,
-        phase: 'ready',
-        database: applyNewerDatabaseState(state.database, result.value),
-      });
+      acceptDatabase(result.value);
+      publish({...state, phase: 'ready', recoveryRequired: false});
     } catch {
       if (attempt === generation) {
         publish({
@@ -93,12 +366,30 @@ export function createApplication(
   }
 
   return {
+    queryClient,
     getState: () => state,
     getClient: () => client,
+    isCurrentSession,
+    captureSession(session: string) {
+      const attempt = generation;
+      return {
+        session,
+        isCurrent: () => attempt === generation && isCurrentSession(session),
+      };
+    },
+    request,
+    transition,
+    reconcile,
     subscribe(this: void, listener: () => void) {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
+      };
+    },
+    onSessionChanged(listener: (database: DatabaseState) => void) {
+      sessionListeners.add(listener);
+      return () => {
+        sessionListeners.delete(listener);
       };
     },
     start,
