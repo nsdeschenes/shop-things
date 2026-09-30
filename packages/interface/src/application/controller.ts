@@ -30,6 +30,7 @@ export interface RequestScope {
   signal?: AbortSignal;
   isRelevant?: () => boolean;
   coalesceKey?: string;
+  navigationReadToken?: string;
 }
 
 export const obsolete = {status: 'obsolete'} as const;
@@ -224,6 +225,7 @@ export function createApplication(
         isCurrentSession(session) &&
         !scope.signal?.aborted &&
         (scope.isRelevant?.() ?? true) &&
+        (!replacement || replacement()) &&
         (!scope.coalesceKey || searches.get(scope.coalesceKey) === token)
       );
     }
@@ -578,6 +580,18 @@ export function createApplication(
       };
     },
     request,
+    read<T extends {status: string}>(
+      session: string,
+      operation: (client: Client) => Promise<T>,
+      scope: RequestScope = {}
+    ) {
+      const token = scope.navigationReadToken;
+      const admitted =
+        token && protection.isNavigationReadCurrent(token)
+          ? () => protection.isNavigationReadCurrent(token)
+          : undefined;
+      return coordinatedRequest(session, operation, scope, admitted);
+    },
     fileAction,
     dismissFileError() {
       publish({...state, fileError: null});

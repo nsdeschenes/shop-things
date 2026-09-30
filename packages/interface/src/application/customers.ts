@@ -67,7 +67,7 @@ export function customerListOptions(
     queryKey: customerKeys.list(session, query),
     queryFn: async ({signal}) =>
       unwrap(
-        await application.request(
+        await application.read(
           session,
           client => client.customers.list({session, query}),
           {...scope, signal, coalesceKey: scope.coalesceKey ?? 'customers:list'}
@@ -88,11 +88,10 @@ export function customerDetailOptions(
     queryKey: customerKeys.detail(session, id),
     queryFn: async ({signal}) =>
       unwrap(
-        await application.request(
-          session,
-          client => client.customers.get({session, id}),
-          {...scope, signal}
-        )
+        await application.read(session, client => client.customers.get({session, id}), {
+          ...scope,
+          signal,
+        })
       ),
   });
 }

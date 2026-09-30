@@ -29,7 +29,13 @@ export function sameDraftValues(first: DraftValues, second: DraftValues): boolea
 
 type PendingAction = {editor: DraftEditor | null} & (
   | {kind: 'lifecycle'; request: DraftRequest}
-  | {kind: 'navigation'; target: string; approved: boolean}
+  | {
+      kind: 'navigation';
+      target: string;
+      destination?: string;
+      approved: boolean;
+      readToken: string;
+    }
   | {kind: 'replacement'}
 );
 
@@ -196,7 +202,13 @@ export function createDraftProtection(getClient: () => Client | null) {
       return false;
     }
 
-    const pending: PendingAction = {kind: 'navigation', target, editor, approved: false};
+    const pending: PendingAction = {
+      kind: 'navigation',
+      target,
+      editor,
+      approved: false,
+      readToken: crypto.randomUUID(),
+    };
     beginAction(pending);
     try {
       const approved = await confirmDiscard();
@@ -229,7 +241,7 @@ export function createDraftProtection(getClient: () => Client | null) {
     if (
       pending?.kind !== 'navigation' ||
       !pending.approved ||
-      pending.target !== target
+      (pending.target !== target && pending.destination !== target)
     ) {
       return;
     }
@@ -313,6 +325,30 @@ export function createDraftProtection(getClient: () => Client | null) {
     resolve,
     blockNavigation,
     navigationResolved,
+    navigationLoaded(target: string, destination: string) {
+      if (
+        pendingAction?.kind === 'navigation' &&
+        pendingAction.approved &&
+        pendingAction.target === target
+      ) {
+        pendingAction.destination = destination;
+      }
+    },
+    navigationReadToken(target: string) {
+      const pending = pendingAction;
+      return pending?.kind === 'navigation' &&
+        pending.approved &&
+        pending.target === target
+        ? pending.readToken
+        : undefined;
+    },
+    isNavigationReadCurrent(token: string) {
+      return (
+        pendingAction?.kind === 'navigation' &&
+        pendingAction.approved &&
+        pendingAction.readToken === token
+      );
+    },
     dispose,
     isDirty,
     changed: () => publish(null),
