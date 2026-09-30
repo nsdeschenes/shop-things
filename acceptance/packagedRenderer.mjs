@@ -1,0 +1,593 @@
+import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {mkdir, mkdtemp, readFile, readdir, realpath, writeFile} from 'node:fs/promises';
+import {createRequire} from 'node:module';
+import {tmpdir} from 'node:os';
+import {join, relative} from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+import {_electron, expect} from '@playwright/test';
+
+const root = fileURLToPath(new URL('..', import.meta.url));
+const release = join(root, 'release');
+const directory =
+  process.env.ACCEPTANCE_REPORT_DIR ?? join(root, 'acceptance-reports/package-renderer');
+const reportPath = join(directory, 'packaged-renderer.json');
+const target = process.env.PACKAGED_RENDERER_TARGET ?? 'linux-x64';
+const supporting = target === 'darwin-arm64-supporting';
+const bundle = supporting
+  ? join(release, 'mac-arm64/Shop Things.app/Contents')
+  : join(release, 'linux-unpacked');
+const executablePath = join(bundle, supporting ? 'MacOS/Shop Things' : 'shop-things');
+const resources = join(bundle, supporting ? 'Resources' : 'resources');
+const archive = join(resources, 'app.asar');
+const addon = join(
+  resources,
+  'app.asar.unpacked/node_modules',
+  supporting
+    ? '@tursodatabase/database-darwin-arm64/turso.darwin-arm64.node'
+    : '@tursodatabase/database-linux-x64-gnu/turso.linux-x64-gnu.node'
+);
+const report = {
+  schemaVersion: 1,
+  status: 'running',
+  startedAt: new Date().toISOString(),
+  target,
+  command: process.argv,
+  evidence: supporting
+    ? 'unsigned macOS arm64 packaged renderer supporting automation'
+    : 'Linux glibc x64 normal packaged renderer automation',
+  skipped: 0,
+  cases: [],
+  logs: [],
+  deferred: [
+    'manual native dialogs, focus/default selection, and desktop GUI checklist',
+    ...(supporting
+      ? ['Linux glibc x64 packaged execution', 'macOS release/signing acceptance']
+      : []),
+    'Windows x64',
+    'Linux arm64',
+  ],
+};
+let application;
+let page;
+let attempt = 0;
+let failure;
+let userData;
+let fixture;
+const expectedCases = [
+  'isolated-normal-packaged-bootstrap-and-resource-inventory',
+  'customer-create-update-and-search-persistence',
+  'saved-backup-csv-preserve-draft-and-search',
+  'nested-route-guarded-reload-and-native-close-Stay',
+  'graceful-close-remembered-reopen-and-customer-delete',
+  'independent-saved-database-backup-and-csv-verification',
+];
+async function persist() {
+  await mkdir(directory, {recursive: true});
+  await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
+}
+
+function git(args) {
+  const result = spawnSync('git', args, {cwd: root, encoding: 'utf8'});
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
+}
+
+async function digest(path) {
+  return createHash('sha256')
+    .update(await readFile(path))
+    .digest('hex');
+}
+
+async function filesUnder(folder) {
+  const paths = [];
+  for (const entry of await readdir(folder, {withFileTypes: true})) {
+    const path = join(folder, entry.name);
+    if (entry.isDirectory()) {
+      paths.push(...(await filesUnder(path)));
+    } else if (entry.isFile()) {
+      paths.push(path);
+    }
+  }
+
+  return paths.sort((first, second) => first.localeCompare(second));
+}
+
+async function passed(name) {
+  report.cases.push({name, status: 'passed', finishedAt: new Date().toISOString()});
+  await persist();
+}
+
+async function launch() {
+  const env = {...process.env};
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.VITE_DEV_SERVER_URL;
+  application = await _electron.launch({
+    executablePath,
+    args: [`--user-data-dir=${userData}`],
+    env,
+    timeout: 30_000,
+  });
+  attempt++;
+  application.on('console', message =>
+    report.logs.push({source: 'main', text: message.text()})
+  );
+  // This assertion supplements the separately verified BEFORE-ready isolation fixture.
+  const runtime = await application.evaluate(({app, BrowserWindow}) => ({
+    packaged: app.isPackaged,
+    appVersion: app.getVersion(),
+    userData: app.getPath('userData'),
+    appPath: app.getAppPath(),
+    resources: process.resourcesPath,
+    versions: process.versions,
+    pid: process.pid,
+    preferences: BrowserWindow.getAllWindows()[0]?.webContents.getLastWebPreferences(),
+  }));
+  assert.equal(runtime.packaged, true);
+  assert.equal(runtime.userData, userData);
+  assert.equal(runtime.appPath, archive);
+  assert.equal(runtime.resources, resources);
+  assert.equal(runtime.versions.electron, fixture.electron);
+  assert.equal(runtime.preferences.contextIsolation, true);
+  assert.equal(runtime.preferences.sandbox, true);
+  assert.equal(runtime.preferences.nodeIntegration, false);
+  report.runtime ??= runtime;
+  report.launches ??= [];
+  report.launches.push(runtime);
+  await application.evaluate(({dialog}) => {
+    globalThis.packagedPickers = [];
+    globalThis.packagedDialogs = [];
+    globalThis.packagedDiscard = false;
+    dialog.showSaveDialog = async () => {
+      const path = globalThis.packagedPickers.shift();
+      return {canceled: !path, filePath: path};
+    };
+
+    dialog.showOpenDialog = async () => {
+      const path = globalThis.packagedPickers.shift();
+      return {canceled: !path, filePaths: path ? [path] : []};
+    };
+
+    dialog.showMessageBox = async (...args) => {
+      const options = args.at(-1);
+      globalThis.packagedDialogs.push(options);
+      return {
+        response:
+          options.message === 'Discard unsaved changes?' && globalThis.packagedDiscard
+            ? 1
+            : 0,
+        checkboxChecked: false,
+      };
+    };
+  });
+  page = await application.firstWindow();
+  page.setDefaultTimeout(15_000);
+  page.on('pageerror', error =>
+    report.logs.push({source: 'renderer', text: String(error)})
+  );
+  page.on('console', message =>
+    report.logs.push({source: 'renderer-console', text: message.text()})
+  );
+  await page.context().tracing.start({screenshots: true, snapshots: true});
+  await expect(page.getByRole('button', {name: 'Database', exact: true})).toBeEnabled();
+  assert.equal(new URL(page.url()).protocol, 'file:');
+  assert.equal(
+    await page.evaluate(
+      () => typeof Reflect.get(window, 'shopThings')?.customers?.create
+    ),
+    'function'
+  );
+  assert.equal(
+    await page.evaluate(() => typeof Reflect.get(window, 'require')),
+    'undefined'
+  );
+}
+
+async function picker(path) {
+  await application.evaluate(
+    (_electron, path) => Reflect.get(globalThis, 'packagedPickers').push(path),
+    path
+  );
+}
+
+async function menu(name) {
+  await page.getByRole('button', {name: 'Database', exact: true}).click();
+  await page.getByRole('menuitem', {name, exact: true}).click();
+}
+
+async function status() {
+  return page.evaluate(() => Reflect.get(window, 'shopThings').database.status());
+}
+
+async function closeNormally(discard = false) {
+  await application.evaluate(
+    (_electron, discard) => Reflect.set(globalThis, 'packagedDiscard', discard),
+    discard
+  );
+  await page.context().tracing.stop();
+  const child = application.process();
+  await application.close();
+  report.closures ??= [];
+  report.closures.push({
+    pid: child.pid,
+    exitCode: child.exitCode,
+    signal: child.signalCode,
+  });
+  assert.equal(child.exitCode, 0, 'Normal packaged app must exit gracefully');
+  assert.equal(
+    child.signalCode,
+    null,
+    'Graceful close must not terminate the process by signal'
+  );
+  application = undefined;
+  page = undefined;
+}
+
+async function inventory() {
+  const expected = [];
+  for (const [folder, destination] of [
+    ['electron', 'dist'],
+    ['db', 'node_modules/@shop-things/db/dist'],
+    ['contract', 'node_modules/@shop-things/contract/dist'],
+  ]) {
+    const emitted = join(root, 'packages', folder, 'dist');
+    for (const path of await filesUnder(emitted)) {
+      if (path.endsWith('.d.ts')) {
+        continue;
+      }
+
+      expected.push({
+        path: join(destination, relative(emitted, path)),
+        sha256: await digest(path),
+      });
+    }
+  }
+
+  const actual = await application.evaluate(async ({app}, expected) => {
+    const fs = process.getBuiltinModule('node:fs/promises');
+    const path = process.getBuiltinModule('node:path');
+    const crypto = process.getBuiltinModule('node:crypto');
+    const archive = app.getAppPath();
+    const files = [];
+    for (const entry of expected) {
+      files.push({
+        path: entry.path,
+        sha256: crypto
+          .createHash('sha256')
+          .update(await fs.readFile(path.join(archive, entry.path)))
+          .digest('hex'),
+      });
+    }
+
+    return files;
+  }, expected);
+  assert.deepEqual(
+    actual,
+    expected,
+    'Every emitted main/preload/renderer/backend file must match packaged bytes'
+  );
+  assert.ok(actual.some(entry => entry.path === 'dist/renderer/index.html'));
+  assert.ok(actual.some(entry => entry.path.startsWith('dist/renderer/assets/')));
+  report.buildInventory = {commit: report.commit, files: actual};
+  report.migrations = [];
+  const sourceMigrations = join(root, 'packages/db/migrations');
+  const packagedMigrations = join(resources, 'migrations');
+  const sourceFiles = await filesUnder(sourceMigrations);
+  const shippedFiles = await filesUnder(packagedMigrations);
+  assert.deepEqual(
+    shippedFiles.map(path => relative(packagedMigrations, path)),
+    sourceFiles.map(path => relative(sourceMigrations, path))
+  );
+  for (const path of sourceFiles) {
+    const shipped = join(packagedMigrations, relative(sourceMigrations, path));
+    assert.equal(await digest(shipped), await digest(path));
+    report.migrations.push({
+      path: relative(resources, shipped),
+      sha256: await digest(shipped),
+    });
+  }
+
+  const artifacts = [executablePath, archive, addon];
+  if (!supporting) {
+    const installers = (await readdir(release)).filter(name =>
+      name.endsWith('_amd64.deb')
+    );
+    assert.equal(installers.length, 1, 'One Linux x64 installer required');
+    artifacts.push(join(release, installers[0]));
+  }
+
+  report.artifacts = await Promise.all(
+    artifacts.map(async path => ({
+      path: relative(release, path),
+      sha256: await digest(path),
+    }))
+  );
+}
+
+await persist();
+try {
+  report.commit = git(['rev-parse', 'HEAD']);
+  report.dirtyCheckout = git(['status', '--porcelain', '--untracked-files=all']) !== '';
+  assert.equal(
+    report.dirtyCheckout,
+    false,
+    'Packaged acceptance requires clean committed sources'
+  );
+  assert.ok(
+    target === 'linux-x64' || supporting,
+    `Unsupported packaged target ${target}`
+  );
+  assert.equal(process.platform, supporting ? 'darwin' : 'linux');
+  assert.equal(process.arch, supporting ? 'arm64' : 'x64');
+  report.executionEnvironment = {
+    platform: process.platform,
+    arch: process.arch,
+    node: process.versions.node,
+    release: process.getBuiltinModule('node:os').release(),
+    glibc: process.report.getReport().header.glibcVersionRuntime,
+  };
+  if (!supporting) {
+    assert.ok(report.executionEnvironment.glibc, 'Linux glibc required');
+  }
+
+  userData = await realpath(
+    await mkdtemp(join(tmpdir(), 'shop-things-packaged-renderer-'))
+  );
+  report.userData = userData;
+  const localElectron = createRequire(join(root, 'packages/electron/package.json'))(
+    'electron'
+  );
+  const isolation = spawnSync(
+    localElectron,
+    [join(root, 'acceptance/packagedIsolation.cjs'), `--user-data-dir=${userData}`],
+    {
+      encoding: 'utf8',
+      timeout: 15_000,
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: '',
+        VITE_DEV_SERVER_URL: '',
+        SHOP_THINGS_ISOLATION_EXPECTED: userData,
+      },
+    }
+  );
+  report.isolation = {
+    exitCode: isolation.status,
+    signal: isolation.signal,
+    error: isolation.error?.message,
+    stdout: isolation.stdout,
+    stderr: isolation.stderr,
+  };
+  assert.equal(
+    isolation.status,
+    0,
+    `Standard flag isolation must be verified before production launch: ${isolation.stderr}`
+  );
+  fixture = JSON.parse(isolation.stdout.trim());
+  assert.equal(fixture.beforeReady, userData);
+  assert.equal(fixture.ready, userData);
+  await launch();
+  await inventory();
+  await passed(expectedCases[0]);
+  const working = join(userData, 'working.sqlite');
+  const backup = join(userData, 'backup.sqlite');
+  const csv = join(userData, 'all.csv');
+  await expect(page.getByRole('heading', {name: 'Set up your database'})).toBeVisible();
+  await picker(working);
+  await page.getByRole('button', {name: 'Create database', exact: true}).click();
+  await expect(
+    page.getByText('Active database: working.sqlite', {exact: true})
+  ).toBeVisible();
+  await page.getByRole('link', {name: 'Add customer', exact: true}).click();
+  await page.getByRole('textbox', {name: 'First name', exact: true}).fill('Packaged');
+  await page.getByRole('textbox', {name: 'Last name', exact: true}).fill('Saved');
+  await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-12.30');
+  await page
+    .getByRole('textbox', {name: 'Comments', exact: true})
+    .fill('Saved, "quoted"\nsecond line');
+  await page.getByRole('button', {name: 'Save', exact: true}).click();
+  await expect(
+    page.getByRole('heading', {name: 'Packaged Saved', exact: true})
+  ).toBeVisible();
+  await page.getByRole('button', {name: 'Edit customer', exact: true}).click();
+  await page.getByRole('textbox', {name: 'City', exact: true}).fill('Saved city');
+  await page.getByRole('button', {name: 'Save', exact: true}).click();
+  await expect(page.getByText('Saved city', {exact: true})).toBeVisible();
+  await page.getByRole('link', {name: 'Back to customers', exact: true}).click();
+  await page.getByRole('link', {name: 'Add customer', exact: true}).click();
+  await page.getByRole('textbox', {name: 'First name', exact: true}).fill('Other');
+  await page.getByRole('textbox', {name: 'Last name', exact: true}).fill('Saved');
+  await page.getByRole('button', {name: 'Save', exact: true}).click();
+  await expect(
+    page.getByRole('heading', {name: 'Other Saved', exact: true})
+  ).toBeVisible();
+  await page.getByRole('link', {name: 'Back to customers', exact: true}).click();
+  await page
+    .getByRole('textbox', {name: 'Search customers', exact: true})
+    .fill('Packaged');
+  await expect(page.getByText('1 result', {exact: true})).toBeVisible();
+  await page.getByRole('link', {name: 'Packaged Saved', exact: true}).click();
+  assert.equal(new URL(page.url()).hash, '#/customers/1?q=Packaged');
+  await passed(expectedCases[1]);
+  await page.getByRole('button', {name: 'Edit customer', exact: true}).click();
+  await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
+  const route = page.url();
+  const before = await status();
+  for (const [name, path, message] of [
+    ['Back up database', backup, 'Backup saved.'],
+    ['Export all customers', csv, 'Customers exported.'],
+  ]) {
+    await picker(path);
+    await menu(name);
+    await expect(page.getByText(`${message} ${path}`, {exact: true})).toBeVisible();
+    await expect(
+      page.getByRole('textbox', {name: 'Balance ($)', exact: true})
+    ).toHaveValue('-');
+    assert.equal(page.url(), route);
+    assert.deepEqual(await status(), before);
+  }
+
+  assert.equal(
+    await application.evaluate(() => Reflect.get(globalThis, 'packagedDialogs').length),
+    0
+  );
+  await passed(expectedCases[2]);
+  await application.evaluate(({Menu}) =>
+    Menu.getApplicationMenu()
+      .items.find(item => item.label === 'View')
+      .submenu.items.find(item => item.label === 'Reload')
+      .click()
+  );
+  await expect
+    .poll(() =>
+      application.evaluate(() => Reflect.get(globalThis, 'packagedDialogs').length)
+    )
+    .toBe(1);
+  await expect(page.getByRole('textbox', {name: 'Balance ($)', exact: true})).toHaveValue(
+    '-'
+  );
+  assert.equal(page.url(), route);
+  await application.evaluate(({BrowserWindow}) =>
+    BrowserWindow.getAllWindows()[0].close()
+  );
+  await expect
+    .poll(() =>
+      application.evaluate(() => Reflect.get(globalThis, 'packagedDialogs').length)
+    )
+    .toBe(2);
+  await expect(page.getByRole('textbox', {name: 'Balance ($)', exact: true})).toHaveValue(
+    '-'
+  );
+  assert.equal(
+    await application.evaluate(({BrowserWindow}) => BrowserWindow.getAllWindows().length),
+    1
+  );
+  const protections = await application.evaluate(() =>
+    Reflect.get(globalThis, 'packagedDialogs')
+  );
+  assert.ok(
+    protections.every(options => options.defaultId === 0 && options.cancelId === 0)
+  );
+  report.protectionDialogs = protections;
+  await application.evaluate(() => Reflect.set(globalThis, 'packagedDiscard', true));
+  const navigated = page.waitForEvent('load');
+  await application.evaluate(({Menu}) =>
+    Menu.getApplicationMenu()
+      .items.find(item => item.label === 'View')
+      .submenu.items.find(item => item.label === 'Reload')
+      .click()
+  );
+  await navigated;
+  await expect(
+    page.getByRole('heading', {name: 'Packaged Saved', exact: true})
+  ).toBeVisible();
+  assert.equal(page.url(), route);
+  await expect(
+    page.getByRole('button', {name: 'Edit customer', exact: true})
+  ).toBeVisible();
+  assert.deepEqual(
+    await status(),
+    before,
+    'Guarded reload must keep the database session'
+  );
+  await passed(expectedCases[3]);
+  await closeNormally();
+  await launch();
+  await expect(
+    page.getByRole('link', {name: 'Packaged Saved', exact: true})
+  ).toBeVisible();
+  const reopened = await status();
+  assert.equal(reopened.value.selectedPath, working);
+  assert.notEqual(reopened.value.session, before.value.session);
+  await page.getByRole('link', {name: 'Packaged Saved', exact: true}).click();
+  await expect(page.getByText('Saved city', {exact: true})).toBeVisible();
+  await page.getByRole('button', {name: 'Delete customer', exact: true}).click();
+  const deletion = page.getByRole('dialog', {name: 'Delete Customer?', exact: true});
+  await expect(deletion.getByRole('button', {name: 'Cancel', exact: true})).toBeFocused();
+  await deletion.getByRole('button', {name: 'Delete customer', exact: true}).click();
+  await expect(page.getByText('Customer deleted.', {exact: true})).toBeVisible();
+  await expect(page.getByText('1 result', {exact: true})).toBeVisible();
+  await closeNormally();
+  await passed(expectedCases[4]);
+  const {listCustomers, openExistingDatabase} =
+    await import('../packages/db/dist/index.js');
+  async function inspect(path) {
+    const handle = await openExistingDatabase(path, {
+      migrationsFolder: join(root, 'packages/db/migrations'),
+    });
+    try {
+      return await listCustomers(handle.db);
+    } finally {
+      handle.close();
+    }
+  }
+
+  assert.equal((await inspect(working)).length, 1);
+  assert.equal((await inspect(working))[0].firstName, 'Other');
+  const saved = await inspect(backup);
+  assert.equal(saved.length, 2);
+  const savedCustomer = saved.find(row => row.firstName === 'Packaged');
+  assert.equal(savedCustomer.balance, '-12.30');
+  assert.equal(savedCustomer.city, 'Saved city');
+  const text = await readFile(csv, 'utf8');
+  assert.ok(text.includes('"-12.30"'));
+  assert.ok(text.includes('"Other"'));
+  assert.ok(text.includes('"Saved, ""quoted""\nsecond line"'));
+  assert.deepEqual(JSON.parse(await readFile(join(userData, 'database.json'), 'utf8')), {
+    path: working,
+  });
+  report.outputs = await Promise.all(
+    [working, backup, csv].map(async path => ({path, sha256: await digest(path)}))
+  );
+  await passed(expectedCases[5]);
+  assert.deepEqual(
+    report.cases.map(result => result.name),
+    expectedCases
+  );
+  assert.equal(
+    report.logs.filter(entry => entry.source === 'renderer').length,
+    0,
+    'No renderer page errors permitted'
+  );
+  assert.equal(
+    git(['status', '--porcelain', '--untracked-files=all']),
+    '',
+    'Sources must remain clean through package execution'
+  );
+  report.status = 'passed';
+} catch (error) {
+  failure = error;
+  report.status = 'failed';
+  report.error = {message: String(error?.message ?? error), stack: error?.stack};
+  if (page) {
+    await page
+      .screenshot({path: join(directory, 'packaged-renderer-failure.png')})
+      .catch(() => {});
+    await page
+      .context()
+      .tracing.stop({path: join(directory, `packaged-renderer-${attempt}-failure.zip`)})
+      .catch(() => {});
+  }
+} finally {
+  if (application) {
+    // Failed probes may stop their own child, but forced cleanup never certifies protection.
+    report.cleanup = 'failed-probe test-owned forced exit';
+    await application.evaluate(({app}) => app.exit(0)).catch(() => {});
+  } else {
+    report.cleanup = 'normal protected close completed';
+  }
+
+  report.finishedAt = new Date().toISOString();
+  await persist();
+  await writeFile(
+    join(directory, 'packaged-renderer-console.json'),
+    JSON.stringify(report.logs, null, 2) + '\n'
+  );
+  console.log(JSON.stringify(report, null, 2));
+}
+
+if (failure) {
+  throw failure;
+}
