@@ -1,4 +1,5 @@
 /* oxlint-disable import/no-named-export -- Application bootstrap and shared state owner. */
+import type {ToastManager} from '@base-ui/react/toast';
 import type {
   Client,
   DatabaseState,
@@ -12,6 +13,7 @@ import {CancelledError, QueryClient} from '@tanstack/react-query';
 import {CustomerRequestError} from './customers';
 import createPreviewClient from './preview';
 import {createDraftProtection} from './protection';
+import toastManager, {createToasts} from './toasts';
 
 export interface ApplicationState {
   mode: 'live' | 'preview' | 'unavailable';
@@ -22,8 +24,6 @@ export interface ApplicationState {
   reconciling: boolean;
   recoveryRequired: boolean;
   pendingFile: string | null;
-  fileError: string | null;
-  fileSuccess: string | null;
 }
 
 export interface RequestScope {
@@ -52,8 +52,10 @@ const busy = {
 export function createApplication(
   url: string,
   attached = Reflect.has(window, 'shopThings'),
-  options: {client?: Client; queryClient?: QueryClient} = {}
+  options: {client?: Client; queryClient?: QueryClient; toastManager?: ToastManager} = {}
 ) {
+  const notifications = options.toastManager ?? toastManager;
+  const toasts = createToasts(notifications);
   const mode = attached
     ? 'live'
     : new URL(url).searchParams.get('preview') === 'true'
@@ -78,8 +80,6 @@ export function createApplication(
     reconciling: false,
     recoveryRequired: false,
     pendingFile: null,
-    fileError: null,
-    fileSuccess: null,
   };
   let generation = 0;
   let stopState: (() => void) | null = null;
@@ -370,7 +370,6 @@ export function createApplication(
     }
   }
 
-  let successTimer: ReturnType<typeof setTimeout> | null = null;
   async function fileAction(
     action: 'create' | 'open' | 'retry' | 'restore' | 'backup' | 'export'
   ) {
@@ -386,11 +385,9 @@ export function createApplication(
     }
 
     const attempt = generation;
-    if (successTimer) {
-      clearTimeout(successTimer);
-    }
+    notifications.close('database-feedback');
 
-    publish({...state, pendingFile: action, fileError: null, fileSuccess: null});
+    publish({...state, pendingFile: action});
     try {
       const session = state.database?.session;
       const result =
@@ -432,30 +429,25 @@ export function createApplication(
       }
 
       if (result.status === 'error') {
-        publish({
-          ...state,
-          fileError:
+        toasts.error({
+          id: 'database-feedback',
+          title:
             result.error.code === 'BUSY'
               ? 'Another operation is in progress. Try again when it finishes.'
               : result.error.message,
         });
       } else if (result.status === 'success') {
         const destination = 'path' in result.value ? ` ${result.value.path}` : '';
-        publish({
-          ...state,
-          fileSuccess: `${action === 'create' ? 'Database created.' : action === 'open' || action === 'retry' ? 'Database opened.' : action === 'restore' ? 'Database restored.' : action === 'backup' ? 'Backup saved.' : 'Customers exported.'}${destination}`,
+        toasts.success({
+          id: 'database-feedback',
+          title: `${action === 'create' ? 'Database created.' : action === 'open' || action === 'retry' ? 'Database opened.' : action === 'restore' ? 'Database restored.' : action === 'backup' ? 'Backup saved.' : 'Customers exported.'}${destination}`,
         });
-        successTimer = setTimeout(() => {
-          if (attempt === generation) {
-            publish({...state, fileSuccess: null});
-          }
-        }, 5000);
       }
     } catch {
       if (attempt === generation) {
-        publish({
-          ...state,
-          fileError:
+        toasts.error({
+          id: 'database-feedback',
+          title:
             'The operation could not finish. Check the file and folder permissions, then try again.',
         });
       }
@@ -468,9 +460,7 @@ export function createApplication(
 
   function dispose() {
     generation++;
-    if (successTimer) {
-      clearTimeout(successTimer);
-    }
+    notifications.close('database-feedback');
 
     stopState?.();
     stopProtection?.();
@@ -484,8 +474,6 @@ export function createApplication(
       ...state,
       phase: 'loading',
       pendingFile: null,
-      fileError: null,
-      fileSuccess: null,
       pendingTransition: false,
       reconciling: false,
     });
@@ -593,9 +581,6 @@ export function createApplication(
       return coordinatedRequest(session, operation, scope, admitted);
     },
     fileAction,
-    dismissFileError() {
-      publish({...state, fileError: null});
-    },
     reloadCustomer,
     transition,
     reconcile,

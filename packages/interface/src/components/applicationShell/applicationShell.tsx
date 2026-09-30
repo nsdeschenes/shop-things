@@ -12,7 +12,6 @@ import {spacing} from '../../styles/spacing.stylex';
 import {typography} from '../../styles/typography.stylex';
 import Button from '../button/button';
 import DatabaseActions from '../databaseActions/databaseActions';
-import DatabaseToasts from '../databaseToasts/databaseToasts';
 import LoadingSpinner from '../loadingSpinner/loadingSpinner';
 
 interface ApplicationShellProps {
@@ -222,7 +221,6 @@ export default function ApplicationShell({application, children}: ApplicationShe
           {children}
         </div>
       )}
-      <DatabaseToasts application={application} />
       {state.pendingFile && (
         <div {...stylex.props(styles.loadingOverlay)}>
           <LoadingSpinner label="Loading database" />

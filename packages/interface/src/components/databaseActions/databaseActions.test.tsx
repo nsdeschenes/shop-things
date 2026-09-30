@@ -1,10 +1,11 @@
+import {Toast} from '@base-ui/react/toast';
 import {render, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, test} from 'vitest';
 
 import {createApplication} from '../../application/controller';
 import createPreviewClient from '../../application/preview';
-import DatabaseToasts from '../databaseToasts/databaseToasts';
+import Toasts from '../toasts/toasts';
 import DatabaseActions from './databaseActions';
 
 const activeLabel = /Active database:/;
@@ -28,12 +29,16 @@ test('startup gates actions, recovery names the failed file, and BUSY clears pen
     status: 'error',
     error: {code: 'BUSY', message: 'Busy'},
   });
-  const application = createApplication('http://localhost/', true, {client});
+  const toastManager = Toast.createToastManager();
+  const application = createApplication('http://localhost/', true, {
+    client,
+    toastManager,
+  });
   render(
-    <>
+    <Toast.Provider toastManager={toastManager}>
       <DatabaseActions application={application} />
-      <DatabaseToasts application={application} />
-    </>
+      <Toasts />
+    </Toast.Provider>
   );
   expect(screen.queryByRole('button', {name: 'Database'})).not.toBeInTheDocument();
   await application.start();
