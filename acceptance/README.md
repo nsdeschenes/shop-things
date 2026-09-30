@@ -52,3 +52,23 @@ clean reversion permits reload, unresponsive Save preparation times out without 
 and missing participation aborts with retry guidance. Main-owned cold startup can open
 remembered data before a renderer exists; all public recovery transitions require an
 explicit current participant, including when no database is active.
+
+## Customer Browsing
+
+The customer suite seeds temporary migrated databases through the emitted database
+package and remembered settings, then exercises the production renderer and IPC in
+both development-resource and bundled-file/hash modes. It covers backend ordering,
+debounced search with preserved focus, Enter/Clear, immutable-ID links, query-preserving
+Back/header navigation and reload, nullable numbers, decimal-string balances, missing
+records and explicit Retry. Customer create/edit/delete remain disabled in this stage.
+
+The launcher can hold a real handler result or supply one controlled error after the
+real handler completes. Superseded search errors and detail successes cannot paint a
+new target. Reopening the same file rotates its session and clears selection/search
+only after matching protection commit; a held prior-session error cannot affect the
+new list. Chromium proves temporary empty/search/missing behavior and separation of
+outer preview switches from hash-route search parameters.
+
+Local run on September 30, 2026: all 14 renderer/protection/customer checks and 26
+interface checks passed on macOS arm64. Linux/packaged artifact and manual acceptance
+remain deferred as recorded above; these local runs do not certify release acceptance.

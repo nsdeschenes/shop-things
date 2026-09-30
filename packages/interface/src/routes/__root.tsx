@@ -9,6 +9,7 @@ import {
   useRouter,
 } from '@tanstack/react-router';
 import {useEffect, useSyncExternalStore} from 'react';
+import {z} from 'zod';
 
 import type {Application} from '../application/controller';
 import {navigationTarget} from '../application/protection';
@@ -116,6 +117,13 @@ function RootLayout() {
       }),
     [application, router]
   );
+  useEffect(
+    () =>
+      application.onSessionChanged(() => {
+        void router.navigate({to: '/customers', search: {}, replace: true});
+      }),
+    [application, router]
+  );
   return (
     <div {...stylex.props(styles.layout)}>
       <Dialog.Root
@@ -146,7 +154,11 @@ function RootLayout() {
         </Dialog.Portal>
       </Dialog.Root>
       <header {...stylex.props(styles.header)}>
-        <Link to="/customers" {...stylex.props(styles.brand)}>
+        <Link
+          to="/customers"
+          search={previous => previous}
+          {...stylex.props(styles.brand)}
+        >
           <p {...stylex.props(styles.eyebrow)}>Customer records</p>
           <p {...stylex.props(styles.title)}>Shop Things</p>
         </Link>
@@ -191,4 +203,7 @@ function RootLayout() {
   );
 }
 
-export const Route = createRootRouteWithContext<RouterContext>()({component: RootLayout});
+export const Route = createRootRouteWithContext<RouterContext>()({
+  validateSearch: z.object({q: z.string().optional().catch(undefined)}),
+  component: RootLayout,
+});
