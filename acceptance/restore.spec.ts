@@ -40,13 +40,9 @@ function launch(directory: string, seed = false) {
   });
 }
 
-async function explain(page: Page) {
+async function startRestore(page: Page) {
   await page.getByRole('button', {name: 'Database', exact: true}).click();
   await page.getByRole('menuitem', {name: 'Restore backup', exact: true}).click();
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText('Choose a backup, then a new destination.');
-  await expect(dialog.getByRole('button', {name: 'Cancel', exact: true})).toBeFocused();
-  return dialog;
 }
 
 async function restore(
@@ -60,11 +56,7 @@ async function restore(
       Reflect.get(globalThis, 'acceptanceFiles').push(...selections),
     [{path: source}, ...(source ? [{path: destination}] : [])]
   );
-  await (
-    await explain(page)
-  )
-    .getByRole('button', {name: 'Continue', exact: true})
-    .click();
+  await startRestore(page);
   await expect(page.getByText('Waiting for database operation…')).toHaveCount(0);
 }
 
@@ -102,7 +94,45 @@ async function cleanup(application: ElectronApplication, directory: string) {
   await rm(directory, {recursive: true, force: true});
 }
 
-test('Restore explains first and both picker cancellations preserve approved exact drafts and references', async () => {
+test('Keyboard Restore opens source selection directly and returns focus after cancellation', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-restore-keyboard-'));
+  const application = await launch(directory, true);
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByText('3 results', {exact: true})).toBeVisible();
+    await application.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceFiles').push({hold: true})
+    );
+    const trigger = page.getByRole('button', {name: 'Database', exact: true});
+    await trigger.focus();
+    await trigger.press('Enter');
+    const item = page.getByRole('menuitem', {name: 'Restore backup', exact: true});
+    await page.keyboard.press('r');
+    await expect(item).toBeFocused();
+    await item.press('Enter');
+    await expect(page.getByText('Waiting for database operation…')).toBeVisible();
+    await expect(trigger).toBeDisabled();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect
+      .poll(() =>
+        application.evaluate(() => Reflect.get(globalThis, 'acceptancePickers'))
+      )
+      .toMatchObject([{kind: 'open', title: 'Choose backup to restore'}]);
+    expect(
+      await application.evaluate(() => Reflect.get(globalThis, 'acceptanceDialogs'))
+    ).toEqual([]);
+    await application.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceReleasePicker')()
+    );
+    await expect(trigger).toBeEnabled();
+    await expect(trigger).toBeFocused();
+    await expect(page.getByText('3 results', {exact: true})).toBeVisible();
+  } finally {
+    await cleanup(application, directory);
+  }
+});
+
+test('Restore directly protects dirty drafts and both picker cancellations preserve exact drafts and references', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-restore-cancel-'));
   const application = await launch(directory, true);
   try {
@@ -119,35 +149,18 @@ test('Restore explains first and both picker cancellations preserve approved exa
     await balance.fill('-');
     const before = await stateAndRecord(page);
     const hash = new URL(page.url()).hash;
-    const requests = await application.evaluate(
-      () =>
-        Reflect.get(globalThis, 'acceptanceIpc').filter(
-          (channel: string) => channel === 'shop-things:database.restore'
-        ).length
-    );
-    await (
-      await explain(page)
-    )
-      .getByRole('button', {name: 'Cancel', exact: true})
-      .click();
-    expect(
-      await application.evaluate(
-        () =>
-          Reflect.get(globalThis, 'acceptanceIpc').filter(
-            (channel: string) => channel === 'shop-things:database.restore'
-          ).length
-      )
-    ).toBe(requests);
     const pickers = await application.evaluate(
       () => Reflect.get(globalThis, 'acceptancePickers').length
     );
     // Stay refuses native preparation before either file picker.
-    await (
-      await explain(page)
-    )
-      .getByRole('button', {name: 'Continue', exact: true})
-      .click();
+    await startRestore(page);
     await expect(balance).toBeEnabled();
+    expect(
+      await application.evaluate(() =>
+        Reflect.get(globalThis, 'acceptanceDialogs').at(-1)
+      )
+    ).toMatchObject({message: 'Discard unsaved changes?', defaultId: 0, cancelId: 0});
+    await expect(page.getByRole('button', {name: 'Database', exact: true})).toBeFocused();
     expect(
       await application.evaluate(
         () => Reflect.get(globalThis, 'acceptancePickers').length
@@ -230,13 +243,12 @@ test('Restore failures preserve source, working database, route and draft; held 
     await application.evaluate(() =>
       Reflect.get(globalThis, 'acceptanceFiles').push({hold: true})
     );
-    await (
-      await explain(page)
-    )
-      .getByRole('button', {name: 'Continue', exact: true})
-      .click();
+    await startRestore(page);
     await expect(page.getByText('Waiting for database operation…')).toBeVisible();
     await expect(name).toBeDisabled();
+    await expect(
+      page.getByRole('button', {name: 'Database', exact: true})
+    ).toBeDisabled();
     expect(
       await page.evaluate(async () => {
         const client = Reflect.get(window, 'shopThings');

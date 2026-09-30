@@ -64,7 +64,7 @@ controlled; no operator settings or application processes are used.
 - `savedFiles.spec.ts`: all saved rows despite search, CSV escaping/money/null
   values, unsaved draft exclusion, independent backup reopen, no leave prompt,
   pending/Cancel/EEXIST/folder/BUSY feedback.
-- `restore.spec.ts`: explanation before native action, Stay/both picker Cancels,
+- `restore.spec.ts`: direct protected action, Stay/both picker Cancels,
   separate destination/source preservation, unsupported/migration/persistence
   failure cleanup, fresh-session reset and remembered reopen.
 - `history.spec.ts`, `unload.spec.ts`: actual Back/Forward safe Stay/Discard,
