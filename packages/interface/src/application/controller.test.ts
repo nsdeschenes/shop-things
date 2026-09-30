@@ -1,6 +1,7 @@
+import {Toast} from '@base-ui/react/toast';
 import type {DatabaseState, DraftProtection} from '@shop-things/contract';
 import {isCancelledError} from '@tanstack/react-query';
-import {expect, test} from 'vitest';
+import {expect, test, vi} from 'vitest';
 
 import {createApplication} from './controller';
 import {customerKeys, customerListOptions, deleteCustomerOptions} from './customers';
@@ -45,9 +46,11 @@ function fixture() {
     };
   };
 
-  const application = createApplication('http://localhost', true, {client});
+  const toastManager = Toast.createToastManager();
+  const application = createApplication('http://localhost', true, {client, toastManager});
   return {
     application,
+    toastManager,
     client,
     first,
     getProtection: () => protection!,
@@ -489,9 +492,12 @@ test('protected customer replacement permits only its coordinated get and suppre
 test('saved file operations gate customer dispatch and retain session while their held result settles', async () => {
   const client = createPreviewClient();
   const held = deferred<{status: 'success'; value: {path: string}}>();
+  const toastManager = Toast.createToastManager();
+  const notify = vi.spyOn(toastManager, 'add');
   client.database.backup = () => held.promise;
   const application = createApplication('http://localhost/?preview=true', false, {
     client,
+    toastManager,
   });
   await application.start();
   const before = application.getState().database;
@@ -509,12 +515,19 @@ test('saved file operations gate customer dispatch and retain session while thei
   await saving;
   expect(application.getState().database).toEqual(before);
   expect(application.getState().pendingFile).toBeNull();
-  expect(application.getState().fileSuccess).toContain('Preview: backup.sqlite');
+  expect(notify).toHaveBeenCalledExactlyOnceWith({
+    id: 'database-feedback',
+    type: 'success',
+    priority: 'low',
+    timeout: 5000,
+    title: 'Backup saved. Preview: backup.sqlite',
+  });
   application.dispose();
 });
 
 test('saved-file failures cannot paint a replacement session accepted during reconciliation', async () => {
   const f = fixture();
+  const notify = vi.spyOn(f.toastManager, 'add');
   await f.application.start();
   const status = deferred<Awaited<ReturnType<typeof f.client.database.status>>>();
   const reconciling = deferred<void>();
@@ -533,7 +546,7 @@ test('saved-file failures cannot paint a replacement session accepted during rec
   status.resolve({status: 'success', value: {...f.first, session: 'two', version: 2}});
   await backup;
   expect(f.application.getState().database?.session).toBe('two');
-  expect(f.application.getState().fileError).toBeNull();
+  expect(notify).not.toHaveBeenCalled();
   expect(f.application.getState().pendingFile).toBeNull();
   f.application.dispose();
 });

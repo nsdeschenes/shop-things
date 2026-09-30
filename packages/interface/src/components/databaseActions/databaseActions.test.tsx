@@ -1,9 +1,11 @@
-import {render, screen} from '@testing-library/react';
+import {Toast} from '@base-ui/react/toast';
+import {render, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, test} from 'vitest';
 
 import {createApplication} from '../../application/controller';
 import createPreviewClient from '../../application/preview';
+import Toasts from '../toasts/toasts';
 import DatabaseActions from './databaseActions';
 
 const activeLabel = /Active database:/;
@@ -27,22 +29,43 @@ test('startup gates actions, recovery names the failed file, and BUSY clears pen
     status: 'error',
     error: {code: 'BUSY', message: 'Busy'},
   });
-  const application = createApplication('http://localhost/', true, {client});
-  render(<DatabaseActions application={application} />);
-  expect(screen.getByRole('button', {name: 'Database'})).toBeDisabled();
+  const toastManager = Toast.createToastManager();
+  const application = createApplication('http://localhost/', true, {
+    client,
+    toastManager,
+  });
+  render(
+    <Toast.Provider toastManager={toastManager}>
+      <DatabaseActions application={application} />
+      <Toasts />
+    </Toast.Provider>
+  );
+  expect(screen.queryByRole('button', {name: 'Database'})).not.toBeInTheDocument();
   await application.start();
   expect(await screen.findByRole('heading', {name: 'Recover Database'})).toBeVisible();
+  expect(screen.queryByRole('button', {name: 'Database'})).not.toBeInTheDocument();
   expect(screen.getByText('Failed remembered file: remembered.sqlite')).toBeVisible();
   expect(screen.queryByText(activeLabel)).not.toBeInTheDocument();
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', {name: 'Retry remembered database'}));
   expect(
-    await screen.findByText(
+    await screen.findByRole('alertdialog', {
+      hidden: true,
+    })
+  ).toBeVisible();
+  expect(
+    within(screen.getByRole('region', {name: 'Notifications'})).getByText(
       'Another operation is in progress. Try again when it finishes.'
     )
   ).toBeVisible();
   expect(screen.queryByText('Waiting for database operation…')).not.toBeInTheDocument();
-  await user.click(screen.getByRole('button', {name: 'Dismiss error'}));
-  expect(screen.queryByText(busyLabel)).not.toBeInTheDocument();
+  await user.click(
+    within(screen.getByRole('region', {name: 'Notifications'})).getByRole('button', {
+      hidden: true,
+    })
+  );
+  expect(
+    within(screen.getByRole('region', {name: 'Notifications'})).queryByText(busyLabel)
+  ).not.toBeInTheDocument();
   application.dispose();
 });

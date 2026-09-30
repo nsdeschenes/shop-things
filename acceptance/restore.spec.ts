@@ -57,7 +57,7 @@ async function restore(
     [{path: source}, ...(source ? [{path: destination}] : [])]
   );
   await startRestore(page);
-  await expect(page.getByText('Waiting for database operation…')).toHaveCount(0);
+  await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(0);
 }
 
 async function backup(application: ElectronApplication, page: Page, source: string) {
@@ -110,7 +110,7 @@ test('Keyboard Restore opens source selection directly and returns focus after c
     await page.keyboard.press('r');
     await expect(item).toBeFocused();
     await item.press('Enter');
-    await expect(page.getByText('Waiting for database operation…')).toBeVisible();
+    await expect(page.getByRole('status', {name: 'Loading database'})).toBeVisible();
     await expect(trigger).toBeDisabled();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect
@@ -125,6 +125,7 @@ test('Keyboard Restore opens source selection directly and returns focus after c
       Reflect.get(globalThis, 'acceptanceReleasePicker')()
     );
     await expect(trigger).toBeEnabled();
+    await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(0);
     await expect(trigger).toBeFocused();
     await expect(page.getByText('3 results', {exact: true})).toBeVisible();
   } finally {
@@ -210,7 +211,7 @@ test('Restore failures preserve source, working database, route and draft; held 
     const existing = join(directory, 'existing.sqlite');
     await writeFile(existing, 'existing destination bytes');
     await restore(application, page, source, existing);
-    await expect(page.getByRole('alert')).toContainText(
+    await expect(page.getByRole('alertdialog', {includeHidden: true})).toContainText(
       'Choose another name or location'
     );
     expect(await readFile(existing, 'utf8')).toBe('existing destination bytes');
@@ -218,7 +219,9 @@ test('Restore failures preserve source, working database, route and draft; held 
     await writeFile(corrupt, 'unsupported backup bytes');
     const invalidDestination = join(directory, 'invalid-copy.sqlite');
     await restore(application, page, corrupt, invalidDestination);
-    await expect(page.getByRole('alert')).toContainText('supported');
+    await expect(page.getByRole('alertdialog', {includeHidden: true})).toContainText(
+      'supported'
+    );
     await expect(access(invalidDestination)).rejects.toThrow();
     expect(await readFile(corrupt, 'utf8')).toBe('unsupported backup bytes');
     const settingsBytes = await readFile(join(directory, 'database.json'));
@@ -231,7 +234,9 @@ test('Restore failures preserve source, working database, route and draft; held 
     });
     const failedDestination = join(directory, 'settings-copy.sqlite');
     await restore(application, page, source, failedDestination);
-    await expect(page.getByRole('alert')).toContainText('permissions');
+    await expect(page.getByRole('alertdialog', {includeHidden: true})).toContainText(
+      'permissions'
+    );
     await expect(access(failedDestination)).rejects.toThrow();
     expect(await readFile(join(directory, 'database.json'))).toEqual(settingsBytes);
     await application.evaluate(() => {
@@ -244,7 +249,7 @@ test('Restore failures preserve source, working database, route and draft; held 
       Reflect.get(globalThis, 'acceptanceFiles').push({hold: true})
     );
     await startRestore(page);
-    await expect(page.getByText('Waiting for database operation…')).toBeVisible();
+    await expect(page.getByRole('status', {name: 'Loading database'})).toBeVisible();
     await expect(name).toBeDisabled();
     await expect(
       page.getByRole('button', {name: 'Database', exact: true})
@@ -261,7 +266,7 @@ test('Restore failures preserve source, working database, route and draft; held 
       Reflect.get(globalThis, 'acceptanceReleasePicker')()
     );
     await expect(name).toBeEnabled();
-    await expect(page.getByText('Waiting for database operation…')).toHaveCount(0);
+    await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(0);
     await expect(name).toHaveValue('Retained restore draft');
     expect(await stateAndRecord(page)).toEqual(before);
     expect(new URL(page.url()).hash).toBe(hash);
@@ -334,7 +339,7 @@ test('Restore migrates only a separate read-only backup copy, cleans failed migr
     }, broken);
     const failed = join(directory, 'failed-migration.sqlite');
     await restore(application, page, source, failed);
-    await expect(page.getByRole('alert')).toBeVisible();
+    await expect(page.getByRole('alertdialog', {includeHidden: true})).toBeVisible();
     await expect(access(failed)).rejects.toThrow();
     await expect(page.getByRole('textbox', {name: 'First name'})).toHaveValue(
       'Retained migration draft'
@@ -393,7 +398,7 @@ test('Restore migrates only a separate read-only backup copy, cleans failed migr
   }
 });
 
-test('Restore is available without an active database and enters saved customers after completion', async () => {
+test('Restore after database setup enters saved customers after completion', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-restore-setup-'));
   let application = await launch(directory, true);
   try {
@@ -408,6 +413,15 @@ test('Restore is available without an active database and enters saved customers
     await expect(
       setup.getByRole('heading', {name: 'Set Up Your Database'})
     ).toBeVisible();
+    await expect(setup.getByRole('button', {name: 'Database', exact: true})).toHaveCount(
+      0
+    );
+    await application.evaluate(
+      (_electron, path) => Reflect.get(globalThis, 'acceptanceFiles').push({path}),
+      join(directory, 'new.sqlite')
+    );
+    await setup.getByRole('button', {name: 'Create database', exact: true}).click();
+    await expect(setup.getByRole('heading', {name: 'No Customers Yet'})).toBeVisible();
     await restore(application, setup, source, join(directory, 'setup-restored.sqlite'));
     await expect(setup.getByText('3 results', {exact: true})).toBeVisible();
     await expect(setup.getByText('Database restored.', {exact: true})).toBeVisible();

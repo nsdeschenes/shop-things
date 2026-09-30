@@ -15,7 +15,7 @@ async function confirm(page: Page) {
   await page.getByRole('dialog').getByRole('button', {name: 'Delete customer'}).click();
 }
 
-test('identifying deletion persists and preserves searched list through actual bundled renderer IPC', async () => {
+test('identifying deletion persists and returns to the unfiltered list through actual bundled renderer IPC', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-delete-'));
   const application = await launchElectron(directory, {
     SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
@@ -46,10 +46,8 @@ test('identifying deletion persists and preserves searched list through actual b
     ).toBe(0);
     await confirm(page);
     await expect(page.getByText('Customer deleted.', {exact: true})).toBeVisible();
-    await expect(search).toHaveValue('Alpha');
-    await expect(
-      page.getByRole('heading', {name: 'No Matching Customers'})
-    ).toBeVisible();
+    await expect(search).toHaveValue('');
+    await expect(page.getByText('2 results', {exact: true})).toBeVisible();
     await application.close();
     closed = true;
     const handle = await openExistingDatabase(join(directory, 'customers.sqlite'), {
@@ -70,7 +68,7 @@ test('identifying deletion persists and preserves searched list through actual b
   }
 });
 
-test('same-session deletion refreshes an active cached searched list after Back during a held response', async () => {
+test('same-session deletion refreshes an active cached list after returning during a held response', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-delete-back-'));
   const application = await launchElectron(directory, {
     SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
@@ -96,17 +94,15 @@ test('same-session deletion refreshes an active cached searched list after Back 
       )
       .toBe('shop-things:customers.delete');
     await page.getByRole('link', {name: 'Back to customers'}).click();
-    await expect(search).toHaveValue('Alpha');
+    await expect(search).toHaveValue('');
     await expect(page.getByRole('link', {name: 'Alpha One'})).toBeVisible();
     await application.evaluate(() => {
       Reflect.get(globalThis, 'acceptanceReleaseRead')();
     });
-    await expect(
-      page.getByRole('heading', {name: 'No Matching Customers'})
-    ).toBeVisible();
+    await expect(page.getByText('2 results', {exact: true})).toBeVisible();
     await expect(page.getByRole('link', {name: 'Alpha One'})).toHaveCount(0);
     await expect(page.getByText('Customer deleted.', {exact: true})).toHaveCount(0);
-    await expect(search).toHaveValue('Alpha');
+    await expect(search).toHaveValue('');
   } finally {
     await application.close();
     await rm(directory, {recursive: true, force: true});
@@ -215,15 +211,15 @@ test('Chromium preview cancels identifying deletion then removes the temporary s
     page.getByRole('heading', {name: 'Temporary Delete', exact: true})
   ).toBeVisible();
   await page.getByRole('link', {name: 'Back to customers'}).click();
-  await expect(search).toHaveValue('Temporary');
+  await expect(search).toHaveValue('');
   await expect(
     page.getByRole('link', {name: 'Temporary Delete', exact: true})
   ).toBeVisible();
   await page.getByRole('link', {name: 'Temporary Delete', exact: true}).click();
   await confirm(page);
   await expect(page.getByText('Customer deleted.', {exact: true})).toBeVisible();
-  await expect(search).toHaveValue('Temporary');
-  await expect(page.getByRole('heading', {name: 'No Matching Customers'})).toBeVisible();
+  await expect(search).toHaveValue('');
+  await expect(page.getByRole('heading', {name: 'No Customers Yet'})).toBeVisible();
   await expect(page.getByText('0 results', {exact: true})).toBeVisible();
   await expect(
     page.getByRole('link', {name: 'Temporary Delete', exact: true})
@@ -233,7 +229,7 @@ test('Chromium preview cancels identifying deletion then removes the temporary s
   }, detailRoute);
   await expect(page.getByRole('heading', {name: 'Customer Not Found'})).toBeVisible();
   await page.getByRole('link', {name: 'Back to customers'}).click();
-  await page.getByRole('button', {name: 'Clear'}).click();
+  await expect(page.getByRole('button', {name: 'Clear'})).toBeDisabled();
   await expect(page.getByRole('heading', {name: 'No Customers Yet'})).toBeVisible();
   expect(new URL(page.url()).searchParams.get('preview')).toBe('true');
 });

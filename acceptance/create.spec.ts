@@ -37,10 +37,10 @@ test('Create persists exact contacts and decimal balances across guarded reload 
     await expect(page.getByText('aB cd', {exact: true})).toBeVisible();
     await expect(page.getByText('contact text', {exact: true})).toBeVisible();
     await expect(page.getByText('$-1.23', {exact: true})).toBeVisible();
-    expect(new URL(page.url()).hash).toBe('#/customers/4?q=Ada');
+    expect(new URL(page.url()).hash).toBe('#/customers/4');
     await page.getByRole('link', {name: 'Back to customers'}).click();
     await expect(page.getByRole('link', {name: 'Ada', exact: true})).toBeVisible();
-    await expect(page.getByText('1 result', {exact: true})).toBeVisible();
+    await expect(page.getByText('4 results', {exact: true})).toBeVisible();
     await page.getByRole('link', {name: 'Ada', exact: true}).click();
     await page.reload();
     await expect(page.getByText('$-1.23', {exact: true})).toBeVisible();

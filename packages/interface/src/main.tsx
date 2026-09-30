@@ -1,3 +1,4 @@
+import {Toast} from '@base-ui/react/toast';
 import * as stylex from '@stylexjs/stylex';
 import {QueryClientProvider} from '@tanstack/react-query';
 import {RouterProvider, createRouter} from '@tanstack/react-router';
@@ -6,8 +7,11 @@ import ReactDOM from 'react-dom/client';
 
 import {createApplication} from './application/controller';
 import createApplicationHistory from './application/history';
+import toastManager from './application/toasts';
+import Toasts from './components/toasts/toasts';
 import {routeTree} from './routeTree.gen';
 import {typography} from './styles/typography.stylex';
+import './styles/breakpoints.stylex';
 
 import './index.css';
 
@@ -53,9 +57,12 @@ if (!rootElement.innerHTML) {
   const root = ReactDOM.createRoot(rootElement);
   root.render(
     <StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
+      <Toast.Provider toastManager={toastManager}>
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+        <Toasts />
+      </Toast.Provider>
     </StrictMode>
   );
 }

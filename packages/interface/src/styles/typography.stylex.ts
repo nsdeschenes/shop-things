@@ -4,6 +4,7 @@ export const typography = stylex.defineVars({
   fontFamily: 'Arial, Helvetica, sans-serif',
   fontSizeSmall: '14px',
   fontSizeBody: '16px',
+  fontSizeLarge: '18px',
   fontSizeHeading: '24px',
   fontSizeBrand: '28px',
   fontWeightRegular: '400',

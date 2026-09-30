@@ -20,6 +20,7 @@ import {
   CustomerRoutePending,
 } from '../components/customerRouteFeedback/customerRouteFeedback';
 import Input from '../components/input/input';
+import LoadingSpinner from '../components/loadingSpinner/loadingSpinner';
 import PageShell from '../components/pageShell/pageShell';
 import Table from '../components/table/table';
 import {breakpoints} from '../styles/breakpoints.stylex';
@@ -141,9 +142,14 @@ function RouteComponent() {
       title="Customers"
       actions={
         disabled ? (
-          <Button disabled>Add customer</Button>
+          <Button variant="primary" disabled>
+            Add customer
+          </Button>
         ) : (
-          <Link to="/customers/new" {...stylex.props(buttonStyles.base)}>
+          <Link
+            to="/customers/new"
+            {...stylex.props(buttonStyles.base, buttonStyles.primary)}
+          >
             Add customer
           </Link>
         )
@@ -187,7 +193,7 @@ function RouteComponent() {
             'The database is unavailable. Open or retry the database to continue.'}
         </p>
       ) : searching || customers.isPending || isCancelledError(customers.error) ? (
-        <p role="status">Loading customers…</p>
+        <LoadingSpinner label="Loading customers…" />
       ) : customers.isError ? (
         <section role="alert">
           <p>{customers.error.message}</p>

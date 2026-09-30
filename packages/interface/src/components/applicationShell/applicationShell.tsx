@@ -12,6 +12,7 @@ import {spacing} from '../../styles/spacing.stylex';
 import {typography} from '../../styles/typography.stylex';
 import Button from '../button/button';
 import DatabaseActions from '../databaseActions/databaseActions';
+import LoadingOverlay from '../loadingOverlay/loadingOverlay';
 
 interface ApplicationShellProps {
   application: Application;
@@ -28,6 +29,7 @@ const styles = stylex.create({
     color: colors.text,
     position: 'fixed',
     transform: 'translate(-50%, -50%)',
+    zIndex: 101,
     left: '50%',
     maxWidth: 400,
     top: '50%',
@@ -39,7 +41,7 @@ const styles = stylex.create({
   },
   header: {
     gap: spacing.space24,
-    paddingBlock: spacing.space20,
+    paddingBlock: spacing.space12,
     paddingInline: {default: spacing.space24, [breakpoints.compact]: spacing.space16},
     alignItems: 'center',
     backgroundColor: colors.headerBackground,
@@ -168,11 +170,18 @@ export default function ApplicationShell({application, children}: ApplicationShe
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
-      <header inert={Boolean(state.pendingFile)} {...stylex.props(styles.header)}>
-        <Link to="/customers" {...stylex.props(styles.brand)}>
+      <header {...stylex.props(styles.header)}>
+        <Link
+          inert={Boolean(state.pendingFile)}
+          to="/customers"
+          {...stylex.props(styles.brand)}
+        >
           <p {...stylex.props(styles.eyebrow)}>Customer records</p>
           <p {...stylex.props(styles.title)}>Shop Things</p>
         </Link>
+        {state.phase === 'ready' && state.database?.available && (
+          <DatabaseActions application={application} />
+        )}
       </header>
       {state.mode !== 'live' && (
         <p {...stylex.props(styles.database)}>
@@ -181,16 +190,16 @@ export default function ApplicationShell({application, children}: ApplicationShe
             : 'Application unavailable'}
         </p>
       )}
-      <DatabaseActions application={application} />
+      {state.phase === 'ready' && !state.database?.available && (
+        <DatabaseActions application={application} />
+      )}
       {protection.error && <p role="alert">{protection.error}</p>}
       {state.mode === 'unavailable' ? (
         <p>
           Open Shop Things in Electron, or add ?preview=true to the browser URL for a
           temporary preview.
         </p>
-      ) : state.phase === 'loading' ? (
-        <p role="status">Connecting to the application…</p>
-      ) : state.phase === 'error' ? (
+      ) : state.phase === 'loading' ? null : state.phase === 'error' ? (
         <section role="alert">
           <p>{state.error}</p>
           <Button
@@ -205,6 +214,11 @@ export default function ApplicationShell({application, children}: ApplicationShe
         <div inert={Boolean(state.pendingFile)} aria-busy={Boolean(state.pendingFile)}>
           {children}
         </div>
+      )}
+      {(state.phase === 'loading' || state.pendingFile) && (
+        <LoadingOverlay
+          label={state.pendingFile ? 'Loading database' : 'Loading application'}
+        />
       )}
     </div>
   );

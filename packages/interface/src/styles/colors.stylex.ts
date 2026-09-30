@@ -8,6 +8,8 @@ export const colors = stylex.defineVars({
   text: '#293a39',
   textMuted: '#627671',
   errorText: '#a12622',
+  warningText: '#815900',
+  noticeText: '#245b83',
   placeholder: '#777e7b',
   onPrimary: '#ffffff',
   secondaryText: '#254c46',

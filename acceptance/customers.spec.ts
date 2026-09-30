@@ -6,7 +6,7 @@ import {expect, test} from '@playwright/test';
 
 import launchElectron from './launchElectron';
 
-const alphaDetailLink = /\/customers\/2\?q=Alpha$/;
+const alphaDetailLink = /\/customers\/2$/;
 
 test('saved customer list/search/detail through actual bundled hash renderer IPC', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-customers-'));
@@ -43,10 +43,10 @@ test('saved customer list/search/detail through actual bundled hash renderer IPC
     await expect(
       page.getByRole('heading', {name: 'Alpha One', exact: true})
     ).toBeVisible();
-    expect(new URL(page.url()).hash).toContain('/customers/2?q=Alpha');
+    expect(new URL(page.url()).hash).toBe('#/customers/2');
     await page.getByRole('link', {name: 'Back to customers'}).click();
-    await expect(search).toHaveValue('Alpha');
-    await expect(page.getByText('1 result', {exact: true})).toBeVisible();
+    await expect(search).toHaveValue('');
+    await expect(page.getByText('3 results', {exact: true})).toBeVisible();
     await search.fill('1');
     await search.press('Enter');
     await expect(page.getByRole('link', {name: 'Zed Two'})).toBeVisible();
@@ -124,7 +124,7 @@ test('superseded reads stay loading for new targets and cannot paint obsolete su
     await page.evaluate(() => {
       location.hash = '/customers/1?q=Zed';
     });
-    await expect(page.getByRole('status')).toHaveText('Loading customer…');
+    await expect(page.getByRole('status')).toHaveText('Loading customers…');
     await expect(page.getByRole('heading', {name: 'Alpha One', exact: true})).toHaveCount(
       0
     );
@@ -155,7 +155,10 @@ test('superseded reads stay loading for new targets and cannot paint obsolete su
     });
     await expect(page.getByRole('heading', {name: 'Customer Not Found'})).toBeVisible();
     await page.getByRole('link', {name: 'Back to customers'}).click();
-    await expect(search).toHaveValue('Zed');
+    await expect(search).toHaveValue('');
+    // Reload to test a cold detail read rather than reuse the Router's cached record.
+    await page.reload();
+    await expect(page.getByText('3 results', {exact: true})).toBeVisible();
     await application.evaluate(() => {
       Reflect.set(globalThis, 'acceptanceFault', {
         channel: 'shop-things:customers.get',
@@ -188,12 +191,12 @@ test('superseded reads stay loading for new targets and cannot paint obsolete su
     await expect(
       page.getByRole('heading', {name: 'Customers', exact: true})
     ).toBeVisible();
-    await expect(search).toHaveValue('');
     await expect(page.getByRole('status')).toHaveText('Loading customers…');
     await application.evaluate(() => {
       Reflect.get(globalThis, 'acceptanceReleaseRead')();
     });
     await expect(page.getByText('3 results', {exact: true})).toBeVisible();
+    await expect(search).toHaveValue('');
     await expect(page.getByText('Previous database failure')).toHaveCount(0);
   } finally {
     await application.close();
@@ -217,11 +220,9 @@ test('temporary Chromium preview distinguishes empty/search and missing detail a
   await page.reload();
   await expect(page.getByRole('heading', {name: 'Customer Not Found'})).toBeVisible();
   await page.getByRole('link', {name: 'Customer records Shop Things'}).click();
-  await expect(page.getByRole('textbox', {name: 'Search customers'})).toHaveValue(
-    'Alpha'
-  );
+  await expect(page.getByRole('textbox', {name: 'Search customers'})).toHaveValue('');
   expect(new URL(page.url()).searchParams.get('preview')).toBe('true');
-  await page.getByRole('button', {name: 'Clear'}).click();
+  await expect(page.getByRole('button', {name: 'Clear'})).toBeDisabled();
   await expect(page.getByRole('heading', {name: 'No Customers Yet'})).toBeVisible();
 });
 

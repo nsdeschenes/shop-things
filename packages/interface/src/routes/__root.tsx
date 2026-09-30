@@ -1,5 +1,5 @@
 import type {QueryClient} from '@tanstack/react-query';
-import {createRootRouteWithContext, Outlet} from '@tanstack/react-router';
+import {createRootRouteWithContext, Outlet, useRouter} from '@tanstack/react-router';
 
 import type {Application} from '../application/controller';
 import {waitForApplication} from '../application/routing';
@@ -20,9 +20,18 @@ function RootLayout() {
   );
 }
 
+function RootPending() {
+  const {application} = useRouter().options.context!;
+  return (
+    <ApplicationShell application={application}>
+      <CustomerRoutePending />
+    </ApplicationShell>
+  );
+}
+
 export const Route = createRootRouteWithContext<RouterContext>()({
   beforeLoad: ({context}) => waitForApplication(context.application),
-  pendingComponent: CustomerRoutePending,
+  pendingComponent: RootPending,
   pendingMs: 0,
   component: RootLayout,
 });

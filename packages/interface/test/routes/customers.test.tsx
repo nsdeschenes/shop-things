@@ -137,7 +137,9 @@ test('shows initial pending feedback before awaiting the first customer list', a
 
   renderRoute('/customers', application);
   try {
-    expect(await screen.findByText('Loading customers…')).toBeVisible();
+    expect(await screen.findByRole('status', {name: 'Loading customers…'})).toBeVisible();
+    expect(screen.getByRole('banner')).toBeVisible();
+    expect(screen.getByText('Shop Things')).toBeVisible();
     expect(
       screen.queryByRole('textbox', {name: 'Search customers'})
     ).not.toBeInTheDocument();

@@ -3,6 +3,7 @@ import {Link, useRouter, type ErrorComponentProps} from '@tanstack/react-router'
 
 import {CustomerRequestError} from '../../application/customers';
 import Button from '../button/button';
+import LoadingOverlay from '../loadingOverlay/loadingOverlay';
 import PageShell from '../pageShell/pageShell';
 
 export function CustomerRouteError({error}: ErrorComponentProps) {
@@ -34,9 +35,5 @@ export function CustomerRouteError({error}: ErrorComponentProps) {
 }
 
 export function CustomerRoutePending() {
-  return (
-    <PageShell title="Customers">
-      <p role="status">Loading customers…</p>
-    </PageShell>
-  );
+  return <LoadingOverlay label="Loading customers…" />;
 }
