@@ -221,8 +221,12 @@ export default function CustomerForm({
             throw failure;
           }
         });
+        const navigationState = application.getState();
         if (
           completed &&
+          !navigationState.pendingTransition &&
+          !navigationState.reconciling &&
+          !navigationState.recoveryRequired &&
           captured.isCurrent() &&
           sameDraftValues(form.store.state.values, submitted)
         ) {

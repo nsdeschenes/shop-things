@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import {expect, test} from 'vitest';
 
 import renderRoute from '../../../test/renderRoute';
+import {createApplication} from '../../application/controller';
+import createPreviewClient from '../../application/preview';
 
 test('empty defaults validate on Save and preserve arbitrary contacts and exact balances', async () => {
   const user = userEvent.setup();
@@ -179,4 +181,49 @@ test('changing immutable route ID remounts the editing capture and history retur
   router.history.back();
   expect(await screen.findByRole('heading', {name: 'First'})).toBeVisible();
   expect(screen.queryByRole('textbox', {name: 'First name'})).not.toBeInTheDocument();
+});
+
+test('a queued file transition suppresses clean Save navigation even before native preparation', async () => {
+  const user = userEvent.setup();
+  const client = createPreviewClient();
+  const originalCreate = client.customers.create;
+  let releaseSave!: () => void;
+  let releaseOpen!: () => void;
+  let startedSave!: () => void;
+  const pendingSave = new Promise<void>(resolve => {
+    releaseSave = resolve;
+  });
+  const pendingOpen = new Promise<void>(resolve => {
+    releaseOpen = resolve;
+  });
+  const started = new Promise<void>(resolve => {
+    startedSave = resolve;
+  });
+  client.customers.create = async args => {
+    const result = await originalCreate(args);
+    startedSave();
+    await pendingSave;
+    return result;
+  };
+
+  client.database.open = async () => {
+    await pendingOpen;
+    return {status: 'cancelled'};
+  };
+
+  const application = createApplication('http://localhost', true, {client});
+  const {router} = renderRoute('/customers/new', application);
+  await user.type(await screen.findByRole('textbox', {name: 'First name'}), 'Saved');
+  await user.click(screen.getByRole('button', {name: 'Save'}));
+  await started;
+  const opening = application.transition('open');
+  expect(application.getState().pendingTransition).toBe(true);
+  expect(application.protection.getState().frozen).toBe(false);
+  releaseSave();
+  await waitFor(() => expect(application.protection.getState().saving).toBe(false));
+  expect(router.state.location.pathname).toBe('/customers/new');
+  releaseOpen();
+  await opening;
+  expect(router.state.location.pathname).toBe('/customers/new');
+  expect(screen.getByRole('textbox', {name: 'First name'})).toHaveValue('Saved');
 });
