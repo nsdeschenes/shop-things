@@ -41,7 +41,7 @@ const styles = stylex.create({
   },
   header: {
     gap: spacing.space24,
-    paddingBlock: spacing.space20,
+    paddingBlock: spacing.space12,
     paddingInline: {default: spacing.space24, [breakpoints.compact]: spacing.space16},
     alignItems: 'center',
     backgroundColor: colors.headerBackground,

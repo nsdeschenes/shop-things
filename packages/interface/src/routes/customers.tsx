@@ -142,9 +142,14 @@ function RouteComponent() {
       title="Customers"
       actions={
         disabled ? (
-          <Button disabled>Add customer</Button>
+          <Button variant="primary" disabled>
+            Add customer
+          </Button>
         ) : (
-          <Link to="/customers/new" {...stylex.props(buttonStyles.base)}>
+          <Link
+            to="/customers/new"
+            {...stylex.props(buttonStyles.base, buttonStyles.primary)}
+          >
             Add customer
           </Link>
         )

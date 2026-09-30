@@ -22,6 +22,10 @@ function Index() {
       void navigate({to: '/customers', replace: true});
     }
   }, [state, navigate]);
+  if (state.mode === 'live') {
+    return null;
+  }
+
   return (
     <PageShell title="Shop Things">
       <p>Open or create a database to view customers.</p>
