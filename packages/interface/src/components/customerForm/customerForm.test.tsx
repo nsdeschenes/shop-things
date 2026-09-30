@@ -1,137 +1,76 @@
-import {
-  createMemoryHistory,
-  createRootRoute,
-  createRoute,
-  createRouter,
-  RouterProvider,
-} from '@tanstack/react-router';
-import {render, screen} from '@testing-library/react';
+import {screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, test} from 'vitest';
 
-import previewCustomer from '../../fixtures/previewCustomer';
-import customerFormOptions from '../../forms/customerFormOptions';
-import customerFormSchema from '../../forms/customerFormSchema';
-import CustomerForm from './customerForm';
+import renderRoute from '../../../test/renderRoute';
 
-function renderForm(path: '/customers/new' | '/customers/1') {
-  const root = createRootRoute();
-  const editor = createRoute({
-    getParentRoute: () => root,
-    path,
-    component: () => (
-      <CustomerForm customer={path === '/customers/1' ? previewCustomer : undefined} />
-    ),
-  });
-  const list = createRoute({
-    getParentRoute: () => root,
-    path: '/customers',
-    component: () => <h1>Customers</h1>,
-  });
-  const router = createRouter({
-    routeTree: root.addChildren([editor, list]),
-    history: createMemoryHistory({initialEntries: [path]}),
-  });
-  render(<RouterProvider router={router} />);
-  return {router};
-}
-
-test('rejects invalid stock and prevents submission until it is a nonnegative integer', async () => {
+test('empty defaults validate on Save and preserve arbitrary contacts and exact balances', async () => {
   const user = userEvent.setup();
-  const {router} = renderForm('/customers/new');
-  const stock = await screen.findByRole('textbox', {name: 'Items in stock'});
-  const save = screen.getByRole('button', {name: 'Save'});
-  await user.type(screen.getByRole('textbox', {name: 'Customer number'}), '3003');
-
-  for (const value of ['-1', '1.5', 'abc', '', '9007199254740992']) {
-    await user.clear(stock);
-    if (value) {
-      await user.type(stock, value);
-    }
-
-    expect(stock).toBeInvalid();
-    expect(stock).toHaveAccessibleDescription(
-      'Enter a whole number greater than or equal to 0.'
-    );
-    expect(save).toBeDisabled();
-    await user.keyboard('{Enter}');
-    expect(router.state.location.pathname).toBe('/customers/new');
-  }
-
-  await user.clear(stock);
-  await user.type(stock, '0');
-  expect(stock).not.toBeInvalid();
+  const {application} = renderRoute('/customers/new');
+  const name = await screen.findByRole('textbox', {name: 'First name'});
+  expect(screen.getByRole('textbox', {name: 'Province'})).toHaveValue('');
   expect(
-    screen.queryByText('Enter a whole number greater than or equal to 0.')
+    screen.queryByRole('textbox', {name: 'Customer number'})
   ).not.toBeInTheDocument();
-
-  await user.clear(stock);
-  await user.type(stock, '2');
-  expect(save).toBeEnabled();
-  await user.click(save);
-  expect(await screen.findByRole('heading', {name: 'Customers'})).toBeInTheDocument();
-});
-
-test('requires digits in home phone while preserving leading zeros and allowing a blank value', async () => {
-  const user = userEvent.setup();
-  renderForm('/customers/1');
-  const phone = await screen.findByRole('textbox', {name: 'Home phone'});
-  const save = screen.getByRole('button', {name: 'Save'});
-
-  await user.type(phone, '0123456789');
-  expect(phone).toHaveValue('0123456789');
-  expect(phone).not.toBeInvalid();
-  expect(save).toBeEnabled();
-
-  const parsed = customerFormSchema.parse({
-    ...customerFormOptions(previewCustomer).defaultValues,
-    homePhone: '0123456789',
-  });
-  expect(parsed.homePhone).toBe('0123456789');
-
-  for (const value of ['abc', '902-555-1234', '+19025551234', '902 555 1234']) {
-    await user.clear(phone);
-    await user.type(phone, value);
-    expect(phone).toBeInvalid();
-    expect(phone).toHaveAccessibleDescription('Enter digits only (0–9).');
-    expect(save).toBeDisabled();
-  }
-
-  await user.clear(phone);
-  expect(phone).not.toBeInvalid();
-  expect(screen.queryByText('Enter digits only (0–9).')).not.toBeInTheDocument();
-});
-
-test('validates balance precision and optional email addresses', async () => {
-  const user = userEvent.setup();
-  renderForm('/customers/1');
-  const balance = await screen.findByRole('textbox', {name: 'Balance ($)'});
-  const email = screen.getByRole('textbox', {name: 'Email address'});
-  const save = screen.getByRole('button', {name: 'Save'});
-
-  await user.clear(balance);
-  await user.type(balance, '1.234');
-  expect(balance).toBeInvalid();
-  expect(balance).toHaveAccessibleDescription(
-    'Enter an amount with at most two decimal places.'
-  );
-  expect(save).toBeDisabled();
-
+  await user.click(screen.getByRole('button', {name: 'Save'}));
+  expect(
+    await screen.findByText('Enter a first name, a last name, or both.')
+  ).toBeVisible();
+  await waitFor(() => expect(name).toHaveFocus());
+  await user.type(name, 'Ada');
+  await user.type(screen.getByRole('textbox', {name: 'Province'}), 'somewhere');
+  await user.type(screen.getByRole('textbox', {name: 'Postal code'}), 'ab cd');
+  await user.type(screen.getByRole('textbox', {name: 'Home phone'}), '+1 (902) 555-1234');
+  await user.type(screen.getByRole('textbox', {name: 'Email address'}), 'contact text');
+  const balance = screen.getByRole('textbox', {name: 'Balance ($)'});
   await user.clear(balance);
   await user.type(balance, '-1.23');
-  expect(balance).not.toBeInvalid();
-  expect(save).toBeEnabled();
+  await user.click(screen.getByRole('button', {name: 'Save'}));
+  expect(await screen.findByRole('heading', {name: 'Ada'})).toBeVisible();
+  const session = application.getState().database!.session!;
+  const record = await application.request(session, client =>
+    client.customers.get({session, id: 1})
+  );
+  expect(record).toMatchObject({
+    status: 'success',
+    value: {
+      customer: {
+        customerNumber: 1,
+        province: 'somewhere',
+        postalCode: 'ab cd',
+        homePhone: '+1 (902) 555-1234',
+        email: 'contact text',
+        balance: '-1.23',
+      },
+    },
+  });
+});
 
-  await user.type(email, 'invalid');
-  expect(email).toBeInvalid();
-  expect(email).toHaveAccessibleDescription('Enter a valid email address.');
-  expect(save).toBeDisabled();
+test('invalid decimal drafts and failed Save retain entered values and route guards', async () => {
+  const user = userEvent.setup();
+  const {application} = renderRoute('/customers/new');
+  await user.type(await screen.findByRole('textbox', {name: 'First name'}), 'Ada');
+  const stock = screen.getByRole('textbox', {name: 'Items in stock'});
+  await user.clear(stock);
+  await user.type(stock, '-');
+  await user.click(screen.getByRole('button', {name: 'Save'}));
+  expect(stock).toHaveValue('-');
+  expect(stock).toBeInvalid();
+  await user.clear(stock);
+  await user.type(stock, '0');
+  const balance = screen.getByRole('textbox', {name: 'Balance ($)'});
+  for (const value of ['-', '1.', '.5', '1.234']) {
+    await user.clear(balance);
+    await user.type(balance, value);
+    await user.click(screen.getByRole('button', {name: 'Save'}));
+    expect(screen.getByRole('heading', {name: 'New Customer'})).toBeVisible();
+    expect(balance).toHaveValue(value);
+    expect(application.protection.isDirty()).toBe(true);
+  }
 
-  await user.clear(email);
-  await user.type(email, 'alex@example.com');
-  expect(email).not.toBeInvalid();
-  expect(save).toBeEnabled();
-  await user.clear(email);
-  expect(email).not.toBeInvalid();
-  expect(save).toBeEnabled();
+  await user.click(screen.getByRole('link', {name: 'Cancel'}));
+  const stay = await screen.findByRole('button', {name: 'Stay'});
+  await waitFor(() => expect(stay).toHaveFocus());
+  await user.keyboard('{Enter}');
+  expect(balance).toHaveValue('1.234');
 });

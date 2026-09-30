@@ -81,3 +81,17 @@ across a committed session change. This verifies retained references, no stale r
 searched-list cache retirement and suppression of obsolete success navigation.
 Chromium create/delete preview coverage joins the Create implementation; injected
 preview-client component checks alone do not certify the complete browser UI workflow.
+
+### Protected Create (#60)
+
+`create.spec.ts` exercises the actual bundled renderer, sandboxed preload, named IPC,
+and persisted database. It creates a customer with unrestricted contact text and a
+negative decimal balance, revisits a previously cached search, reloads, and reopens
+its database before inspecting saved detail. A held actual Create response proves
+repeat Save prevention, permitted newer edits, native close Stay, retained saved
+identity for the subsequent Update, and full Save settlement before database replacement.
+A pre-dispatch test boundary failure proves supplied inline/form feedback and
+retained input when quit preparation waits on the failed Save. Chromium exercises
+canonical draft validation, Stay default focus, temporary Create, saved detail/list,
+and refresh clearing the document's temporary records. These checks remain local
+macOS arm64/Chromium evidence; the authorized Linux acceptance deferral still applies.

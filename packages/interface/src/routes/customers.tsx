@@ -5,6 +5,7 @@ import {useEffect, useState, useSyncExternalStore} from 'react';
 
 import {customerListOptions} from '../application/customers';
 import Button from '../components/button/button';
+import buttonStyles from '../components/button/buttonStyles';
 import Input from '../components/input/input';
 import PageShell from '../components/pageShell/pageShell';
 import Table from '../components/table/table';
@@ -88,7 +89,22 @@ function RouteComponent() {
   }, [input, q, disabled, navigate]);
 
   return (
-    <PageShell title="Customers" actions={<Button disabled>Add customer</Button>}>
+    <PageShell
+      title="Customers"
+      actions={
+        disabled ? (
+          <Button disabled>Add customer</Button>
+        ) : (
+          <Link
+            to="/customers/new"
+            search={previous => previous}
+            {...stylex.props(buttonStyles.base)}
+          >
+            Add customer
+          </Link>
+        )
+      }
+    >
       <label htmlFor="search-customers" {...stylex.props(styles.searchLabel)}>
         Search customers
       </label>

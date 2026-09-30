@@ -1,0 +1,249 @@
+import {mkdtemp, rm} from 'node:fs/promises';
+import {createRequire} from 'node:module';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+import {_electron, expect, test} from '@playwright/test';
+
+const root = fileURLToPath(new URL('..', import.meta.url));
+const executablePath = createRequire(
+  new URL('../packages/electron/package.json', import.meta.url)
+)('electron');
+
+test('Create persists exact contacts and decimal balances across guarded reload and database reopen', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-create-'));
+  const application = await _electron.launch({
+    executablePath,
+    args: [join(root, 'acceptance/electron-entry.mjs')],
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '',
+      SHOP_THINGS_ACCEPTANCE_DATA: directory,
+      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
+      VITE_DEV_SERVER_URL: '',
+    },
+  });
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByText('3 results', {exact: true})).toBeVisible();
+    const search = page.getByRole('textbox', {name: 'Search customers'});
+    await search.fill('Ada');
+    await search.press('Enter');
+    await page.getByRole('link', {name: 'Add customer'}).click();
+    await expect(page.getByText('Customer number: Assigned when saved')).toBeVisible();
+    await expect(page.getByRole('textbox', {name: 'Province'})).toHaveValue('');
+    await page.getByRole('button', {name: 'Save'}).click();
+    await expect(
+      page.getByText('Enter a first name, a last name, or both.', {exact: true})
+    ).toBeVisible();
+    await expect(page.getByRole('textbox', {name: 'First name'})).toBeFocused();
+    await page.getByRole('textbox', {name: 'First name'}).fill('Ada');
+    await page.getByRole('textbox', {name: 'Province'}).fill('somewhere');
+    await page.getByRole('textbox', {name: 'Postal code'}).fill('aB cd');
+    await page.getByRole('textbox', {name: 'Home phone'}).fill('+1 (902) 555-1234');
+    await page.getByRole('textbox', {name: 'Email address'}).fill('contact text');
+    await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-1.23');
+    await page.getByRole('button', {name: 'Save'}).click();
+    await expect(page.getByRole('heading', {name: 'Ada', exact: true})).toBeVisible();
+    await expect(page.getByText('Customer saved.', {exact: true})).toBeVisible();
+    await expect(page.getByText('aB cd', {exact: true})).toBeVisible();
+    await expect(page.getByText('contact text', {exact: true})).toBeVisible();
+    await expect(page.getByText('$-1.23', {exact: true})).toBeVisible();
+    expect(new URL(page.url()).hash).toBe('#/customers/4?q=Ada');
+    await page.getByRole('link', {name: 'Back to customers'}).click();
+    await expect(page.getByRole('link', {name: 'Ada', exact: true})).toBeVisible();
+    await expect(page.getByText('1 result', {exact: true})).toBeVisible();
+    await page.getByRole('link', {name: 'Ada', exact: true}).click();
+    await page.reload();
+    await expect(page.getByText('$-1.23', {exact: true})).toBeVisible();
+    await application.evaluate(
+      ({dialog}, path) => {
+        dialog.showOpenDialog = async () => ({canceled: false, filePaths: [path]});
+      },
+      join(directory, 'customers.sqlite')
+    );
+    expect(
+      (await page.evaluate(() => Reflect.get(window, 'shopThings').database.open()))
+        .status
+    ).toBe('success');
+    await expect(page.getByText('4 results', {exact: true})).toBeVisible();
+    await page.getByRole('link', {name: 'Ada', exact: true}).click();
+    await expect(page.getByText('somewhere', {exact: true})).toBeVisible();
+    await expect(page.getByText('$-1.23', {exact: true})).toBeVisible();
+  } finally {
+    await application.evaluate(() => Reflect.set(globalThis, 'acceptanceDiscard', true));
+    await application.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('actual Save races preserve newer edits, prevent duplicates and protect failure versus native close', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-create-races-'));
+  const application = await _electron.launch({
+    executablePath,
+    args: [join(root, 'acceptance/electron-entry.mjs')],
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '',
+      SHOP_THINGS_ACCEPTANCE_DATA: directory,
+      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
+      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/',
+    },
+  });
+  try {
+    const page = await application.firstWindow();
+    await page.getByRole('link', {name: 'Add customer'}).click();
+    const name = page.getByRole('textbox', {name: 'First name'});
+    await name.fill('Submitted');
+    await application.evaluate(() =>
+      Reflect.set(globalThis, 'acceptanceFault', {
+        channel: 'shop-things:customers.create',
+        hold: true,
+      })
+    );
+    await page.getByRole('button', {name: 'Save'}).click();
+    await expect
+      .poll(() =>
+        application.evaluate(() => Reflect.get(globalThis, 'acceptanceHeldRead')?.channel)
+      )
+      .toBe('shop-things:customers.create');
+    await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+    await name.fill('Newer');
+    await page.getByRole('link', {name: 'Cancel'}).click();
+    await expect(
+      page.getByRole('heading', {name: 'New Customer', exact: true})
+    ).toBeVisible();
+    await application.evaluate(({BrowserWindow}) =>
+      BrowserWindow.getAllWindows()[0].close()
+    );
+    await expect(name).toBeDisabled();
+    await application.evaluate(() => {
+      Reflect.get(globalThis, 'acceptanceReleaseRead')();
+      Reflect.set(globalThis, 'acceptanceHeldRead', null);
+    });
+    await expect(name).toBeEnabled();
+    await expect(name).toHaveValue('Newer');
+    await expect(
+      page.getByRole('heading', {name: 'Customer saved — unsaved edits'})
+    ).toBeVisible();
+    expect(
+      await application.evaluate(
+        () =>
+          Reflect.get(globalThis, 'acceptanceIpc').filter(
+            (channel: string) => channel === 'shop-things:customers.create'
+          ).length
+      )
+    ).toBe(1);
+    await page.getByRole('button', {name: 'Save'}).click();
+    await expect(page.getByRole('heading', {name: 'Newer', exact: true})).toBeVisible();
+    expect(new URL(page.url()).hash).toBe('#/customers/4');
+    expect(
+      await application.evaluate(() =>
+        Reflect.get(globalThis, 'acceptanceIpc').includes('shop-things:customers.update')
+      )
+    ).toBe(true);
+    await page.getByRole('link', {name: 'Back to customers'}).click();
+    await expect(page.getByText('4 results', {exact: true})).toBeVisible();
+    await page.getByRole('link', {name: 'Add customer'}).click();
+    await name.fill('Saved before transition');
+    await application.evaluate(
+      ({dialog}, path) => {
+        dialog.showOpenDialog = async () => ({canceled: false, filePaths: [path]});
+      },
+      join(directory, 'customers.sqlite')
+    );
+    await application.evaluate(() =>
+      Reflect.set(globalThis, 'acceptanceFault', {
+        channel: 'shop-things:customers.create',
+        hold: true,
+      })
+    );
+    await page.getByRole('button', {name: 'Save'}).click();
+    await expect
+      .poll(() =>
+        application.evaluate(() => Reflect.get(globalThis, 'acceptanceHeldRead')?.channel)
+      )
+      .toBe('shop-things:customers.create');
+    const opening = page.evaluate(() =>
+      Reflect.get(window, 'shopThings').database.open()
+    );
+    await expect(name).toBeDisabled();
+    await application.evaluate(() => {
+      Reflect.get(globalThis, 'acceptanceReleaseRead')();
+      Reflect.set(globalThis, 'acceptanceHeldRead', null);
+    });
+    expect((await opening).status).toBe('success');
+    await expect(page.getByText('5 results', {exact: true})).toBeVisible();
+    await expect(page.getByRole('link', {name: 'Saved before transition'})).toBeVisible();
+    await expect(page.getByText('Customer saved.', {exact: true})).toHaveCount(0);
+    await page.getByRole('link', {name: 'Add customer'}).click();
+    await name.fill('Retained failure');
+    await application.evaluate(() =>
+      Reflect.set(globalThis, 'acceptanceFault', {
+        channel: 'shop-things:customers.create',
+        before: true,
+        hold: true,
+        error: {
+          code: 'VALIDATION',
+          message: 'Supplied save failure',
+          fieldErrors: {firstName: 'Supplied name feedback'},
+        },
+      })
+    );
+    await page.getByRole('button', {name: 'Save'}).click();
+    await expect
+      .poll(() =>
+        application.evaluate(() => Reflect.get(globalThis, 'acceptanceHeldRead')?.channel)
+      )
+      .toBe('shop-things:customers.create');
+    await application.evaluate(({app}) => app.quit());
+    await expect(name).toBeDisabled();
+    await application.evaluate(() => {
+      Reflect.get(globalThis, 'acceptanceReleaseRead')();
+      Reflect.set(globalThis, 'acceptanceHeldRead', null);
+    });
+    await expect(name).toBeEnabled();
+    await expect(name).toHaveValue('Retained failure');
+    await expect(page.getByText('Supplied save failure', {exact: true})).toBeVisible();
+    await expect(page.getByText('Supplied name feedback', {exact: true})).toBeVisible();
+    await application.evaluate(() => Reflect.set(globalThis, 'acceptanceDiscard', true));
+    await page.getByRole('link', {name: 'Cancel'}).click();
+    await expect(page.getByText('5 results', {exact: true})).toBeVisible();
+  } finally {
+    await application.evaluate(() => {
+      Reflect.get(globalThis, 'acceptanceReleaseRead')?.();
+      Reflect.set(globalThis, 'acceptanceDiscard', true);
+    });
+    await application.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('Chromium preview Create shares validation and safe draft guards with temporary saved data', async ({
+  page,
+}) => {
+  await page.goto('/?preview=true#/customers');
+  await page.getByRole('link', {name: 'Add customer'}).click();
+  await page.getByRole('textbox', {name: 'First name'}).fill('Temporary');
+  await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
+  await page.getByRole('button', {name: 'Save'}).click();
+  await expect(
+    page.getByText('Enter an amount with at most two decimal places.', {exact: true})
+  ).toBeVisible();
+  await page.getByRole('link', {name: 'Cancel'}).click();
+  await expect(page.getByRole('button', {name: 'Stay'})).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('textbox', {name: 'Balance ($)', exact: true})).toHaveValue(
+    '-'
+  );
+  await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-2.34');
+  await page.getByRole('button', {name: 'Save'}).click();
+  await expect(page.getByRole('heading', {name: 'Temporary', exact: true})).toBeVisible();
+  await expect(page.getByText('$-2.34', {exact: true})).toBeVisible();
+  await page.getByRole('link', {name: 'Back to customers'}).click();
+  await expect(page.getByRole('link', {name: 'Temporary', exact: true})).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', {name: 'No customers yet'})).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('preview')).toBe('true');
+});
