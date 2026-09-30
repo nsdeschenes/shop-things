@@ -160,6 +160,7 @@ test('Restore directly protects dirty drafts and both picker cancellations prese
         Reflect.get(globalThis, 'acceptanceDialogs').at(-1)
       )
     ).toMatchObject({message: 'Discard unsaved changes?', defaultId: 0, cancelId: 0});
+    await expect(page.getByRole('button', {name: 'Database', exact: true})).toBeFocused();
     expect(
       await application.evaluate(
         () => Reflect.get(globalThis, 'acceptancePickers').length
