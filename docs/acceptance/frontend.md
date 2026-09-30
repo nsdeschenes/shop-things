@@ -34,3 +34,10 @@ or skipped required checks keep acceptance incomplete.
 
 macOS arm64, Windows x64 and Linux arm64 verification remain explicitly deferred.
 Their existing build targets remain available.
+
+## Supporting prerequisite checks
+
+Before integration, baseline `fced36767131f8a1d65c8bcc8395499ac342c99c`
+passed `pnpm test` (68 tests across contract, database, Electron, interface and
+scripts) and `pnpm build` on macOS arm64 using Node 26.5.0 and pnpm 12.4.2.
+These establish the starting backend/build prerequisites, not renderer acceptance.
