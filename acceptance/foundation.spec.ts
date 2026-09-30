@@ -169,7 +169,7 @@ test('actual newer database notification wins over a delayed startup status resp
         application.evaluate(() => Reflect.get(globalThis, 'acceptanceStatusDelayed'))
       )
       .toBe(true);
-    await expect(page.getByRole('status')).toHaveText('Connecting to the application…');
+    await expect(page.getByRole('status')).toHaveText('Loading customers…');
     const created = await page.evaluate(async () => {
       const bridge = Reflect.get(window, 'shopThings');
       return bridge.database.create();
@@ -177,10 +177,10 @@ test('actual newer database notification wins over a delayed startup status resp
     expect(created.status).toBe('success');
     expect(created.value.selectedPath).toBe(databasePath);
     expect((await stat(databasePath)).size).toBeGreaterThan(0);
-    // Subscription delivery paints the committed path before the held response is released.
+    // Router startup waits for the held status response before mounting the shell.
     await expect(
       page.getByText('Active database: created.sqlite', {exact: true})
-    ).toBeVisible();
+    ).toHaveCount(0);
     const held = await application.evaluate(() =>
       Reflect.get(globalThis, 'acceptanceHeldStatus')
     );

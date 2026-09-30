@@ -33,7 +33,9 @@ test('database startup shows loading, first launch cancellation is silent, Creat
   });
   try {
     const page = await application.firstWindow();
-    await expect(page.getByText('Connecting to the application…')).toBeVisible();
+    await expect(
+      page.getByRole('status').filter({hasText: 'Loading customers…'})
+    ).toBeVisible();
     await expect(page.getByRole('button', {name: 'Database', exact: true})).toHaveCount(
       0
     );
@@ -123,7 +125,7 @@ test('database remembered recovery Retry never creates a missing file and Open r
   }
 });
 
-test('database failed candidates after discard approval preserve editor, search, active file and existing destination', async () => {
+test('database failed candidates after discard approval preserve editor, route, active file and existing destination', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-database-'));
   const application = await launch(directory, {
     SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
@@ -152,7 +154,7 @@ test('database failed candidates after discard approval preserve editor, search,
       await expect(page.getByRole('textbox', {name: 'First name'})).toHaveValue(
         'Retained draft'
       );
-      expect(new URL(page.url()).hash).toBe('#/customers/2?q=Alpha');
+      expect(new URL(page.url()).hash).toBe('#/customers/2');
       expect(
         await page.evaluate(
           async () => (await Reflect.get(window, 'shopThings').database.status()).value

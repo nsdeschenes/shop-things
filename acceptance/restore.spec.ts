@@ -398,7 +398,7 @@ test('Restore migrates only a separate read-only backup copy, cleans failed migr
   }
 });
 
-test('Restore is available without an active database and enters saved customers after completion', async () => {
+test('Restore after database setup enters saved customers after completion', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-restore-setup-'));
   let application = await launch(directory, true);
   try {
@@ -413,6 +413,15 @@ test('Restore is available without an active database and enters saved customers
     await expect(
       setup.getByRole('heading', {name: 'Set Up Your Database'})
     ).toBeVisible();
+    await expect(setup.getByRole('button', {name: 'Database', exact: true})).toHaveCount(
+      0
+    );
+    await application.evaluate(
+      (_electron, path) => Reflect.get(globalThis, 'acceptanceFiles').push({path}),
+      join(directory, 'new.sqlite')
+    );
+    await setup.getByRole('button', {name: 'Create database', exact: true}).click();
+    await expect(setup.getByRole('heading', {name: 'No Customers Yet'})).toBeVisible();
     await restore(application, setup, source, join(directory, 'setup-restored.sqlite'));
     await expect(setup.getByText('3 results', {exact: true})).toBeVisible();
     await expect(setup.getByText('Database restored.', {exact: true})).toBeVisible();

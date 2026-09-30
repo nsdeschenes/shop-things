@@ -5,9 +5,14 @@ import {createFileRoute, Link, useRouterState} from '@tanstack/react-router';
 import {useEffect, useState, useSyncExternalStore} from 'react';
 
 import {CustomerRequestError, customerDetailOptions} from '../application/customers';
+import {admitCustomerRoute} from '../application/routing';
 import Button from '../components/button/button';
 import buttonStyles from '../components/button/buttonStyles';
 import CustomerForm from '../components/customerForm/customerForm';
+import {
+  CustomerRouteError,
+  CustomerRoutePending,
+} from '../components/customerRouteFeedback/customerRouteFeedback';
 import DeleteCustomer from '../components/deleteCustomer/deleteCustomer';
 import PageShell from '../components/pageShell/pageShell';
 import {breakpoints} from '../styles/breakpoints.stylex';
@@ -17,12 +22,36 @@ import {radii} from '../styles/radii.stylex';
 import {spacing} from '../styles/spacing.stylex';
 import {typography} from '../styles/typography.stylex';
 
+const customerIdPattern = /^\d+$/;
+
 export const Route = createFileRoute('/customers_/$customerId')({
+  params: {
+    parse: params => {
+      const id = Number(params.customerId);
+      if (
+        !customerIdPattern.test(params.customerId) ||
+        !Number.isSafeInteger(id) ||
+        id <= 0
+      ) {
+        throw new RangeError('This customer no longer exists.');
+      }
+
+      return params;
+    },
+  },
+  beforeLoad: admitCustomerRoute,
+  loader: async ({context: {application, queryClient, session, readScope}, params}) => {
+    if (session && readScope) {
+      await queryClient.fetchQuery(
+        customerDetailOptions(application, session, Number(params.customerId), readScope)
+      );
+    }
+  },
+  pendingComponent: CustomerRoutePending,
+  errorComponent: CustomerRouteError,
   remountDeps: ({params}) => params.customerId,
   component: RouteComponent,
 });
-
-const customerIdPattern = /^\d+$/;
 
 const styles = stylex.create({
   actions: {gap: spacing.space10, display: 'flex', flexWrap: 'wrap'},
@@ -81,28 +110,21 @@ function RouteComponent() {
   const {customerId} = Route.useParams();
   const navigate = Route.useNavigate();
   const id = Number(customerId);
-  const validId =
-    customerIdPattern.test(customerId) && Number.isSafeInteger(id) && id > 0;
   const session = state.database?.session ?? '';
   const available = state.database?.available === true && !state.recoveryRequired;
   const disabled =
     !available || state.pendingTransition || state.reconciling || protection.frozen;
   const record = useQuery({
     ...customerDetailOptions(application, session, id),
-    enabled: !disabled && validId,
+    enabled: !disabled,
   });
   const missing =
     deleted ||
-    !validId ||
     (record.error instanceof CustomerRequestError &&
       record.error.error.code === 'CUSTOMER_DELETED');
   const customer = record.data?.customer;
   const back = (
-    <Link
-      to="/customers"
-      search={previous => previous}
-      {...stylex.props(buttonStyles.base)}
-    >
+    <Link to="/customers" {...stylex.props(buttonStyles.base)}>
       Back to customers
     </Link>
   );
@@ -225,7 +247,6 @@ function RouteComponent() {
             onDeleted={() => {
               void navigate({
                 to: '/customers',
-                search: previous => previous,
                 state: previous => ({...previous, customerNotice: 'Customer deleted.'}),
               });
             }}

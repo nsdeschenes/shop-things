@@ -184,14 +184,12 @@ test('deletion refreshes previously visited lists and searches through history',
   await screen.findByRole('heading', {name: 'Temporary'});
   await confirm(user);
   expect(await screen.findByText('Customer deleted.')).toBeVisible();
-  expect(
-    await screen.findByRole('heading', {name: 'No Matching Customers'})
-  ).toBeVisible();
-  expect(screen.getByRole('textbox', {name: 'Search customers'})).toHaveValue('Temp');
+  expect(await screen.findByRole('heading', {name: 'No Customers Yet'})).toBeVisible();
+  expect(screen.getByRole('textbox', {name: 'Search customers'})).toHaveValue('');
   router.history.back();
   expect(await screen.findByRole('heading', {name: 'Customer Not Found'})).toBeVisible();
   await user.click(screen.getByRole('link', {name: 'Back to customers'}));
-  await user.click(await screen.findByRole('button', {name: 'Clear'}));
   expect(await screen.findByRole('heading', {name: 'No Customers Yet'})).toBeVisible();
+  expect(screen.getByRole('button', {name: 'Clear'})).toBeDisabled();
   expect(screen.queryByRole('link', {name: 'Temporary'})).not.toBeInTheDocument();
 });

@@ -8,6 +8,7 @@ import {createApplication} from './application/controller';
 import createApplicationHistory from './application/history';
 import {routeTree} from './routeTree.gen';
 import {typography} from './styles/typography.stylex';
+import './styles/breakpoints.stylex';
 
 import './index.css';
 
@@ -33,6 +34,8 @@ window.addEventListener('pageshow', event => {
 const router = createRouter({
   history: createApplicationHistory(),
   routeTree,
+  defaultPreload: 'intent',
+  defaultPreloadStaleTime: 0,
   context: {
     queryClient,
     application,
