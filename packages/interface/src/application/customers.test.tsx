@@ -6,7 +6,11 @@ import {expect, test} from 'vitest';
 
 import renderRoute from '../../test/renderRoute';
 import {createApplication} from './controller';
-import {createCustomerOptions, updateCustomerOptions} from './customers';
+import {
+  createCustomerOptions,
+  deleteCustomerOptions,
+  updateCustomerOptions,
+} from './customers';
 import createPreviewClient from './preview';
 
 const values = {
@@ -25,7 +29,7 @@ const values = {
   comments: '',
 };
 
-test.each(['create', 'update'] as const)(
+test.each(['create', 'update', 'delete'] as const)(
   'a delayed %s refreshes the visible list when its response settles',
   async operation => {
     const client = createPreviewClient();
@@ -47,6 +51,7 @@ test.each(['create', 'update'] as const)(
     });
     const create = client.customers.create;
     const update = client.customers.update;
+    const remove = client.customers.delete;
     client.customers.create = async args => {
       const result = await create(args);
       await held;
@@ -59,6 +64,12 @@ test.each(['create', 'update'] as const)(
       return result;
     };
 
+    client.customers.delete = async args => {
+      const result = await remove(args);
+      await held;
+      return result;
+    };
+
     // Save's draft guard blocks navigation while pending. Exercise the same mutation
     // options with an already mounted list to verify shared completion ownership.
     const pending =
@@ -67,20 +78,28 @@ test.each(['create', 'update'] as const)(
             application.queryClient,
             createCustomerOptions(application, session)
           ).mutate({...values, firstName: 'Saved'})
-        : new MutationObserver(
-            application.queryClient,
-            updateCustomerOptions(application)
-          ).mutate({reference: initial.value.reference, changes: {firstName: 'Saved'}});
+        : operation === 'delete'
+          ? new MutationObserver(
+              application.queryClient,
+              deleteCustomerOptions(application)
+            ).mutate(initial.value.reference)
+          : new MutationObserver(
+              application.queryClient,
+              updateCustomerOptions(application)
+            ).mutate({reference: initial.value.reference, changes: {firstName: 'Saved'}});
     expect(screen.getByRole('link', {name: 'Original'})).toBeVisible();
     expect(screen.queryByRole('link', {name: 'Saved'})).not.toBeInTheDocument();
     await act(async () => {
       release();
       await pending;
     });
-    expect(await screen.findByRole('link', {name: 'Saved'})).toBeVisible();
-    expect(
-      screen.getByText(operation === 'create' ? '2 results' : '1 result')
-    ).toBeVisible();
+    const expectedResult =
+      operation === 'delete'
+        ? await screen.findByRole('heading', {name: 'No Customers Yet'})
+        : await screen.findByRole('link', {name: 'Saved'});
+    expect(expectedResult).toBeVisible();
+    const resultCount = {create: '2 results', update: '1 result', delete: '0 results'};
+    expect(screen.getByText(resultCount[operation])).toBeVisible();
   }
 );
 
@@ -118,7 +137,7 @@ test('a failed edit preserves the draft and existing list after discarding', asy
   expect(writes).toBe(1);
 });
 
-test.each(['create', 'update'] as const)(
+test.each(['create', 'update', 'delete'] as const)(
   'an obsolete %s cannot repaint or navigate the replacement session',
   async operation => {
     const user = userEvent.setup();
@@ -149,6 +168,7 @@ test.each(['create', 'update'] as const)(
     });
     const create = client.customers.create;
     const update = client.customers.update;
+    const remove = client.customers.delete;
     client.customers.create = async args => {
       const result = await create(args);
       started();
@@ -163,6 +183,13 @@ test.each(['create', 'update'] as const)(
       return result;
     };
 
+    client.customers.delete = async args => {
+      const result = await remove(args);
+      started();
+      await held;
+      return result;
+    };
+
     const {router} = renderRoute('/customers', application);
     await screen.findByRole('link', {name: 'Original'});
     const pending =
@@ -171,13 +198,18 @@ test.each(['create', 'update'] as const)(
             application.queryClient,
             createCustomerOptions(application, database.session!)
           ).mutate({...values, firstName: 'Old session save'})
-        : new MutationObserver(
-            application.queryClient,
-            updateCustomerOptions(application)
-          ).mutate({
-            reference: initial.value.reference,
-            changes: {firstName: 'Old session save'},
-          });
+        : operation === 'delete'
+          ? new MutationObserver(
+              application.queryClient,
+              deleteCustomerOptions(application)
+            ).mutate(initial.value.reference)
+          : new MutationObserver(
+              application.queryClient,
+              updateCustomerOptions(application)
+            ).mutate({
+              reference: initial.value.reference,
+              changes: {firstName: 'Old session save'},
+            });
     const settled = pending.catch(failure => failure);
     await dispatched;
     const replacement = createPreviewClient();

@@ -156,6 +156,19 @@ export function updateCustomerOptions(application: Application) {
 export function deleteCustomerOptions(application: Application) {
   return mutationOptions({
     retry: false,
+    onMutate: reference => application.captureSession(reference.session),
+    onSuccess: async (_result, reference, captured) => {
+      if (!captured.isCurrent()) {
+        return;
+      }
+
+      application.queryClient.removeQueries({
+        queryKey: customerKeys.detail(captured.session, reference.id),
+      });
+      await application.queryClient.invalidateQueries({
+        queryKey: customerKeys.lists(captured.session),
+      });
+    },
     mutationFn: async (reference: CustomerReference) =>
       unwrap(
         await application.request(reference.session, client =>

@@ -84,22 +84,6 @@ export default function DeleteCustomer({
         return;
       }
 
-      application.queryClient.removeQueries({
-        queryKey: customerKeys.detail(reference.session, reference.id),
-      });
-      const lists = ['customers', reference.session, 'list'];
-      // Inactive reads disable mount refetches; active lists need a fresh read even
-      // when the user left the detail before this response settled.
-      application.queryClient.removeQueries({queryKey: lists, type: 'inactive'});
-      await application.queryClient.invalidateQueries({
-        queryKey: lists,
-        refetchType: 'active',
-      });
-      if (!scope.isCurrent()) {
-        return;
-      }
-
-      application.queryClient.removeQueries({queryKey: lists, type: 'inactive'});
       if (!mounted.current) {
         return;
       }
