@@ -46,7 +46,7 @@ export default function DatabaseActions({application}: {application: Application
     return preview ? `${value} (simulation)` : value;
   }
 
-  function run(action: 'create' | 'open' | 'retry') {
+  function run(action: 'create' | 'open' | 'retry' | 'backup' | 'export') {
     void application.fileAction(action);
   }
 
@@ -72,13 +72,21 @@ export default function DatabaseActions({application}: {application: Application
                 >
                   {label('Open database')}
                 </Menu.Item>
-                <Menu.Item disabled {...stylex.props(styles.item)}>
+                <Menu.Item
+                  disabled={disabled || !database?.available || state.recoveryRequired}
+                  onClick={() => run('backup')}
+                  {...stylex.props(styles.item)}
+                >
                   {label('Back up database')}
                 </Menu.Item>
                 <Menu.Item disabled {...stylex.props(styles.item)}>
                   {label('Restore backup')}
                 </Menu.Item>
-                <Menu.Item disabled {...stylex.props(styles.item)}>
+                <Menu.Item
+                  disabled={disabled || !database?.available || state.recoveryRequired}
+                  onClick={() => run('export')}
+                  {...stylex.props(styles.item)}
+                >
                   {label('Export all customers')}
                 </Menu.Item>
               </Menu.Popup>

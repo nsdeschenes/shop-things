@@ -11,6 +11,8 @@ import {
   updateCustomerInputSchema,
 } from '@shop-things/contract/schemas';
 
+import {recordPreviewBackup, recordPreviewExport} from './previewFiles';
+
 export type PreviewOutcome = 'success' | 'cancelled' | 'error';
 const outcomes = new WeakMap<Client, (outcome: PreviewOutcome) => void>();
 const recoveries = new WeakMap<Client, () => void>();
@@ -158,6 +160,36 @@ export default function createPreviewClient(
     };
   }
 
+  async function savedFile(session: string, action: 'backup' | 'csv') {
+    if (!state.available || !current(session)) {
+      return error('STALE_SESSION', 'The preview database changed.');
+    }
+
+    if (outcome === 'cancelled') {
+      return {status: 'cancelled' as const};
+    }
+
+    if (outcome === 'error') {
+      return error(
+        'INTERNAL',
+        'Simulated file failure. Choose another name or location and try again.'
+      );
+    }
+
+    if (action === 'backup') {
+      recordPreviewBackup(client, {customers, nextId});
+    } else {
+      recordPreviewExport(client, customers);
+    }
+
+    return {
+      status: 'success' as const,
+      value: {
+        path: `Preview: ${action === 'backup' ? 'customers-backup.sqlite' : 'all-saved-customers.csv'}`,
+      },
+    };
+  }
+
   const client: Client = {
     customers: {
       list: async ({session, query}) => {
@@ -298,7 +330,7 @@ export default function createPreviewClient(
       retry: () => transition('retry'),
       create: () => transition('create'),
       open: () => transition('open'),
-      backup: disabled,
+      backup: ({session}) => savedFile(session, 'backup'),
       restore: disabled,
       onStateChanged: listener => {
         listeners.add(listener);
@@ -307,7 +339,7 @@ export default function createPreviewClient(
         };
       },
     },
-    exports: {csv: disabled},
+    exports: {csv: ({session}) => savedFile(session, 'csv')},
     drafts: {
       confirmDiscard: async () =>
         (await confirmDiscard())

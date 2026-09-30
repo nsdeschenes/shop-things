@@ -460,3 +460,28 @@ test('saved file operations gate customer dispatch and retain session while thei
   expect(application.getState().fileSuccess).toContain('Preview: backup.sqlite');
   application.dispose();
 });
+
+test('saved-file failures cannot paint a replacement session accepted during reconciliation', async () => {
+  const f = fixture();
+  await f.application.start();
+  const status = deferred<Awaited<ReturnType<typeof f.client.database.status>>>();
+  const reconciling = deferred<void>();
+  f.client.database.status = () => {
+    reconciling.resolve();
+    return status.promise;
+  };
+
+  f.client.database.backup = async () => ({
+    status: 'error',
+    error: {code: 'STALE_SESSION', message: 'Old backup failure'},
+  });
+  const backup = f.application.fileAction('backup');
+  await reconciling.promise;
+  f.emit({...f.first, session: 'two', version: 2});
+  status.resolve({status: 'success', value: {...f.first, session: 'two', version: 2}});
+  await backup;
+  expect(f.application.getState().database?.session).toBe('two');
+  expect(f.application.getState().fileError).toBeNull();
+  expect(f.application.getState().pendingFile).toBeNull();
+  f.application.dispose();
+});

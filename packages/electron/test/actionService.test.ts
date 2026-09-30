@@ -129,7 +129,11 @@ test('one operation is admitted while status bypasses the gate and internal erro
       await service.handlers['customers.create']({session: state.session!, values})
     ).toEqual({
       status: 'error',
-      error: {code: 'INTERNAL', message: 'The operation failed. Please try again.'},
+      error: {
+        code: 'INTERNAL',
+        message:
+          'The operation failed. Check the file and folder permissions, then try again.',
+      },
     });
   } finally {
     release();

@@ -374,6 +374,7 @@ export function createApplication(
   ) {
     if (
       state.pendingFile ||
+      state.pendingTransition ||
       state.phase !== 'ready' ||
       protection.getState().frozen ||
       protection.getState().saving ||
@@ -416,6 +417,9 @@ export function createApplication(
                   result.error.code === 'DATABASE_UNAVAILABLE')
               ) {
                 await reconcile();
+                if (attempt !== generation || !isCurrentSession(session)) {
+                  return obsolete;
+                }
               }
 
               return result;

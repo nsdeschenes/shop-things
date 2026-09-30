@@ -6,6 +6,7 @@ interface PreviewSnapshot {
   nextId: number;
 }
 
+const exports = new WeakMap<Client, CustomerRecord[]>();
 const backups = new WeakMap<Client, PreviewSnapshot>();
 
 export function recordPreviewBackup(client: Client, snapshot: PreviewSnapshot) {
@@ -15,4 +16,13 @@ export function recordPreviewBackup(client: Client, snapshot: PreviewSnapshot) {
 export function getPreviewBackup(client: Client) {
   const snapshot = backups.get(client);
   return snapshot ? structuredClone(snapshot) : null;
+}
+
+export function recordPreviewExport(client: Client, customers: CustomerRecord[]) {
+  exports.set(client, structuredClone(customers));
+}
+
+export function getPreviewExport(client: Client) {
+  const customers = exports.get(client);
+  return customers ? structuredClone(customers) : null;
 }
