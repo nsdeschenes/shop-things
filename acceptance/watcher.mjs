@@ -313,6 +313,6 @@ try {
   await writeFile(join(reportDirectory, 'watcher.log'), allOutput);
 }
 
-if (!report.passed) {
+if (report.status !== 'passed') {
   process.exitCode = 1;
 }

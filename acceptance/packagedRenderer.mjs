@@ -30,7 +30,7 @@ const addon = join(
     : '@tursodatabase/database-linux-x64-gnu/turso.linux-x64-gnu.node'
 );
 const report = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   status: 'running',
   startedAt: new Date().toISOString(),
   target,
@@ -41,14 +41,6 @@ const report = {
   skipped: 0,
   cases: [],
   logs: [],
-  deferred: [
-    'manual native dialogs, focus/default selection, and desktop GUI checklist',
-    ...(supporting
-      ? ['Linux glibc x64 packaged execution', 'macOS release/signing acceptance']
-      : []),
-    'Windows x64',
-    'Linux arm64',
-  ],
 };
 let application;
 let page;

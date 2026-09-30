@@ -40,13 +40,9 @@ function launch(directory: string, seed = false) {
   });
 }
 
-async function explain(page: Page) {
+async function startRestore(page: Page) {
   await page.getByRole('button', {name: 'Database', exact: true}).click();
   await page.getByRole('menuitem', {name: 'Restore backup', exact: true}).click();
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText('Choose a backup, then a new destination.');
-  await expect(dialog.getByRole('button', {name: 'Cancel', exact: true})).toBeFocused();
-  return dialog;
 }
 
 async function restore(
@@ -60,11 +56,7 @@ async function restore(
       Reflect.get(globalThis, 'acceptanceFiles').push(...selections),
     [{path: source}, ...(source ? [{path: destination}] : [])]
   );
-  await (
-    await explain(page)
-  )
-    .getByRole('button', {name: 'Continue', exact: true})
-    .click();
+  await startRestore(page);
   await expect(page.getByText('Waiting for database operation…')).toHaveCount(0);
 }
 
@@ -102,7 +94,45 @@ async function cleanup(application: ElectronApplication, directory: string) {
   await rm(directory, {recursive: true, force: true});
 }
 
-test('Restore explains first and both picker cancellations preserve approved exact drafts and references', async () => {
+test('Keyboard Restore opens source selection directly and returns focus after cancellation', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-restore-keyboard-'));
+  const application = await launch(directory, true);
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByText('3 results', {exact: true})).toBeVisible();
+    await application.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceFiles').push({hold: true})
+    );
+    const trigger = page.getByRole('button', {name: 'Database', exact: true});
+    await trigger.focus();
+    await trigger.press('Enter');
+    const item = page.getByRole('menuitem', {name: 'Restore backup', exact: true});
+    await page.keyboard.press('r');
+    await expect(item).toBeFocused();
+    await item.press('Enter');
+    await expect(page.getByText('Waiting for database operation…')).toBeVisible();
+    await expect(trigger).toBeDisabled();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect
+      .poll(() =>
+        application.evaluate(() => Reflect.get(globalThis, 'acceptancePickers'))
+      )
+      .toMatchObject([{kind: 'open', title: 'Choose backup to restore'}]);
+    expect(
+      await application.evaluate(() => Reflect.get(globalThis, 'acceptanceDialogs'))
+    ).toEqual([]);
+    await application.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceReleasePicker')()
+    );
+    await expect(trigger).toBeEnabled();
+    await expect(trigger).toBeFocused();
+    await expect(page.getByText('3 results', {exact: true})).toBeVisible();
+  } finally {
+    await cleanup(application, directory);
+  }
+});
+
+test('Restore directly protects dirty drafts and both picker cancellations preserve exact drafts and references', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-restore-cancel-'));
   const application = await launch(directory, true);
   try {
@@ -119,35 +149,18 @@ test('Restore explains first and both picker cancellations preserve approved exa
     await balance.fill('-');
     const before = await stateAndRecord(page);
     const hash = new URL(page.url()).hash;
-    const requests = await application.evaluate(
-      () =>
-        Reflect.get(globalThis, 'acceptanceIpc').filter(
-          (channel: string) => channel === 'shop-things:database.restore'
-        ).length
-    );
-    await (
-      await explain(page)
-    )
-      .getByRole('button', {name: 'Cancel', exact: true})
-      .click();
-    expect(
-      await application.evaluate(
-        () =>
-          Reflect.get(globalThis, 'acceptanceIpc').filter(
-            (channel: string) => channel === 'shop-things:database.restore'
-          ).length
-      )
-    ).toBe(requests);
     const pickers = await application.evaluate(
       () => Reflect.get(globalThis, 'acceptancePickers').length
     );
     // Stay refuses native preparation before either file picker.
-    await (
-      await explain(page)
-    )
-      .getByRole('button', {name: 'Continue', exact: true})
-      .click();
+    await startRestore(page);
     await expect(balance).toBeEnabled();
+    expect(
+      await application.evaluate(() =>
+        Reflect.get(globalThis, 'acceptanceDialogs').at(-1)
+      )
+    ).toMatchObject({message: 'Discard unsaved changes?', defaultId: 0, cancelId: 0});
+    await expect(page.getByRole('button', {name: 'Database', exact: true})).toBeFocused();
     expect(
       await application.evaluate(
         () => Reflect.get(globalThis, 'acceptancePickers').length
@@ -230,13 +243,12 @@ test('Restore failures preserve source, working database, route and draft; held 
     await application.evaluate(() =>
       Reflect.get(globalThis, 'acceptanceFiles').push({hold: true})
     );
-    await (
-      await explain(page)
-    )
-      .getByRole('button', {name: 'Continue', exact: true})
-      .click();
+    await startRestore(page);
     await expect(page.getByText('Waiting for database operation…')).toBeVisible();
     await expect(name).toBeDisabled();
+    await expect(
+      page.getByRole('button', {name: 'Database', exact: true})
+    ).toBeDisabled();
     expect(
       await page.evaluate(async () => {
         const client = Reflect.get(window, 'shopThings');
@@ -402,108 +414,4 @@ test('Restore is available without an active database and enters saved customers
   } finally {
     await cleanup(application, directory);
   }
-});
-
-test('Chromium separate-file Restore simulation preserves cancelled/error drafts and clones all saved backup records', async ({
-  page,
-}) => {
-  await page.goto('/?preview=true#/customers/new');
-  await page.getByRole('textbox', {name: 'First name'}).fill('Alpha saved');
-  await page.getByRole('button', {name: 'Save', exact: true}).click();
-  await page.getByRole('link', {name: 'Back to customers'}).click();
-  await page.getByRole('link', {name: 'Add customer'}).click();
-  await page.getByRole('textbox', {name: 'First name'}).fill('Zed saved');
-  await page.getByRole('button', {name: 'Save', exact: true}).click();
-  await page.getByRole('link', {name: 'Back to customers'}).click();
-  const search = page.getByRole('textbox', {name: 'Search customers'});
-  await search.fill('Alpha');
-  await search.press('Enter');
-  await page.getByRole('link', {name: 'Alpha saved', exact: true}).click();
-  await page.getByRole('button', {name: 'Edit customer'}).click();
-  const name = page.getByRole('textbox', {name: 'First name'});
-  await name.fill('Draft excluded');
-  await page.getByRole('button', {name: 'Database', exact: true}).click();
-  await page
-    .getByRole('menuitem', {name: 'Back up database (simulation)', exact: true})
-    .click();
-  await expect(page.getByRole('status')).toContainText('Simulated: Backup saved.');
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  const hash = new URL(page.url()).hash;
-  async function explanation() {
-    await page.getByRole('button', {name: 'Database', exact: true}).click();
-    await page
-      .getByRole('menuitem', {name: 'Restore backup (simulation)', exact: true})
-      .click();
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toContainText('This simulation uses temporary saved data');
-    await expect(dialog.getByRole('button', {name: 'Cancel', exact: true})).toBeFocused();
-    return dialog;
-  }
-
-  await (await explanation()).getByRole('button', {name: 'Cancel', exact: true}).click();
-  await expect(name).toHaveValue('Draft excluded');
-  await (
-    await explanation()
-  )
-    .getByRole('button', {name: 'Continue (simulation)', exact: true})
-    .click();
-  await page.getByRole('dialog').getByRole('button', {name: 'Stay', exact: true}).click();
-  await expect(name).toHaveValue('Draft excluded');
-  for (const outcome of ['cancelled', 'error']) {
-    await page.getByRole('combobox', {name: 'Simulation result'}).selectOption(outcome);
-    await (
-      await explanation()
-    )
-      .getByRole('button', {name: 'Continue (simulation)', exact: true})
-      .click();
-    await page
-      .getByRole('dialog')
-      .getByRole('button', {name: 'Discard', exact: true})
-      .click();
-    await expect(name).toBeEnabled();
-    await expect(name).toHaveValue('Draft excluded');
-    expect(new URL(page.url()).hash).toBe(hash);
-  }
-
-  await expect(page.getByRole('alert')).toContainText('Simulated file failure');
-  await page.getByRole('combobox', {name: 'Simulation result'}).selectOption('success');
-  await (
-    await explanation()
-  )
-    .getByRole('button', {name: 'Continue (simulation)', exact: true})
-    .click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', {name: 'Discard', exact: true})
-    .click();
-  await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
-  await expect(search).toHaveValue('');
-  await expect(
-    page.getByText('Simulated: Database restored.', {exact: true})
-  ).toBeVisible();
-  await expect(
-    page.getByText('Active database: Preview: restored customers.sqlite')
-  ).toBeVisible();
-  await expect(page.getByRole('link', {name: 'Alpha saved', exact: true})).toBeVisible();
-  await expect(page.getByRole('link', {name: 'Zed saved', exact: true})).toBeVisible();
-  await expect(page.getByRole('link', {name: 'Draft excluded', exact: true})).toHaveCount(
-    0
-  );
-  // A restored working copy never aliases its backup source snapshot.
-  await page.getByRole('link', {name: 'Alpha saved', exact: true}).click();
-  await page.getByRole('button', {name: 'Edit customer'}).click();
-  await name.fill('Changed restored copy');
-  await page.getByRole('button', {name: 'Save', exact: true}).click();
-  await (
-    await explanation()
-  )
-    .getByRole('button', {name: 'Continue (simulation)', exact: true})
-    .click();
-  await expect(page.getByRole('link', {name: 'Alpha saved', exact: true})).toBeVisible();
-  await expect(
-    page.getByRole('link', {name: 'Changed restored copy', exact: true})
-  ).toHaveCount(0);
-  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual(
-    [0, 0]
-  );
 });

@@ -177,22 +177,6 @@ export default function CustomerForm({
             draftRef.current.saved = result;
             setSavedRecord(result);
             draftRef.current.baseline = submitted;
-            queryClient.setQueryData(
-              customerKeys.detail(session, result.customer.id),
-              result
-            );
-            await queryClient.invalidateQueries({
-              queryKey: customerKeys.session(session),
-              predicate: query => query.queryKey[2] === 'list',
-            });
-            if (!captured.isCurrent()) {
-              return;
-            }
-
-            queryClient.removeQueries({
-              queryKey: customerKeys.session(session),
-              predicate: query => query.queryKey[2] === 'list',
-            });
             application.protection.changed();
             completed = result;
           } catch (failure) {

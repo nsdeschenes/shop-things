@@ -187,7 +187,7 @@ test('Chromium preview edits temporary saved records with exact contact and numb
   await expect(page.getByText('42', {exact: true})).toBeVisible();
   await expect(page.getByText('aB cd', {exact: true})).toBeVisible();
   await page.getByRole('link', {name: 'Back to customers'}).click();
-  await page.getByRole('textbox', {name: 'Search customers'}).fill('0042');
+  await page.getByRole('textbox', {name: 'Search customers'}).fill('42');
   await page.getByRole('textbox', {name: 'Search customers'}).press('Enter');
   await expect(page.getByRole('link', {name: 'Edited', exact: true})).toBeVisible();
 });

@@ -21,6 +21,23 @@ test('explicit preview survives routing and reload without native storage', asyn
   await expect(
     page.getByText('Browser preview — temporary data', {exact: false})
   ).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Database', exact: true})).toHaveCount(0);
+  await expect(page.getByRole('combobox', {name: 'Simulation result'})).toHaveCount(0);
+  await expect(
+    page.getByRole('button', {name: 'Simulate remembered-file failure'})
+  ).toHaveCount(0);
+  for (const name of [
+    'Create database',
+    'Open database',
+    'Retry remembered database',
+    'Back up database',
+    'Restore backup',
+    'Export all customers',
+  ]) {
+    await expect(page.getByRole('button', {name, exact: true})).toHaveCount(0);
+    await expect(page.getByRole('menuitem', {name, exact: true})).toHaveCount(0);
+  }
+
   await expect(page.getByRole('button', {name: 'Save'})).toBeEnabled();
   await page.getByRole('link', {name: 'Customer records Shop Things'}).click();
   await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
@@ -43,7 +60,7 @@ for (const development of [true, false]) {
     });
     try {
       const page = await application.firstWindow();
-      await expect(page.getByText('Live mode', {exact: false})).toBeVisible();
+      await expect(page.getByText('Live mode', {exact: false})).toHaveCount(0);
       await expect(
         page.getByRole('heading', {name: 'Set Up Your Database', exact: true})
       ).toBeVisible();
@@ -72,7 +89,7 @@ for (const development of [true, false]) {
       await application.evaluate(async ({BrowserWindow}, destination) => {
         await BrowserWindow.getAllWindows()[0]!.loadURL(destination);
       }, url.href);
-      await expect(page.getByText('Live mode', {exact: false})).toBeVisible();
+      await expect(page.getByText('Live mode', {exact: false})).toHaveCount(0);
       await expect(
         page.getByRole('heading', {name: 'Set Up Your Database', exact: true})
       ).toBeVisible();
@@ -123,7 +140,7 @@ test('failed live handshake never enters preview and Retry restores live registr
   try {
     const page = await application.firstWindow();
     await expect(page.getByRole('button', {name: 'Retry'})).toBeVisible();
-    await expect(page.getByText('Live mode', {exact: false})).toBeVisible();
+    await expect(page.getByText('Live mode', {exact: false})).toHaveCount(0);
     await expect(page.getByText('Browser preview', {exact: false})).toHaveCount(0);
     await application.evaluate(() => {
       Reflect.set(globalThis, 'acceptanceDenyHandshake', null);

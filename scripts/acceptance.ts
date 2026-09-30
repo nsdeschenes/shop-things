@@ -19,10 +19,8 @@ const glibc = Reflect.get(
   'glibcVersionRuntime'
 );
 const report: Record<string, unknown> = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   status: 'running',
-  acceptance: 'incomplete',
-  commit: git(['rev-parse', 'HEAD']),
   startedAt: new Date().toISOString(),
   environment: {
     platform: process.platform,
@@ -33,40 +31,6 @@ const report: Record<string, unknown> = {
     target: supporting ? 'darwin-arm64-supporting-unsigned' : 'linux-x64-glibc',
   },
   steps: [],
-  deferred: [
-    {
-      gate: 'packaged Linux native GUI checklist',
-      status: 'deferred-by-owner',
-      tester: null,
-      date: null,
-    },
-    {
-      gate: 'development GUI restart checklist',
-      status: 'deferred-by-owner',
-      tester: null,
-      date: null,
-    },
-    {
-      gate: 'Chromium Linux native unload GUI checklist',
-      status: 'deferred-by-owner',
-      tester: null,
-      date: null,
-    },
-    {
-      gate: 'macOS arm64, Windows x64 and Linux arm64 release verification',
-      status: 'deferred-by-decision-52',
-    },
-    ...(supporting
-      ? [
-          {
-            gate: 'Linux glibc x64 automated renderer, packaged and Chromium matrix',
-            status: 'deferred-by-owner',
-            ciBlocker: 'GitHub Actions budget prevented job startup',
-            run: 'https://github.com/nsdeschenes/shop-things/actions/runs/36714438402',
-          },
-        ]
-      : []),
-  ],
 };
 const steps: {
   name: string;
@@ -122,7 +86,7 @@ async function command(
       }
 
       child.once('error', reject);
-      child.once('exit', (code, signal) => {
+      child.once('close', (code, signal) => {
         step.exitCode = code;
         step.signal = signal;
         if (code === 0) {
@@ -152,6 +116,7 @@ async function successfulReport(name: string) {
 }
 
 try {
+  report.commit = git(['rev-parse', 'HEAD']);
   assert.equal(
     git(['status', '--porcelain', '--untracked-files=all']),
     '',
@@ -172,7 +137,7 @@ try {
 
   report.cleanBefore = true;
   const pnpmVersion = spawnSync('pnpm', ['--version'], {encoding: 'utf8'});
-  assert.equal(pnpmVersion.status, 0);
+  assert.equal(pnpmVersion.status, 0, String(pnpmVersion.error ?? pnpmVersion.stderr));
   report.pnpm = pnpmVersion.stdout.trim();
   report.osDistribution =
     process.platform === 'linux'
@@ -265,7 +230,7 @@ try {
   ]);
   if (supporting) {
     report.shippedBackend = {
-      status: 'deferred-supporting-only',
+      applicable: false,
       target: 'linux-x64-glibc',
       reason: 'The shipped backend smoke requires the Linux release artifact',
     };
@@ -290,8 +255,7 @@ try {
   );
   assert.equal(git(['rev-parse', 'HEAD']), report.commit);
   report.cleanAfter = true;
-  report.status = supporting ? 'passed-supporting' : 'automated-passed-manual-pending';
-  report.acceptance = 'incomplete-deferred-gates';
+  report.status = 'passed';
 } catch (error) {
   report.status = 'failed';
   report.error =

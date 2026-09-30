@@ -66,7 +66,7 @@ test('cold real Vite development boots the live renderer and retains invalid edi
     await expect(page.getByRole('link', {name: 'Alpha One'})).toBeVisible({
       timeout: 15000,
     });
-    await expect(page.getByText('Live mode', {exact: false})).toBeVisible();
+    await expect(page.getByText('Live mode', {exact: false})).toHaveCount(0);
     expect(page.url()).toBe(url + '#/customers');
     await page.getByRole('link', {name: 'Alpha One'}).click();
     await page.getByRole('button', {name: 'Edit customer'}).click();

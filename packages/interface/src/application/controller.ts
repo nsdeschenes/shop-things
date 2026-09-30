@@ -438,11 +438,10 @@ export function createApplication(
               : result.error.message,
         });
       } else if (result.status === 'success') {
-        const prefix = state.mode === 'preview' ? 'Simulated: ' : '';
         const destination = 'path' in result.value ? ` ${result.value.path}` : '';
         publish({
           ...state,
-          fileSuccess: `${prefix}${action === 'create' ? 'Database created.' : action === 'open' || action === 'retry' ? 'Database opened.' : action === 'restore' ? 'Database restored.' : action === 'backup' ? 'Backup saved.' : 'Customers exported.'}${destination}`,
+          fileSuccess: `${action === 'create' ? 'Database created.' : action === 'open' || action === 'retry' ? 'Database opened.' : action === 'restore' ? 'Database restored.' : action === 'backup' ? 'Backup saved.' : 'Customers exported.'}${destination}`,
         });
         successTimer = setTimeout(() => {
           if (attempt === generation) {
