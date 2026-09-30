@@ -82,7 +82,7 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
   }
 });
 
-test('held Update preserves newer edits through close and rejects retained stale revisions', async () => {
+test('held Update freezes editing and rejects retained stale revisions', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-edit-race-'));
   const application = await launchElectron(directory, {
     SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
@@ -107,22 +107,21 @@ test('held Update preserves newer edits through close and rejects retained stale
       )
       .toBe('shop-things:customers.update');
     await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
-    await name.fill('Newer');
-    await name.press('Enter');
+    await expect(name).toBeDisabled();
+    await expect(page.getByRole('textbox', {name: 'Customer number'})).toBeDisabled();
+    await page.keyboard.type('Ignored');
+    await page.locator('form').evaluate(form => form.requestSubmit());
     await page.getByRole('link', {name: 'Cancel'}).click();
     await expect(
       page.getByRole('heading', {name: 'Edit Customer', exact: true})
     ).toBeVisible();
-    await application.evaluate(({BrowserWindow}) =>
-      BrowserWindow.getAllWindows()[0].close()
-    );
-    await expect(name).toBeDisabled();
     await application.evaluate(() => {
       Reflect.get(globalThis, 'acceptanceReleaseRead')();
       Reflect.set(globalThis, 'acceptanceHeldRead', null);
     });
-    await expect(name).toBeEnabled();
-    await expect(name).toHaveValue('Newer');
+    await expect(
+      page.getByRole('heading', {name: 'Submitted One', exact: true})
+    ).toBeVisible();
     expect(
       await application.evaluate(
         () =>
@@ -131,10 +130,6 @@ test('held Update preserves newer edits through close and rejects retained stale
           ).length
       )
     ).toBe(1);
-    await page.getByRole('button', {name: 'Save'}).click();
-    await expect(
-      page.getByRole('heading', {name: 'Newer One', exact: true})
-    ).toBeVisible();
     await page.getByRole('button', {name: 'Edit customer'}).click();
     await name.fill('Retained draft');
     const external = await page.evaluate(async () => {

@@ -56,7 +56,7 @@ controlled; no operator settings or application processes are used.
 - `customers.spec.ts`, `create.spec.ts`, `edit.spec.ts`, `deletion.spec.ts`:
   canonical saved CRUD, defaults/validation/decimal/contact text, immutable IDs,
   nullable numbers, search, retained opaque revisions, persistence after reopen,
-  delayed search/detail/write results, pending-save edits and lifecycle races.
+  delayed search/detail/write results, disabled pending-save inputs and lifecycle races.
 - `recovery.spec.ts`: explicit stale reload with Stay/error/held-read/success,
   deleted copyable drafts, stale Delete, unavailable recovery and protected Retry.
 - `database.spec.ts`: visible startup loading, setup/remembered reopen/failure,
