@@ -11,12 +11,12 @@ import {fixture, migrationsFolder, success, values} from './backendFixture.js';
 
 function protection() {
   const drafts = new DraftCoordinator();
-  const editor = {draft: 'unsaved', selection: 1 as number | null, frozen: false};
+  const editor = {draft: '', selection: null as number | null, frozen: false};
   const participant = {
     documentId: 'files-document',
     prepare(request: DraftRequest) {
       editor.frozen = true;
-      drafts.reply(participant, {...request, hasUnsavedDraft: true});
+      drafts.reply(participant, {...request, hasUnsavedDraft: editor.draft !== ''});
     },
     resolve(resolution: DraftResolution) {
       editor.frozen = false;
@@ -27,7 +27,15 @@ function protection() {
     },
   };
   const unregister = drafts.register(participant);
-  return {drafts, editor, unregister};
+  return {
+    drafts,
+    editor,
+    unregister,
+    edit() {
+      editor.draft = 'unsaved';
+      editor.selection = 1;
+    },
+  };
 }
 
 test('cancelled or failed file operations preserve active references and approved drafts', async () => {
@@ -35,6 +43,7 @@ test('cancelled or failed file operations preserve active references and approve
   const f = await fixture({drafts: participant.drafts});
   try {
     const state = success(await f.service.handlers['database.create']());
+    participant.edit();
     const record = success(
       await f.service.handlers['customers.create']({session: state.session!, values})
     );
@@ -175,6 +184,7 @@ test('injected native snapshot and remembered-path failures clean new files whil
   });
   try {
     const state = success(await service.handlers['database.create']());
+    participant.edit();
     const record = success(
       await service.handlers['customers.create']({session: state.session!, values})
     );

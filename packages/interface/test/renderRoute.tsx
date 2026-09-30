@@ -21,5 +21,5 @@ export default function renderRoute(path: string) {
     </QueryClientProvider>
   );
 
-  return {router};
+  return {router, application};
 }

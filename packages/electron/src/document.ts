@@ -16,7 +16,7 @@ export interface DocumentWebContents extends DocumentContents {
       isMainFrame: boolean
     ) => void
   ): unknown;
-  on(event: 'dom-ready' | 'destroyed', callback: () => void): unknown;
+  on(event: 'dom-ready' | 'destroyed' | 'did-navigate', callback: () => void): unknown;
   removeListener(
     event: string,
     callback:
@@ -65,7 +65,7 @@ export function trackAuthorizedDocument(
     inPlace: boolean,
     isMainFrame: boolean
   ) {
-    if (isMainFrame && !inPlace) {
+    if (isMainFrame && !inPlace && isTrustedRendererUrl(url, approvedUrl)) {
       invalidate();
     } else if (isMainFrame && document && isTrustedRendererUrl(url, approvedUrl)) {
       document.url = url;
@@ -87,7 +87,11 @@ export function trackAuthorizedDocument(
     }
   }
 
+  // Unapproved attempts are blocked by the navigation policy and must retain the
+  // running document's participant. A programmatically replaced document is revoked
+  // at navigation commit, before the new page's scripts can use its bridge.
   webContents.on('did-start-navigation', navigating);
+  webContents.on('did-navigate', invalidate);
   webContents.on('dom-ready', ready);
   webContents.on('destroyed', invalidate);
 
@@ -103,6 +107,7 @@ export function trackAuthorizedDocument(
       invalidate();
       listeners.clear();
       webContents.removeListener('did-start-navigation', navigating);
+      webContents.removeListener('did-navigate', invalidate);
       webContents.removeListener('dom-ready', ready);
       webContents.removeListener('destroyed', invalidate);
     },

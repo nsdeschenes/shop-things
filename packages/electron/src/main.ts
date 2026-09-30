@@ -1,7 +1,7 @@
 import {dirname, join} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 
-import {app, BrowserWindow, ipcMain} from 'electron';
+import {app, BrowserWindow, ipcMain, Menu, dialog} from 'electron';
 
 import {ActionService} from './actionService.js';
 import {isTrustedRendererUrl, trackAuthorizedDocument} from './document.js';
@@ -17,6 +17,7 @@ let starting: Promise<void> | null = null;
 let shutdown: Promise<void> | null = null;
 let shuttingDown = false;
 let backendClosed = false;
+let quitRequested = false;
 let documentTracker: ReturnType<typeof trackAuthorizedDocument> | null = null;
 const documentListeners = new Set<() => void>();
 
@@ -43,6 +44,25 @@ function createWindow() {
     },
   });
   window = win;
+  backendClosed = false;
+  win.on('close', event => {
+    if (backendClosed) {
+      return;
+    }
+
+    event.preventDefault();
+    void closeBackend(false);
+  });
+  win.webContents.on('before-input-event', (event, input) => {
+    if (
+      input.type === 'keyDown' &&
+      ((input.key.toLowerCase() === 'r' && (input.control || input.meta)) ||
+        input.key === 'F5')
+    ) {
+      event.preventDefault();
+      void reloadWindow(win);
+    }
+  });
   documentTracker?.dispose();
   documentTracker = trackAuthorizedDocument(win.webContents, approvedUrl);
   documentTracker.onDocumentChanged(() => {
@@ -71,6 +91,45 @@ function createWindow() {
     void win.loadURL(devServerUrl);
   } else {
     void win.loadFile(rendererHtml);
+  }
+}
+
+async function showProtectionFailure() {
+  try {
+    await dialog.showMessageBox({
+      type: 'error',
+      message: 'The application could not prepare this operation.',
+      detail:
+        'The application remains open. Wait for the editor to respond, then try again.',
+      buttons: ['OK'],
+    });
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function reloadWindow(win: BrowserWindow) {
+  if (!service || shutdown || win.isDestroyed()) {
+    return;
+  }
+
+  const result = await service.requestReload(() => {
+    if (win.isDestroyed() || win.webContents.isDestroyed()) {
+      throw new Error('The renderer is unavailable.');
+    }
+
+    return new Promise<void>(resolve => {
+      setImmediate(() => {
+        if (!win.isDestroyed()) {
+          win.webContents.reload();
+        }
+
+        resolve();
+      });
+    });
+  });
+  if (result.status === 'error') {
+    await showProtectionFailure();
   }
 }
 
@@ -109,6 +168,28 @@ void app.whenReady().then(async () => {
   }
 
   createWindow();
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      ...(process.platform === 'darwin' ? [{role: 'appMenu' as const}] : []),
+      {label: 'File', submenu: [{role: 'quit'}]},
+      {role: 'editMenu'},
+      {
+        label: 'View',
+        submenu: [
+          {
+            label: 'Reload',
+            accelerator: 'CmdOrCtrl+R',
+            click: () => {
+              if (window) {
+                void reloadWindow(window);
+              }
+            },
+          },
+        ],
+      },
+      {role: 'windowMenu'},
+    ])
+  );
   app.on('activate', () => {
     if (!shuttingDown && BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -116,15 +197,28 @@ void app.whenReady().then(async () => {
   });
 });
 
-function closeBackend(): Promise<void> {
-  shuttingDown = true;
+function closeBackend(quit: boolean): Promise<void> {
+  quitRequested ||= quit;
   shutdown ??= (async () => {
     await starting;
-    await service?.closeUnprotectedWhenIdle();
-    stopIpc?.();
-    stopIpc = null;
-    backendClosed = true;
-  })();
+    const result = await service?.requestClose();
+    if (result?.status === 'success') {
+      backendClosed = true;
+      if (quitRequested) {
+        shuttingDown = true;
+        stopIpc?.();
+        stopIpc = null;
+        app.quit();
+      } else {
+        window?.close();
+      }
+    } else if (result?.status === 'error') {
+      await showProtectionFailure();
+    }
+  })().finally(() => {
+    shutdown = null;
+    quitRequested = false;
+  });
   return shutdown;
 }
 
@@ -134,9 +228,7 @@ app.on('before-quit', event => {
   }
 
   event.preventDefault();
-  void closeBackend().then(() => {
-    app.quit();
-  });
+  void closeBackend(true);
 });
 
 app.on('window-all-closed', () => {

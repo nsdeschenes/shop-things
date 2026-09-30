@@ -19,10 +19,11 @@ New or failed emission prevents a replacement launch. Test watch commands run se
 checks after source changes, including contract mutation checks.
 
 The sandboxed preload is attached and exact-resource renderer authorization is active.
-The renderer owns one subscription and explicitly clean participant while editing remains
-unavailable. Protected lifecycle activation and watcher draft preservation belong to the
-next integration stage. See `acceptance/README.md` for actual renderer checks and deferrals. Build/process
-checks exercise emitted code and controlled participants rather than a connected GUI.
+The renderer owns one subscription and a document-scoped draft participant. Native close,
+quit, and reload wait for Save and require correlated draft approval; guarded reload keeps
+the database session open. Editors remain unavailable until the CRUD integration stage.
+Watcher draft preservation belongs to the next stage. See `acceptance/README.md` for
+actual renderer checks, controlled editable coverage, and platform deferrals.
 
 Run `node --experimental-strip-types scripts/acceptance.ts` from a clean committed checkout on Linux glibc x64
 to install, run all required checks without skipped cases, build/package, and execute

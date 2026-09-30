@@ -207,7 +207,9 @@ export class ActionService {
   }
 
   async start(): Promise<void> {
-    await this.handlers['database.retry']();
+    // Cold startup runs before any renderer/document exists. Public recovery calls
+    // always use the protected transition path once the application is running.
+    await this.admit(() => this.retry());
   }
 
   closeUnprotected(): void {
@@ -241,9 +243,56 @@ export class ActionService {
     return this.pendingUnprotectedClose;
   }
 
+  async requestReload(
+    scheduleReload: () => void | Promise<void>
+  ): Promise<Outcome<{reloaded: true}>> {
+    if (this.closePending) {
+      return {
+        status: 'error',
+        error: {
+          code: 'BUSY',
+          message:
+            'A protected lifecycle operation is already running. Try again when it finishes.',
+        },
+      };
+    }
+
+    this.closePending = true;
+    try {
+      await this.activeOperation;
+      const reloaded = await this.transition(async lease => {
+        lease?.assertCurrent();
+        // Schedule replacement after the correlated committed resolution is delivered.
+        const scheduled = scheduleReload();
+        lease?.finish('committed');
+        // Keep lifecycle admission closed until the scheduled replacement begins.
+        await scheduled;
+        return {reloaded: true as const};
+      }, true);
+      return reloaded === null
+        ? {status: 'cancelled'}
+        : {status: 'success', value: reloaded};
+    } catch (error) {
+      return {status: 'error', error: this.safeError(error)};
+    } finally {
+      this.closePending = false;
+    }
+  }
+
   requestClose(): Promise<Outcome<{closed: true}>> {
     if (this.pendingClose) {
       return this.pendingClose;
+    }
+
+    if (this.closePending) {
+      return Promise.resolve({
+        status: 'error',
+        error: {
+          code: 'BUSY',
+          message:
+            'A protected lifecycle operation is already running. Try again when it finishes.',
+        },
+      });
     }
 
     this.closePending = true;
@@ -272,7 +321,7 @@ export class ActionService {
     work: (lease?: DraftLease) => Promise<T | null>,
     closing = false
   ): Promise<T | null> {
-    if (!this.active && !closing) {
+    if (!this.active && !closing && !this.options.drafts) {
       return work();
     }
 
