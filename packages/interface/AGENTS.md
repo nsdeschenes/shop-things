@@ -48,7 +48,7 @@ Use `queryOptions` with `useQuery` from TanStack Query. `staleTime` is required.
 
 ```tsx
 // ❌ Reading/writing a ref during render
-function Component({ value }: Props) {
+function Component({value}: Props) {
   renderCountRef.current += 1; // side effect during render
   const previous = prevValueRef.current; // stale under concurrent rendering
   prevValueRef.current = value; // write during render
@@ -56,7 +56,7 @@ function Component({ value }: Props) {
 }
 
 // ✅ Mutate refs in effects; derive render values
-function Component({ value }: Props) {
+function Component({value}: Props) {
   const prevValueRef = useRef(value);
   useEffect(() => {
     prevValueRef.current = value; // write in an effect

@@ -1,16 +1,17 @@
-import { Button as BaseButton } from "@base-ui/react/button";
-import * as stylex from "@stylexjs/stylex";
-import buttonStyles from "./buttonStyles";
+import {Button as BaseButton} from '@base-ui/react/button';
+import * as stylex from '@stylexjs/stylex';
 
-type Props = Omit<BaseButton.Props, "className" | "style"> & {
-  variant?: "primary" | "secondary";
+import buttonStyles from './buttonStyles';
+
+type Props = Omit<BaseButton.Props, 'className' | 'style'> & {
+  variant?: 'primary' | 'secondary';
 };
 
-export default function Button({ variant = "secondary", ...props }: Props) {
+export default function Button({variant = 'secondary', ...props}: Props) {
   return (
     <BaseButton
       {...props}
-      {...stylex.props(buttonStyles.base, variant === "primary" && buttonStyles.primary)}
+      {...stylex.props(buttonStyles.base, variant === 'primary' && buttonStyles.primary)}
     />
   );
 }

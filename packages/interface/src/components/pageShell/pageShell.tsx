@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
-import * as stylex from "@stylexjs/stylex";
-import { colors } from "../../styles/colors.stylex";
-import { spacing } from "../../styles/spacing.stylex";
-import { typography } from "../../styles/typography.stylex";
-import { breakpoints } from "../../styles/breakpoints.stylex";
+import * as stylex from '@stylexjs/stylex';
+import type {ReactNode} from 'react';
+
+import {breakpoints} from '../../styles/breakpoints.stylex';
+import {colors} from '../../styles/colors.stylex';
+import {spacing} from '../../styles/spacing.stylex';
+import {typography} from '../../styles/typography.stylex';
 
 type Props = {
   title: string;
@@ -15,8 +16,8 @@ type Props = {
 
 const styles = stylex.create({
   page: {
-    marginInline: "auto",
-    paddingInline: { default: spacing.space24, [breakpoints.compact]: spacing.space16 },
+    marginInline: 'auto',
+    paddingInline: {default: spacing.space24, [breakpoints.compact]: spacing.space16},
     maxWidth: 1080,
     paddingBottom: spacing.space4,
     paddingTop: spacing.space4,
@@ -24,15 +25,15 @@ const styles = stylex.create({
   header: {
     gap: spacing.space12,
     paddingBlock: spacing.space4,
-    alignItems: "center",
+    alignItems: 'center',
     backgroundColor: colors.pageBackground,
-    display: "flex",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
+    display: 'flex',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
     marginBottom: spacing.space8,
   },
-  sticky: { position: "sticky", zIndex: 1, top: 0 },
-  title: { fontSize: typography.fontSizeHeading, letterSpacing: -0.6 },
+  sticky: {position: 'sticky', zIndex: 1, top: 0},
+  title: {fontSize: typography.fontSizeHeading, letterSpacing: -0.6},
 });
 
 export default function PageShell({

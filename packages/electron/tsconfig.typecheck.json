@@ -1,0 +1,11 @@
+{
+  "extends": ["./tsconfig.test.json", "../../tsconfig.typecheck.json"],
+  "include": [
+    "src",
+    "test",
+    "smoke",
+    "scripts/*.ts",
+    "vitest*.config.ts",
+    "../contract/test/conformance.ts"
+  ]
+}

@@ -5,3 +5,8 @@ release
 !.env.example
 *.log
 .DS_Store
+
+packages/contract/dist
+packages/db/dist
+
+acceptance-reports

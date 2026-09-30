@@ -1,9 +1,10 @@
-import { screen } from "@testing-library/react";
-import { expect, test } from "vitest";
-import renderRoute from "../renderRoute";
+import {screen} from '@testing-library/react';
+import {expect, test} from 'vitest';
 
-test("disables opening a database in the preview", async () => {
-  renderRoute("/customers");
+import renderRoute from '../renderRoute';
 
-  expect(await screen.findByRole("button", { name: "Open database" })).toBeDisabled();
+test('disables opening a database in the preview', async () => {
+  renderRoute('/customers');
+
+  expect(await screen.findByRole('button', {name: 'Open database'})).toBeDisabled();
 });

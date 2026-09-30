@@ -1,14 +1,14 @@
-import * as stylex from "@stylexjs/stylex";
+import * as stylex from '@stylexjs/stylex';
 
 export const typography = stylex.defineVars({
-  fontFamily: "Arial, Helvetica, sans-serif",
-  fontSizeSmall: "14px",
-  fontSizeBody: "16px",
-  fontSizeHeading: "24px",
-  fontSizeBrand: "28px",
-  fontWeightRegular: "400",
-  fontWeightMedium: "500",
-  fontWeightSemibold: "600",
-  fontWeightBold: "700",
-  lineHeightControl: "1.25",
+  fontFamily: 'Arial, Helvetica, sans-serif',
+  fontSizeSmall: '14px',
+  fontSizeBody: '16px',
+  fontSizeHeading: '24px',
+  fontSizeBrand: '28px',
+  fontWeightRegular: '400',
+  fontWeightMedium: '500',
+  fontWeightSemibold: '600',
+  fontWeightBold: '700',
+  lineHeightControl: '1.25',
 });

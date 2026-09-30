@@ -4,14 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "node --experimental-strip-types ../../scripts/interface-dev.ts",
+    "typecheck": "node --experimental-strip-types ../../scripts/typecheck.ts interface",
+    "build": "node --experimental-strip-types ../../scripts/interface-build.ts",
     "preview": "vite preview",
-    "test": "tsc -b && vitest run",
-    "test:watch": "vitest"
+    "test": "node --experimental-strip-types ../../scripts/interface-test.ts",
+    "test:watch": "node --experimental-strip-types ../../scripts/test-watch.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
+    "@shop-things/contract": "workspace:*",
     "@stylexjs/stylex": "^0.19.1",
     "@tanstack/react-form": "^1.33.5",
     "@tanstack/react-pacer": "^0.24.0",

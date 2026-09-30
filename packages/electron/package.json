@@ -1,17 +1,22 @@
 {
   "name": "electron",
   "version": "0.0.1",
+  "description": "Customer records and saved database workflows",
+  "homepage": "https://github.com/nsdeschenes/shop-things",
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "pnpm run build:main && wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .",
-    "build:main": "tsc --noEmit false --allowImportingTsExtensions false --rootDir src --outDir dist --incremental false",
-    "test": "tsc -p tsconfig.test.json && vitest run",
-    "test:watch": "vitest",
-    "test:smoke": "tsc -p tsconfig.test.json && vitest run --config vitest.smoke.config.ts"
+    "start": "node --experimental-strip-types ../../scripts/start.ts",
+    "dev": "node --experimental-strip-types ../../scripts/dev.ts",
+    "typecheck": "node --experimental-strip-types ../../scripts/typecheck.ts electron",
+    "build:main": "node --experimental-strip-types ../../scripts/electron-build.ts",
+    "test": "node --experimental-strip-types ../../scripts/electron-test.ts",
+    "test:watch": "node --experimental-strip-types ../../scripts/test-watch.ts",
+    "test:smoke": "node --experimental-strip-types ../../scripts/electron-smoke.ts",
+    "build:preload": "node --experimental-strip-types ../../scripts/preload-build.ts"
   },
   "dependencies": {
+    "@shop-things/contract": "workspace:*",
     "@shop-things/db": "workspace:*"
   },
   "devDependencies": {
@@ -20,6 +25,8 @@
     "cross-env": "^10.1.0",
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.0",
+    "tsdown": "^0.23.0",
     "typescript": "^7",
     "vitest": "^5.0.2",
     "wait-on": "^8.0.4"
@@ -73,7 +80,9 @@
             "arm64"
           ]
         }
-      ]
+      ],
+      "maintainer": "Shop Things contributors <nsdeschenes@users.noreply.github.com>",
+      "executableName": "shop-things"
     }
   }
 }

@@ -4,8 +4,9 @@
   "type": "module",
   "scripts": {
     "start": "node --experimental-strip-types index.ts",
-    "dev": "concurrently -k -n VITE,ELECTRON -c blue,green \"pnpm --filter @shop-things/interface dev\" \"pnpm --filter electron dev\"",
-    "build": "pnpm --filter @shop-things/db build && pnpm --filter @shop-things/interface build && pnpm --filter electron build:main",
+    "dev": "node --experimental-strip-types scripts/dev.ts",
+    "dev:packages": "pnpm --parallel --filter @shop-things/contract --filter @shop-things/db dev",
+    "build": "node --experimental-strip-types scripts/build.ts",
     "dist:mac": "pnpm build && pnpm --filter electron exec electron-builder --mac dmg --arm64 --publish never",
     "dist:win": "pnpm build && pnpm --filter electron exec electron-builder --win nsis --x64 --publish never",
     "dist:linux": "pnpm dist:linux:x64",
@@ -18,8 +19,10 @@
     "lint:fix": "oxlint --fix",
     "pre-commit:run": "prek run",
     "pre-commit:install": "prek install",
-    "test": "pnpm -r test",
-    "test:watch": "pnpm -r --parallel test:watch"
+    "test": "node --experimental-strip-types scripts/test.ts",
+    "typecheck": "node --experimental-strip-types scripts/typecheck.ts",
+    "test:watch": "node --experimental-strip-types scripts/test-watch.ts",
+    "prepare:backend": "node --experimental-strip-types scripts/prepare.ts"
   },
   "devDependencies": {
     "@e18e/eslint-plugin": "^0.8.1",
@@ -36,6 +39,7 @@
     "oxfmt": "^0.70.0",
     "oxlint": "^1.85.0",
     "oxlint-tsgolint": "^7.0.2003",
-    "typescript": "^7"
+    "typescript": "^7",
+    "vitest": "^5.0.2"
   }
 }

@@ -1,13 +1,13 @@
-import { StrictMode } from "react";
-import ReactDOM from "react-dom/client";
-import { RouterProvider, createRouter } from "@tanstack/react-router";
+import * as stylex from '@stylexjs/stylex';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {RouterProvider, createRouter} from '@tanstack/react-router';
+import {StrictMode} from 'react';
+import ReactDOM from 'react-dom/client';
 
-import { routeTree } from "./routeTree.gen";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import * as stylex from "@stylexjs/stylex";
-import { typography } from "./styles/typography.stylex";
+import {routeTree} from './routeTree.gen';
+import {typography} from './styles/typography.stylex';
 
-import "./index.css";
+import './index.css';
 
 const styles = stylex.create({
   body: {
@@ -16,7 +16,7 @@ const styles = stylex.create({
   },
 });
 
-document.body.classList.add(...(stylex.props(styles.body).className?.split(" ") ?? []));
+document.body.classList.add(...(stylex.props(styles.body).className?.split(' ') ?? []));
 
 const queryClient = new QueryClient();
 
@@ -27,14 +27,14 @@ const router = createRouter({
   },
 });
 
-declare module "@tanstack/react-router" {
+declare module '@tanstack/react-router' {
   interface Register {
     router: typeof router;
   }
 }
 
 // Render the app
-const rootElement = document.getElementById("root")!;
+const rootElement = document.getElementById('root')!;
 if (!rootElement.innerHTML) {
   const root = ReactDOM.createRoot(rootElement);
   root.render(
@@ -42,6 +42,6 @@ if (!rootElement.innerHTML) {
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
       </QueryClientProvider>
-    </StrictMode>,
+    </StrictMode>
   );
 }
