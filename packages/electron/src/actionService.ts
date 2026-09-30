@@ -475,8 +475,30 @@ export class ActionService {
       }
     }
 
+    if (error instanceof Error && 'code' in error) {
+      if (error.code === 'EEXIST') {
+        return {
+          code: 'DATABASE_UNAVAILABLE',
+          message:
+            'A file already exists at this destination. Choose another name or location.',
+        };
+      }
+
+      if (error.code === 'EACCES' || error.code === 'EROFS' || error.code === 'ENOENT') {
+        return {
+          code: 'DATABASE_UNAVAILABLE',
+          message:
+            'The file could not be saved. Choose a writable folder and a new filename, then try again.',
+        };
+      }
+    }
+
     this.options.logError?.(error);
-    return {code: 'INTERNAL', message: 'The operation failed. Please try again.'};
+    return {
+      code: 'INTERNAL',
+      message:
+        'The operation failed. Check the file and folder permissions, then try again.',
+    };
   }
 
   private async admit<T>(work: () => Promise<T | null>): Promise<Outcome<T>> {

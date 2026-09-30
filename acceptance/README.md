@@ -131,3 +131,14 @@ Create/Open/Retry simulations with correlated draft abort/commit and temporary s
 The launcher queues test-only picker selections in `acceptanceFiles`; it continues to use
 the actual protected action service and IPC boundary. Linux and native manual gates remain
 deferred as recorded in the parent acceptance plan.
+
+`acceptance/savedFiles.spec.ts` drives Backup and CSV export through the real Electron
+renderer, bundled preload, and named IPC. It inspects independent backup/CSV outputs
+for every saved customer despite search, quoted multiline comments, decimal strings,
+and unassigned customer numbers; the active editor's unsaved values and route remain.
+Held pickers exercise the pending layer. Cancel, existing-file rejection, folder
+failure, and BUSY leave the draft intact and release pending UI. Chromium separately
+checks visibly labelled simulations and empty browser storage. Run this focused suite
+with `pnpm build && pnpm exec playwright test --config acceptance/playwright.config.ts
+acceptance/savedFiles.spec.ts`. These local checks supplement the deferred Linux and
+manual native-dialog acceptance gates.
