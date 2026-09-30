@@ -33,6 +33,8 @@ window.addEventListener('pageshow', event => {
 const router = createRouter({
   history: createApplicationHistory(),
   routeTree,
+  defaultPreload: 'intent',
+  defaultPreloadStaleTime: 0,
   context: {
     queryClient,
     application,

@@ -1,17 +1,17 @@
 import {createFileRoute} from '@tanstack/react-router';
-import {useState, useSyncExternalStore} from 'react';
+import {useState} from 'react';
 
+import {admitCustomerRoute} from '../application/routing';
 import CustomerForm from '../components/customerForm/customerForm';
 import PageShell from '../components/pageShell/pageShell';
-export const Route = createFileRoute('/customers_/new')({component: RouteComponent});
+export const Route = createFileRoute('/customers_/new')({
+  beforeLoad: admitCustomerRoute,
+  component: RouteComponent,
+});
 function RouteComponent() {
-  const {application} = Route.useRouteContext();
-  const state = useSyncExternalStore(application.subscribe, application.getState);
-  const [session, setSession] = useState<string | null>(null);
-  // Mount the editor only for an admitted session, then retain it through unavailability.
-  if (!session && state.database?.available && state.database.session) {
-    setSession(state.database.session);
-  }
+  const {application, session: admittedSession} = Route.useRouteContext();
+  // Retain the admitted session through database outages.
+  const [session] = useState(admittedSession);
 
   return session ? (
     <CustomerForm application={application} session={session} />

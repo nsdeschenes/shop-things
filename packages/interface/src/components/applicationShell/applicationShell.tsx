@@ -1,7 +1,7 @@
 import {Dialog} from '@base-ui/react/dialog';
 import * as stylex from '@stylexjs/stylex';
 import {Link, useBlocker, useRouter} from '@tanstack/react-router';
-import {useEffect, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
+import {useEffect, useRef, useSyncExternalStore, type ReactNode} from 'react';
 
 import type {Application} from '../../application/controller';
 import {navigationTarget} from '../../application/protection';
@@ -79,10 +79,6 @@ export default function ApplicationShell({application, children}: ApplicationShe
   );
   const router = useRouter();
   const committedNavigation = useRef(false);
-  const [retainedView, setRetainedView] = useState(false);
-  if (!retainedView && state.phase === 'ready' && state.database?.available) {
-    setRetainedView(true);
-  }
 
   useBlocker({
     shouldBlockFn: async ({next}) => {
@@ -97,12 +93,27 @@ export default function ApplicationShell({application, children}: ApplicationShe
       }
 
       // Resolve route code/loader failure before committing history or unmounting the draft.
-      const matches = await router.preloadRoute({to: next.pathname, search: next.search});
+      const matches = await router
+        .preloadRoute({
+          to: next.pathname,
+          search: next.search,
+          state: previous => ({
+            ...previous,
+            customerNavigationRead: application.protection.navigationReadToken(target),
+          }),
+        })
+        .catch(() => undefined);
+
       if (!matches || matches.some(match => match.status === 'error')) {
         application.protection.navigationResolved(target, false);
         return true;
       }
 
+      const destination = matches.at(-1)!;
+      application.protection.navigationLoaded(
+        target,
+        navigationTarget(destination.pathname, destination.search)
+      );
       return false;
     },
     enableBeforeUnload: () =>
@@ -122,11 +133,9 @@ export default function ApplicationShell({application, children}: ApplicationShe
     () =>
       application.onSessionChanged(() => {
         committedNavigation.current = true;
-        void router
-          .navigate({to: '/customers', search: {}, replace: true})
-          .finally(() => {
-            committedNavigation.current = false;
-          });
+        void router.navigate({to: '/customers', replace: true}).finally(() => {
+          committedNavigation.current = false;
+        });
       }),
     [application, router]
   );
@@ -160,11 +169,7 @@ export default function ApplicationShell({application, children}: ApplicationShe
         </Dialog.Portal>
       </Dialog.Root>
       <header inert={Boolean(state.pendingFile)} {...stylex.props(styles.header)}>
-        <Link
-          to="/customers"
-          search={previous => previous}
-          {...stylex.props(styles.brand)}
-        >
+        <Link to="/customers" {...stylex.props(styles.brand)}>
           <p {...stylex.props(styles.eyebrow)}>Customer records</p>
           <p {...stylex.props(styles.title)}>Shop Things</p>
         </Link>
@@ -198,7 +203,7 @@ export default function ApplicationShell({application, children}: ApplicationShe
         </section>
       ) : (
         <div inert={Boolean(state.pendingFile)} aria-busy={Boolean(state.pendingFile)}>
-          {retainedView && children}
+          {children}
         </div>
       )}
     </div>

@@ -59,6 +59,58 @@ function fixture() {
   };
 }
 
+test('approved navigation admits only reads and revokes admission when navigation fails', async () => {
+  const f = fixture();
+  await f.application.start();
+  f.client.drafts.confirmDiscard = async () => ({
+    status: 'success',
+    value: {approved: true},
+  });
+  f.application.protection.registerEditor({
+    values: () => ({name: 'Draft'}),
+    baseline: () => ({name: ''}),
+    reset() {},
+  });
+  const target = '/customers{}';
+  expect(f.application.protection.navigationReadToken(target)).toBeUndefined();
+  expect(await f.application.protection.blockNavigation(target)).toBe(false);
+  const token = f.application.protection.navigationReadToken(target)!;
+  expect(f.application.protection.navigationReadToken('/customers/1{}')).toBeUndefined();
+  const scope = {navigationReadToken: token};
+  let dispatched = 0;
+  async function read() {
+    dispatched++;
+    return {status: 'success'} as const;
+  }
+
+  expect(await f.application.read('one', read)).toMatchObject({
+    status: 'error',
+    error: {code: 'BUSY'},
+  });
+  expect(await f.application.request('one', read, scope)).toMatchObject({
+    status: 'error',
+    error: {code: 'BUSY'},
+  });
+  expect(dispatched).toBe(0);
+  expect(await f.application.read('one', read, scope)).toEqual({status: 'success'});
+  expect(dispatched).toBe(1);
+  const held = deferred<void>();
+  const pending = f.application.read(
+    'one',
+    async () => {
+      await held.promise;
+      return {status: 'success'};
+    },
+    scope
+  );
+  await Promise.resolve();
+  f.application.protection.navigationResolved(target, false);
+  held.resolve();
+  expect(await pending).toEqual({status: 'obsolete'});
+  expect(f.application.protection.isNavigationReadCurrent(token)).toBe(false);
+  expect(f.application.protection.isDirty()).toBe(true);
+});
+
 test('accepts notification before delayed status and cleans up stable ownership', async () => {
   const f = fixture();
   const status = deferred<Awaited<ReturnType<typeof f.client.database.status>>>();

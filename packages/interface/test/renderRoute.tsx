@@ -13,6 +13,8 @@ export default function renderRoute(
   const queryClient = application.queryClient;
   const router = createRouter({
     routeTree,
+    defaultPreload: 'intent',
+    defaultPreloadStaleTime: 0,
     history: createMemoryHistory({initialEntries: [path]}),
     context: {queryClient, application},
   });
