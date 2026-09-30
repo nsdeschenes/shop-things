@@ -1,6 +1,6 @@
 import * as stylex from '@stylexjs/stylex';
 import {isCancelledError, useQuery} from '@tanstack/react-query';
-import {createFileRoute, Link} from '@tanstack/react-router';
+import {createFileRoute, Link, useLocation} from '@tanstack/react-router';
 import {useEffect, useState, useSyncExternalStore} from 'react';
 
 import {customerListOptions} from '../application/customers';
@@ -55,6 +55,8 @@ function RouteComponent() {
     application.protection.getState
   );
   const {q = ''} = Route.useSearch();
+  const location = useLocation();
+  const notice = Reflect.get(location.state, 'customerNotice');
   const navigate = Route.useNavigate();
   const [draftSearch, setDraftSearch] = useState({committed: q, value: q});
   const input = draftSearch.committed === q ? draftSearch.value : q;
@@ -90,6 +92,7 @@ function RouteComponent() {
       <label htmlFor="search-customers" {...stylex.props(styles.searchLabel)}>
         Search customers
       </label>
+      {typeof notice === 'string' && <p role="status">{notice}</p>}
       <div {...stylex.props(styles.search)}>
         <Input
           id="search-customers"

@@ -51,7 +51,7 @@ for (const development of [true, false]) {
       await expect(page.getByText('$10.00', {exact: true})).toBeVisible();
       await expect(page.getByText('+1 (902) 555-1234', {exact: true})).toBeVisible();
       await expect(page.getByRole('button', {name: 'Edit customer'})).toBeDisabled();
-      await expect(page.getByRole('button', {name: 'Delete customer'})).toBeDisabled();
+      await expect(page.getByRole('button', {name: 'Delete customer'})).toBeEnabled();
       await page.reload();
       await expect(
         page.getByRole('heading', {name: 'Alpha One', exact: true})
