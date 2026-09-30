@@ -33,9 +33,9 @@ test('database startup shows loading, first launch cancellation is silent, Creat
   });
   try {
     const page = await application.firstWindow();
-    await expect(
-      page.getByRole('status').filter({hasText: 'Loading customers…'})
-    ).toBeVisible();
+    await expect(page.getByRole('status', {name: 'Loading application'})).toBeVisible();
+    await expect(page.getByRole('banner')).toBeVisible();
+    await expect(page.getByRole('banner').getByText('Shop Things')).toBeVisible();
     await expect(page.getByRole('button', {name: 'Database', exact: true})).toHaveCount(
       0
     );

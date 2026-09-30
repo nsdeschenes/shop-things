@@ -12,7 +12,7 @@ import {spacing} from '../../styles/spacing.stylex';
 import {typography} from '../../styles/typography.stylex';
 import Button from '../button/button';
 import DatabaseActions from '../databaseActions/databaseActions';
-import LoadingSpinner from '../loadingSpinner/loadingSpinner';
+import LoadingOverlay from '../loadingOverlay/loadingOverlay';
 
 interface ApplicationShellProps {
   application: Application;
@@ -33,14 +33,6 @@ const styles = stylex.create({
     left: '50%',
     maxWidth: 400,
     top: '50%',
-  },
-  loadingOverlay: {
-    inset: 0,
-    placeItems: 'center',
-    backgroundColor: 'rgba(100, 106, 104, 0.45)',
-    display: 'grid',
-    position: 'fixed',
-    zIndex: 100,
   },
   layout: {
     backgroundColor: colors.pageBackground,
@@ -187,7 +179,9 @@ export default function ApplicationShell({application, children}: ApplicationShe
           <p {...stylex.props(styles.eyebrow)}>Customer records</p>
           <p {...stylex.props(styles.title)}>Shop Things</p>
         </Link>
-        {state.database?.available && <DatabaseActions application={application} />}
+        {state.phase === 'ready' && state.database?.available && (
+          <DatabaseActions application={application} />
+        )}
       </header>
       {state.mode !== 'live' && (
         <p {...stylex.props(styles.database)}>
@@ -196,16 +190,16 @@ export default function ApplicationShell({application, children}: ApplicationShe
             : 'Application unavailable'}
         </p>
       )}
-      {!state.database?.available && <DatabaseActions application={application} />}
+      {state.phase === 'ready' && !state.database?.available && (
+        <DatabaseActions application={application} />
+      )}
       {protection.error && <p role="alert">{protection.error}</p>}
       {state.mode === 'unavailable' ? (
         <p>
           Open Shop Things in Electron, or add ?preview=true to the browser URL for a
           temporary preview.
         </p>
-      ) : state.phase === 'loading' ? (
-        <p role="status">Connecting to the application…</p>
-      ) : state.phase === 'error' ? (
+      ) : state.phase === 'loading' ? null : state.phase === 'error' ? (
         <section role="alert">
           <p>{state.error}</p>
           <Button
@@ -221,10 +215,10 @@ export default function ApplicationShell({application, children}: ApplicationShe
           {children}
         </div>
       )}
-      {state.pendingFile && (
-        <div {...stylex.props(styles.loadingOverlay)}>
-          <LoadingSpinner label="Loading database" />
-        </div>
+      {(state.phase === 'loading' || state.pendingFile) && (
+        <LoadingOverlay
+          label={state.pendingFile ? 'Loading database' : 'Loading application'}
+        />
       )}
     </div>
   );
