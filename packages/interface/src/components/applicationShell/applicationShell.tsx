@@ -12,6 +12,8 @@ import {spacing} from '../../styles/spacing.stylex';
 import {typography} from '../../styles/typography.stylex';
 import Button from '../button/button';
 import DatabaseActions from '../databaseActions/databaseActions';
+import DatabaseToasts from '../databaseToasts/databaseToasts';
+import LoadingSpinner from '../loadingSpinner/loadingSpinner';
 
 interface ApplicationShellProps {
   application: Application;
@@ -28,9 +30,18 @@ const styles = stylex.create({
     color: colors.text,
     position: 'fixed',
     transform: 'translate(-50%, -50%)',
+    zIndex: 101,
     left: '50%',
     maxWidth: 400,
     top: '50%',
+  },
+  loadingOverlay: {
+    inset: 0,
+    placeItems: 'center',
+    backgroundColor: 'rgba(100, 106, 104, 0.45)',
+    display: 'grid',
+    position: 'fixed',
+    zIndex: 100,
   },
   layout: {
     backgroundColor: colors.pageBackground,
@@ -159,8 +170,9 @@ export default function ApplicationShell({application, children}: ApplicationShe
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
-      <header inert={Boolean(state.pendingFile)} {...stylex.props(styles.header)}>
+      <header {...stylex.props(styles.header)}>
         <Link
+          inert={Boolean(state.pendingFile)}
           to="/customers"
           search={previous => previous}
           {...stylex.props(styles.brand)}
@@ -168,6 +180,7 @@ export default function ApplicationShell({application, children}: ApplicationShe
           <p {...stylex.props(styles.eyebrow)}>Customer records</p>
           <p {...stylex.props(styles.title)}>Shop Things</p>
         </Link>
+        {state.database?.available && <DatabaseActions application={application} />}
       </header>
       {state.mode !== 'live' && (
         <p {...stylex.props(styles.database)}>
@@ -176,7 +189,7 @@ export default function ApplicationShell({application, children}: ApplicationShe
             : 'Application unavailable'}
         </p>
       )}
-      <DatabaseActions application={application} />
+      {!state.database?.available && <DatabaseActions application={application} />}
       {protection.error && <p role="alert">{protection.error}</p>}
       {state.mode === 'unavailable' ? (
         <p>
@@ -199,6 +212,12 @@ export default function ApplicationShell({application, children}: ApplicationShe
       ) : (
         <div inert={Boolean(state.pendingFile)} aria-busy={Boolean(state.pendingFile)}>
           {retainedView && children}
+        </div>
+      )}
+      <DatabaseToasts application={application} />
+      {state.pendingFile && (
+        <div {...stylex.props(styles.loadingOverlay)}>
+          <LoadingSpinner label="Loading database" />
         </div>
       )}
     </div>

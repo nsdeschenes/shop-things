@@ -81,7 +81,7 @@ test('Backup and CSV include every saved row while searched editor draft, route,
         path
       );
       await menu(page, name);
-      await expect(page.getByText('Waiting for database operation…')).toBeVisible();
+      await expect(page.getByRole('status', {name: 'Loading database'})).toBeVisible();
       await expect(page.locator('[aria-busy="true"]')).toHaveAttribute('inert', '');
       await application.evaluate(() =>
         Reflect.get(globalThis, 'acceptanceReleasePicker')()
@@ -162,8 +162,8 @@ test('saved-file cancellation, existing destinations, unwritable folders, and BU
     const route = page.url();
     for (const name of ['Back up database', 'Export all customers']) {
       await menu(page, name);
-      await expect(page.getByText('Waiting for database operation…')).toHaveCount(0);
-      await expect(page.getByRole('alert')).toHaveCount(0);
+      await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(0);
+      await expect(page.getByRole('alertdialog', {includeHidden: true})).toHaveCount(0);
       const existing = join(
         directory,
         name === 'Back up database' ? 'existing.sqlite' : 'existing.csv'
@@ -175,28 +175,36 @@ test('saved-file cancellation, existing destinations, unwritable folders, and BU
       );
       await menu(page, name);
       await expect(
-        page.getByText(
-          'A file already exists at this destination. Choose another name or location.',
-          {exact: true}
-        )
+        page
+          .getByRole('alertdialog', {includeHidden: true})
+          .getByText(
+            'A file already exists at this destination. Choose another name or location.',
+            {exact: true}
+          )
       ).toBeVisible();
       expect(await readFile(existing, 'utf8')).toBe('preserve existing bytes');
-      await page.getByRole('button', {name: 'Dismiss error', exact: true}).click();
+      await page
+        .getByRole('button', {name: 'Dismiss error', exact: true, includeHidden: true})
+        .click();
       await application.evaluate(
         (_electron, path) => Reflect.get(globalThis, 'acceptanceFiles').push({path}),
         join(directory, 'missing', 'output')
       );
       await menu(page, name);
       await expect(
-        page.getByText(
-          name === 'Back up database'
-            ? 'The operation failed. Check the file and folder permissions, then try again.'
-            : 'The file could not be saved. Choose a writable folder and a new filename, then try again.',
-          {exact: true}
-        )
+        page
+          .getByRole('alertdialog', {includeHidden: true})
+          .getByText(
+            name === 'Back up database'
+              ? 'The operation failed. Check the file and folder permissions, then try again.'
+              : 'The file could not be saved. Choose a writable folder and a new filename, then try again.',
+            {exact: true}
+          )
       ).toBeVisible();
-      await expect(page.getByText('Waiting for database operation…')).toHaveCount(0);
-      await page.getByRole('button', {name: 'Dismiss error', exact: true}).click();
+      await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(0);
+      await page
+        .getByRole('button', {name: 'Dismiss error', exact: true, includeHidden: true})
+        .click();
       await application.evaluate(
         (_electron, channel) =>
           Reflect.set(globalThis, 'acceptanceFault', {
@@ -210,11 +218,13 @@ test('saved-file cancellation, existing destinations, unwritable folders, and BU
       );
       await menu(page, name);
       await expect(
-        page.getByText('Another operation is in progress. Try again when it finishes.', {
-          exact: true,
-        })
+        page
+          .getByRole('alertdialog', {includeHidden: true})
+          .getByText('Another operation is in progress. Try again when it finishes.', {
+            exact: true,
+          })
       ).toBeVisible();
-      await expect(page.getByText('Waiting for database operation…')).toHaveCount(0);
+      await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(0);
       await expect(
         page.getByRole('textbox', {name: 'Balance ($)', exact: true})
       ).toBeEnabled();
@@ -222,7 +232,9 @@ test('saved-file cancellation, existing destinations, unwritable folders, and BU
         page.getByRole('textbox', {name: 'Balance ($)', exact: true})
       ).toHaveValue('-');
       expect(page.url()).toBe(route);
-      await page.getByRole('button', {name: 'Dismiss error', exact: true}).click();
+      await page
+        .getByRole('button', {name: 'Dismiss error', exact: true, includeHidden: true})
+        .click();
     }
 
     expect(

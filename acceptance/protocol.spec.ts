@@ -118,7 +118,7 @@ test('actual stale and duplicate draft resolutions cannot clear or unfreeze a ne
     );
     await expect(input).toBeEnabled();
     await expect(input).toHaveValue('-');
-    await expect(page.getByText('Waiting for database operation…')).toHaveCount(0);
+    await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(0);
   } finally {
     await application.evaluate(() => Reflect.set(globalThis, 'acceptanceDiscard', true));
     await application.close();
