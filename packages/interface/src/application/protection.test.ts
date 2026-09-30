@@ -229,3 +229,41 @@ test('replacement grants permission without resetting and commits only a success
   expect(f.resets()).toBe(0);
   expect(f.values().balance).toBe('-');
 });
+
+test('approved route handoff accepts the next editor after cleanup while freezing until matching resolution', async () => {
+  const client = createPreviewClient();
+  client.drafts.confirmDiscard = async () => ({
+    status: 'success',
+    value: {approved: true},
+  });
+  const owner = createDraftProtection(() => client);
+  let previousResets = 0;
+  let nextResets = 0;
+  const release = owner.registerEditor({
+    values: () => ({name: '-'}),
+    baseline: () => ({name: ''}),
+    reset: () => {
+      previousResets++;
+    },
+  });
+  const next = {
+    values: () => ({name: 'Next'}),
+    baseline: () => ({name: 'Next'}),
+    reset: () => {
+      nextResets++;
+    },
+  };
+  expect(await owner.blockNavigation('/customers/new')).toBe(false);
+  expect(() => owner.registerEditor(next)).toThrow('Another editor');
+  release();
+  const releaseNext = owner.registerEditor(next);
+  expect(owner.getState().frozen).toBe(true);
+  await expect(owner.prepare(request)).rejects.toThrow('Another');
+  owner.navigationResolved('/other');
+  expect(owner.getState().frozen).toBe(true);
+  owner.navigationResolved('/customers/new');
+  expect(owner.getState().frozen).toBe(false);
+  expect(previousResets).toBe(1);
+  expect(nextResets).toBe(0);
+  releaseNext();
+});

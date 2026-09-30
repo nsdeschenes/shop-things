@@ -70,7 +70,9 @@ export function createDraftProtection(getClient: () => Client | null) {
   }
 
   function registerEditor(next: DraftEditor) {
-    if (editor || preparing || route || replacing) {
+    // React releases the old editor before mounting the destination; router resolution
+    // can follow that mount. Keep the approved route frozen until its matching commit.
+    if (editor || preparing || (route && !route.approved) || replacing) {
       throw new Error('Another editor or protected transition is active.');
     }
 
