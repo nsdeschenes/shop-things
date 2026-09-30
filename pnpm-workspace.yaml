@@ -3,6 +3,8 @@ packages:
   - packages/electron
   - packages/db
   - packages/contract
+# Child tools also load TypeScript configs on Node versions where stripping is opt-in.
+nodeOptions: --experimental-strip-types
 allowBuilds:
   electron-winstaller: true
   esbuild: true
