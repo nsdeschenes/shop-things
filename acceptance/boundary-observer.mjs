@@ -76,3 +76,5 @@ void app.whenReady().then(() => {
     filePath: fileURLToPath(new URL('./boundary-preload.cjs', import.meta.url)),
   });
 });
+
+await import('./boundary-frame.mjs');
