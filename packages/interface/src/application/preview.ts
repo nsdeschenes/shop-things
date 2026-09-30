@@ -24,7 +24,25 @@ export default function createPreviewClient(
   return {
     customers: {
       list: async () => ({status: 'success', value: customers}),
-      get: disabled,
+      get: async ({session, id}) => {
+        if (session !== state.session) {
+          return {
+            status: 'error',
+            error: {code: 'STALE_SESSION', message: 'The preview database changed.'},
+          };
+        }
+
+        const record = customers.find(customer => customer.customer.id === id);
+        return record
+          ? {status: 'success', value: record}
+          : {
+              status: 'error',
+              error: {
+                code: 'CUSTOMER_DELETED',
+                message: 'This customer no longer exists.',
+              },
+            };
+      },
       create: disabled,
       update: disabled,
       delete: disabled,

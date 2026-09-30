@@ -3,8 +3,14 @@ import {expect, test} from 'vitest';
 
 import renderRoute from '../renderRoute';
 
-test('keeps unfinished customer actions disabled before draft protection', async () => {
+test('shows a missing preview customer without enabling editing', async () => {
   renderRoute('/customers/1');
-  expect(await screen.findByRole('button', {name: 'Save'})).toBeDisabled();
+  expect(
+    await screen.findByRole('heading', {name: 'Customer not found'})
+  ).toBeInTheDocument();
+  expect(screen.getByRole('link', {name: 'Back to customers'})).toHaveAttribute(
+    'href',
+    '/customers'
+  );
   expect(screen.queryByRole('textbox', {name: 'First name'})).not.toBeInTheDocument();
 });

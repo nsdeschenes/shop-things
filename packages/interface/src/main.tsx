@@ -1,10 +1,11 @@
 import * as stylex from '@stylexjs/stylex';
 import {QueryClientProvider} from '@tanstack/react-query';
-import {RouterProvider, createRouter, createHashHistory} from '@tanstack/react-router';
+import {RouterProvider, createRouter} from '@tanstack/react-router';
 import {StrictMode} from 'react';
 import ReactDOM from 'react-dom/client';
 
 import {createApplication} from './application/controller';
+import createApplicationHistory from './application/history';
 import {routeTree} from './routeTree.gen';
 import {typography} from './styles/typography.stylex';
 
@@ -30,7 +31,7 @@ window.addEventListener('pageshow', event => {
 });
 
 const router = createRouter({
-  history: createHashHistory(),
+  history: createApplicationHistory(),
   routeTree,
   context: {
     queryClient,
