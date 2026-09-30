@@ -56,7 +56,7 @@ for (const development of [true, false]) {
       const page = await application.firstWindow();
       await expect(page.getByText('Live mode', {exact: false})).toBeVisible();
       await expect(
-        page.getByRole('heading', {name: 'Customers', exact: true})
+        page.getByRole('heading', {name: 'Set up your database', exact: true})
       ).toBeVisible();
       expect(
         await application.evaluate(() => Reflect.get(globalThis, 'acceptanceIpc'))
@@ -85,11 +85,13 @@ for (const development of [true, false]) {
       }, url.href);
       await expect(page.getByText('Live mode', {exact: false})).toBeVisible();
       await expect(
-        page.getByText('The database is unavailable.', {exact: true})
+        page.getByRole('heading', {name: 'Set up your database', exact: true})
       ).toBeVisible();
       await expect(page.getByRole('textbox', {name: 'First name'})).toHaveCount(0);
       await page.reload();
-      await expect(page.getByRole('heading', {name: 'New Customer'})).toBeVisible();
+      await expect(
+        page.getByRole('heading', {name: 'Set up your database'})
+      ).toBeVisible();
       await page.evaluate(() => {
         window.open('https://example.com');
       });
@@ -109,7 +111,7 @@ for (const development of [true, false]) {
             'document.querySelector("h1").textContent'
           )
         )
-      ).toBe('New Customer');
+      ).toBe('Set up your database');
       const protectedStatus = await application.evaluate(({BrowserWindow}) =>
         BrowserWindow.getAllWindows()[0]!.webContents.executeJavaScript(
           'window.shopThings.database.status()'
@@ -148,7 +150,7 @@ test('failed live handshake never enters preview and Retry restores live registr
     });
     await page.getByRole('button', {name: 'Retry'}).click();
     await expect(
-      page.getByRole('heading', {name: 'Customers', exact: true})
+      page.getByRole('heading', {name: 'Set up your database', exact: true})
     ).toBeVisible();
   } finally {
     await application.close();
@@ -189,7 +191,7 @@ test('actual newer database notification wins over a delayed startup status resp
     expect((await stat(databasePath)).size).toBeGreaterThan(0);
     // Subscription delivery paints the committed path before the held response is released.
     await expect(
-      page.getByText(`Live mode · ${databasePath}`, {exact: true})
+      page.getByText('Active database: created.sqlite', {exact: true})
     ).toBeVisible();
     const held = await application.evaluate(() =>
       Reflect.get(globalThis, 'acceptanceHeldStatus')
@@ -203,7 +205,7 @@ test('actual newer database notification wins over a delayed startup status resp
       page.getByRole('heading', {name: 'Customers', exact: true})
     ).toBeVisible();
     await expect(
-      page.getByText(`Live mode · ${databasePath}`, {exact: true})
+      page.getByText('Active database: created.sqlite', {exact: true})
     ).toBeVisible();
     const messages = await application.evaluate(() =>
       Reflect.get(globalThis, 'acceptanceIpc')

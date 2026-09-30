@@ -51,6 +51,7 @@ export interface IpcOptions {
   currentDocument(): ApprovedDocument | null;
   onDocumentChanged(callback: () => void): () => void;
   logError?: (error: unknown) => void;
+  ready?: () => Promise<void>;
 }
 
 const denied = {
@@ -148,6 +149,11 @@ export function registerIpc(options: IpcOptions): () => void {
       }
 
       try {
+        await options.ready?.();
+        if (!current(document)) {
+          return denied;
+        }
+
         const result = definition.result.safeParse(await handler(args.data));
         if (!result.success) {
           options.logError?.(result.error);

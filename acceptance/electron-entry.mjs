@@ -20,12 +20,27 @@ dialog.showMessageBox = async (...args) => {
   };
 };
 
-if (process.env.SHOP_THINGS_ACCEPTANCE_CREATE_PATH) {
-  dialog.showSaveDialog = async () => ({
-    canceled: false,
-    filePath: process.env.SHOP_THINGS_ACCEPTANCE_CREATE_PATH,
-  });
+globalThis.acceptanceFiles = [];
+async function selectedFile(kind) {
+  const selection = globalThis.acceptanceFiles.shift();
+  if (selection?.hold) {
+    globalThis.acceptancePickerHeld = true;
+    await new Promise(resolve => {
+      globalThis.acceptanceReleasePicker = resolve;
+    });
+    globalThis.acceptancePickerHeld = false;
+  }
+
+  const path =
+    selection?.path ??
+    (kind === 'save' ? process.env.SHOP_THINGS_ACCEPTANCE_CREATE_PATH : null);
+  return kind === 'save'
+    ? {canceled: !path, filePath: path}
+    : {canceled: !path, filePaths: path ? [path] : []};
 }
+
+dialog.showSaveDialog = async () => selectedFile('save');
+dialog.showOpenDialog = async () => selectedFile('open');
 
 const handle = ipcMain.handle.bind(ipcMain);
 globalThis.acceptanceDenyHandshake = process.env.SHOP_THINGS_ACCEPTANCE_DENY_HANDSHAKE;
@@ -131,13 +146,22 @@ if (process.env.SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS) {
   );
 }
 
-if (process.env.SHOP_THINGS_ACCEPTANCE_RECOVERY) {
+if (
+  process.env.SHOP_THINGS_ACCEPTANCE_RECOVERY ||
+  process.env.SHOP_THINGS_ACCEPTANCE_DELAY_STARTUP
+) {
   const {ActionService} = await import('../packages/electron/dist/actionService.js');
   // Capture the real method and apply it to the production instance below.
   // oxlint-disable-next-line typescript/unbound-method
   const start = ActionService.prototype.start;
-  ActionService.prototype.start = function (...args) {
+  ActionService.prototype.start = async function (...args) {
     globalThis.acceptanceService = this;
+    if (process.env.SHOP_THINGS_ACCEPTANCE_DELAY_STARTUP) {
+      await new Promise(resolve => {
+        globalThis.acceptanceReleaseStartup = resolve;
+      });
+    }
+
     return start.apply(this, args);
   };
 }

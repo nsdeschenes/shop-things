@@ -21,6 +21,9 @@ export interface ApplicationState {
   pendingTransition: boolean;
   reconciling: boolean;
   recoveryRequired: boolean;
+  pendingFile: string | null;
+  fileError: string | null;
+  fileSuccess: string | null;
 }
 
 export interface RequestScope {
@@ -73,6 +76,9 @@ export function createApplication(
     pendingTransition: false,
     reconciling: false,
     recoveryRequired: false,
+    pendingFile: null,
+    fileError: null,
+    fileSuccess: null,
   };
   let generation = 0;
   let stopState: (() => void) | null = null;
@@ -197,6 +203,7 @@ export function createApplication(
     }
 
     if (
+      state.pendingFile ||
       state.pendingTransition ||
       state.reconciling ||
       protectionRequest ||
@@ -232,6 +239,7 @@ export function createApplication(
         }
 
         if (
+          state.pendingFile ||
           state.pendingTransition ||
           protectionRequest ||
           state.reconciling ||
@@ -360,8 +368,105 @@ export function createApplication(
     }
   }
 
+  let successTimer: ReturnType<typeof setTimeout> | null = null;
+  async function fileAction(
+    action: 'create' | 'open' | 'retry' | 'restore' | 'backup' | 'export'
+  ) {
+    if (
+      state.pendingFile ||
+      state.phase !== 'ready' ||
+      protection.getState().frozen ||
+      protection.getState().saving ||
+      state.reconciling
+    ) {
+      return;
+    }
+
+    const attempt = generation;
+    if (successTimer) {
+      clearTimeout(successTimer);
+    }
+
+    publish({...state, pendingFile: action, fileError: null, fileSuccess: null});
+    try {
+      const session = state.database?.session;
+      const result =
+        action === 'backup' || action === 'export'
+          ? await serialize(async () => {
+              if (
+                !session ||
+                !client ||
+                !isCurrentSession(session) ||
+                state.recoveryRequired
+              ) {
+                return unavailable;
+              }
+
+              const result =
+                action === 'backup'
+                  ? await client.database.backup({session})
+                  : await client.exports.csv({session});
+              if (attempt !== generation || !isCurrentSession(session)) {
+                return obsolete;
+              }
+
+              if (
+                result.status === 'error' &&
+                (result.error.code === 'STALE_SESSION' ||
+                  result.error.code === 'DATABASE_UNAVAILABLE')
+              ) {
+                await reconcile();
+              }
+
+              return result;
+            })
+          : await transition(action);
+      if (attempt !== generation) {
+        return;
+      }
+
+      if (result.status === 'error') {
+        publish({
+          ...state,
+          fileError:
+            result.error.code === 'BUSY'
+              ? 'Another operation is in progress. Try again when it finishes.'
+              : result.error.message,
+        });
+      } else if (result.status === 'success') {
+        const prefix = state.mode === 'preview' ? 'Simulated: ' : '';
+        const destination = 'path' in result.value ? ` ${result.value.path}` : '';
+        publish({
+          ...state,
+          fileSuccess: `${prefix}${action === 'create' ? 'Database created.' : action === 'open' || action === 'retry' ? 'Database opened.' : action === 'restore' ? 'Database restored.' : action === 'backup' ? 'Backup saved.' : 'Customers exported.'}${destination}`,
+        });
+        successTimer = setTimeout(() => {
+          if (attempt === generation) {
+            publish({...state, fileSuccess: null});
+          }
+        }, 5000);
+      }
+    } catch {
+      if (attempt === generation) {
+        publish({
+          ...state,
+          fileError:
+            'The operation could not finish. Check the file and folder permissions, then try again.',
+        });
+      }
+    } finally {
+      if (attempt === generation) {
+        publish({...state, pendingFile: null});
+      }
+    }
+  }
+
   function dispose() {
     generation++;
+    if (successTimer) {
+      clearTimeout(successTimer);
+    }
+
     stopState?.();
     stopProtection?.();
     stopState = stopProtection = null;
@@ -370,7 +475,15 @@ export function createApplication(
     pendingSessionChange = null;
     reconcilePromise = null;
     searches.clear();
-    publish({...state, phase: 'loading', pendingTransition: false, reconciling: false});
+    publish({
+      ...state,
+      phase: 'loading',
+      pendingFile: null,
+      fileError: null,
+      fileSuccess: null,
+      pendingTransition: false,
+      reconciling: false,
+    });
   }
 
   async function start() {
@@ -462,6 +575,10 @@ export function createApplication(
       };
     },
     request,
+    fileAction,
+    dismissFileError() {
+      publish({...state, fileError: null});
+    },
     reloadCustomer,
     transition,
     reconcile,

@@ -3,8 +3,10 @@ import {expect, test} from 'vitest';
 
 import renderRoute from '../renderRoute';
 
-test('disables opening a database in the preview', async () => {
+test('offers the persistent Database menu in the temporary preview', async () => {
   renderRoute('/customers');
-
-  expect(await screen.findByRole('button', {name: 'Open database'})).toBeDisabled();
+  expect(await screen.findByRole('button', {name: 'Database'})).toBeEnabled();
+  expect(
+    await screen.findByText('Active database: Preview: temporary customers.sqlite')
+  ).toBeVisible();
 });

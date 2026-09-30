@@ -599,6 +599,19 @@ export class ActionService {
         throw error;
       }
 
+      if (
+        creation &&
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'EEXIST'
+      ) {
+        throw new ActionError(
+          'DATABASE_UNAVAILABLE',
+          'A file already exists at this destination. Choose another name or location.'
+        );
+      }
+
       this.options.logError?.(error);
       throw new ActionError(
         'DATABASE_UNAVAILABLE',
