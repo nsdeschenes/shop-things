@@ -34,6 +34,7 @@ export function createDraftProtection(getClient: () => Client | null) {
     null;
   let previewPrompt: ((approved: boolean) => void) | null = null;
   let saving: Promise<unknown> | null = null;
+  let replacing: {editor: DraftEditor | null} | null = null;
   let state = {
     confirmingDiscard: false,
     frozen: false,
@@ -58,7 +59,7 @@ export function createDraftProtection(getClient: () => Client | null) {
   function publish(error: string | null = state.error) {
     state = {
       confirmingDiscard: previewPrompt !== null,
-      frozen: preparing !== null || route !== null,
+      frozen: preparing !== null || route !== null || replacing !== null,
       saving: saving !== null,
       dirty: isDirty(),
       error,
@@ -69,7 +70,7 @@ export function createDraftProtection(getClient: () => Client | null) {
   }
 
   function registerEditor(next: DraftEditor) {
-    if (editor || preparing || route) {
+    if (editor || preparing || route || replacing) {
       throw new Error('Another editor or protected transition is active.');
     }
 
@@ -102,7 +103,7 @@ export function createDraftProtection(getClient: () => Client | null) {
   }
 
   async function prepare(request: DraftRequest) {
-    if (preparing || route) {
+    if (preparing || route || replacing) {
       throw new Error('Another protected transition is active.');
     }
 
@@ -142,7 +143,7 @@ export function createDraftProtection(getClient: () => Client | null) {
   }
 
   async function blockNavigation(target: string): Promise<boolean> {
-    if (preparing || route || saving) {
+    if (preparing || route || saving || replacing) {
       return true;
     }
 
@@ -211,20 +212,68 @@ export function createDraftProtection(getClient: () => Client | null) {
     });
   }
 
+  async function replaceDraft<T>(
+    load: (isCurrent: () => boolean) => Promise<T>,
+    commit: (value: T) => void
+  ): Promise<boolean> {
+    if (state.frozen || saving) {
+      throw new Error('Wait for the current operation to finish.');
+    }
+
+    const pending = {editor};
+    replacing = pending;
+    publish(null);
+    function isCurrent() {
+      return replacing === pending && editor === pending.editor;
+    }
+
+    try {
+      if (readDirty()) {
+        const result = await getClient()?.drafts.confirmDiscard();
+        if (!isCurrent() || result?.status === 'cancelled') {
+          return false;
+        }
+
+        if (result?.status !== 'success') {
+          throw new Error(
+            result?.status === 'error'
+              ? result.error.message
+              : 'Draft protection is unavailable.'
+          );
+        }
+      }
+
+      const value = await load(isCurrent);
+      if (!isCurrent()) {
+        return false;
+      }
+
+      commit(value);
+      return true;
+    } finally {
+      if (replacing === pending) {
+        replacing = null;
+        publish(null);
+      }
+    }
+  }
+
   function dispose() {
     answerDiscard(false);
     preparing = null;
     route = null;
+    replacing = null;
     publish(null);
   }
 
   return {
     registerEditor,
+    replaceDraft,
     save,
     answerDiscard,
     confirmPreviewDiscard,
     navigateAfterSave(navigate: () => void) {
-      if (saving || preparing || route || isDirty()) {
+      if (saving || preparing || route || replacing || isDirty()) {
         return false;
       }
 

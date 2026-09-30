@@ -1,8 +1,15 @@
 /* oxlint-disable import/no-named-export -- Application bootstrap and shared state owner. */
-import type {Client, DatabaseState, DraftRequest} from '@shop-things/contract';
+import type {
+  Client,
+  DatabaseState,
+  DraftRequest,
+  CustomerTarget,
+  CustomerRecord,
+} from '@shop-things/contract';
 import {applyNewerDatabaseState, getClient} from '@shop-things/contract/client';
-import {QueryClient} from '@tanstack/react-query';
+import {CancelledError, QueryClient} from '@tanstack/react-query';
 
+import {CustomerRequestError} from './customers';
 import createPreviewClient from './preview';
 import {createDraftProtection} from './protection';
 
@@ -179,10 +186,11 @@ export function createApplication(
     return reconcilePromise;
   }
 
-  async function request<T extends {status: string}>(
+  async function coordinatedRequest<T extends {status: string}>(
     session: string,
     operation: (client: Client) => Promise<T>,
-    scope: RequestScope = {}
+    scope: RequestScope = {},
+    replacement?: () => boolean
   ): Promise<T | typeof obsolete | typeof unavailable | typeof busy> {
     if (!isCurrentSession(session) || !client || state.recoveryRequired) {
       return unavailable;
@@ -192,7 +200,7 @@ export function createApplication(
       state.pendingTransition ||
       state.reconciling ||
       protectionRequest ||
-      protection.getState().frozen
+      (protection.getState().frozen && !replacement?.())
     ) {
       return busy;
     }
@@ -227,7 +235,7 @@ export function createApplication(
           state.pendingTransition ||
           protectionRequest ||
           state.reconciling ||
-          protection.getState().frozen
+          (protection.getState().frozen && !replacement?.())
         ) {
           return busy;
         }
@@ -259,6 +267,56 @@ export function createApplication(
         }
       }
     });
+  }
+
+  function request<T extends {status: string}>(
+    session: string,
+    operation: (client: Client) => Promise<T>,
+    scope: RequestScope = {}
+  ) {
+    return coordinatedRequest(session, operation, scope);
+  }
+
+  async function reloadCustomer(
+    target: CustomerTarget,
+    commit: (record: CustomerRecord) => void
+  ) {
+    if (!isCurrentSession(target.session) || !client || state.recoveryRequired) {
+      throw new CustomerRequestError(unavailable.error);
+    }
+
+    if (state.pendingTransition || state.reconciling || protectionRequest) {
+      throw new CustomerRequestError(busy.error);
+    }
+
+    const attempt = generation;
+    return protection.replaceDraft(
+      async replacement => {
+        const result = await coordinatedRequest(
+          target.session,
+          client => client.customers.get({session: target.session, id: target.id}),
+          {isRelevant: replacement},
+          replacement
+        );
+        if (result.status === 'error') {
+          throw new CustomerRequestError(result.error);
+        }
+
+        if (result.status !== 'success') {
+          throw new CancelledError({silent: true});
+        }
+
+        return result.value;
+      },
+      record => {
+        if (attempt !== generation || !isCurrentSession(target.session)) {
+          throw new CancelledError({silent: true});
+        }
+
+        commit(record);
+        queryClient.removeQueries({queryKey: ['customers', target.session, 'list']});
+      }
+    );
   }
 
   async function transition(action: 'create' | 'open' | 'restore' | 'retry') {
@@ -404,6 +462,7 @@ export function createApplication(
       };
     },
     request,
+    reloadCustomer,
     transition,
     reconcile,
     subscribe(this: void, listener: () => void) {
