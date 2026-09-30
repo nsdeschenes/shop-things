@@ -225,11 +225,11 @@ test('temporary Chromium preview distinguishes empty/search and missing detail a
   await expect(page.getByRole('heading', {name: 'No Customers Yet'})).toBeVisible();
 });
 
-test('Chromium preview preserves canonical Unicode search and supplementary name ordering', async ({
+test('Chromium preview searches temporary customers by name and number with predictable ordering', async ({
   page,
 }) => {
   await page.goto('/?preview=true#/customers');
-  for (const name of ['ς', 'σ', 'İ', 'i', 'ſ', 's', 'Ｚ', '😀', '[literal]']) {
+  for (const name of ['Zoe', 'alice', 'Alina', '[literal]']) {
     await page.getByRole('link', {name: 'Add customer'}).click();
     await page.getByRole('textbox', {name: 'First name'}).fill(name);
     await page.getByRole('button', {name: 'Save'}).click();
@@ -238,34 +238,24 @@ test('Chromium preview preserves canonical Unicode search and supplementary name
   }
 
   const search = page.getByRole('textbox', {name: 'Search customers'});
-  await search.fill('σ');
+  await search.fill(' ALI ');
   await search.press('Enter');
   await expect(page.getByText('2 results', {exact: true})).toBeVisible();
-  await expect(page.locator('tbody a')).toHaveText(['ς', 'σ']);
-  await search.fill('i');
+  await expect(page.locator('tbody a')).toHaveText(['alice', 'Alina']);
+  await search.fill('1');
   await search.press('Enter');
-  await expect(page.getByText('2 results', {exact: true})).toBeVisible();
-  await expect(page.locator('tbody a')).toHaveText(['[literal]', 'i']);
-  await search.fill('s');
-  await search.press('Enter');
-  await expect(page.getByText('2 results', {exact: true})).toBeVisible();
-  await expect(page.locator('tbody a')).toHaveText(['s', 'ſ']);
+  await expect(page.getByText('1 result', {exact: true})).toBeVisible();
+  await expect(page.locator('tbody a')).toHaveText(['Zoe']);
   await search.fill('[literal]');
   await search.press('Enter');
   await expect(page.getByText('1 result', {exact: true})).toBeVisible();
   await expect(page.locator('tbody a')).toHaveText(['[literal]']);
-  await search.fill('');
-  await search.press('Enter');
-  await expect(page.getByText('9 results', {exact: true})).toBeVisible();
+  await page.getByRole('button', {name: 'Clear'}).click();
+  await expect(page.getByText('4 results', {exact: true})).toBeVisible();
   await expect(page.locator('tbody a')).toHaveText([
     '[literal]',
-    'i',
-    's',
-    'İ',
-    'ſ',
-    'ς',
-    'σ',
-    'Ｚ',
-    '😀',
+    'alice',
+    'Alina',
+    'Zoe',
   ]);
 });

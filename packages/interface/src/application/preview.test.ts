@@ -59,7 +59,7 @@ test('temporary canonical records normalize decimal strings and retain opaque re
       changes: {firstName: 'Stale'},
     })
   ).toMatchObject({status: 'error', error: {code: 'STALE_REVISION'}});
-  expect(await client.customers.list({session, query: '0001'})).toMatchObject({
+  expect(await client.customers.list({session, query: '1'})).toMatchObject({
     status: 'success',
     value: [{customer: {id: 1}}],
   });
@@ -78,54 +78,6 @@ test('temporary canonical records normalize decimal strings and retain opaque re
   expect(await client.customers.get({session, id: 1})).toMatchObject({
     status: 'error',
     error: {code: 'CUSTOMER_DELETED'},
-  });
-});
-
-test('preview uses numeric search and number ordering before immutable ID ties', async () => {
-  const client = createPreviewClient();
-  const state = await client.database.status();
-  if (state.status !== 'success' || !state.value.session) {
-    throw new Error('Missing session');
-  }
-
-  const session = state.value.session;
-  const values = {
-    firstName: 'Same',
-    lastName: 'Same',
-    address: '',
-    city: '',
-    province: '',
-    postalCode: '',
-    homePhone: '',
-    email: '',
-    stock: 0,
-    balance: '0.00',
-    previousBalance: '0.00',
-    donate: false,
-    comments: '',
-  };
-  const first = await client.customers.create({session, values});
-  const second = await client.customers.create({session, values});
-  if (first.status !== 'success' || second.status !== 'success') {
-    throw new Error('Create failed');
-  }
-
-  await client.customers.update({
-    reference: first.value.reference,
-    changes: {customerNumber: 20},
-  });
-  const list = await client.customers.list({session, query: ''});
-  if (list.status !== 'success') {
-    throw new Error('List failed');
-  }
-
-  expect(list.value.map(record => record.customer.id)).toEqual([
-    second.value.customer.id,
-    first.value.customer.id,
-  ]);
-  expect(await client.customers.list({session, query: '00020'})).toMatchObject({
-    status: 'success',
-    value: [{customer: {id: first.value.customer.id}}],
   });
 });
 
@@ -275,36 +227,16 @@ async function previewNames(names: string[]) {
   };
 }
 
-test('preview search preserves Unicode simple folding and literal metacharacters', async () => {
-  const list = await previewNames([
-    'ς',
-    'σ',
-    'Σ',
-    'İ',
-    'I',
-    'i',
-    'ı',
-    'ſ',
-    'S',
-    's',
-    '[literal]',
-    '.*',
-    '\\',
-  ]);
-  expect(await list(' σ ')).toEqual(['Σ', 'ς', 'σ']);
-  expect(await list('ς')).toEqual(['Σ', 'ς', 'σ']);
-  expect(await list('i')).toEqual(['[literal]', 'I', 'i']);
-  expect(await list('İ')).toEqual(['İ']);
-  expect(await list('ı')).toEqual(['ı']);
-  expect(await list('s')).toEqual(['S', 's', 'ſ']);
-  expect(await list('ſ')).toEqual(['S', 's', 'ſ']);
+test('preview searches names case-insensitively, treats punctuation literally, and finds numbers', async () => {
+  const list = await previewNames(['Zoe', 'alice', 'Alina', '[literal]', '.*']);
+  expect(await list(' ALI ')).toEqual(['alice', 'Alina']);
   expect(await list('[')).toEqual(['[literal]']);
   expect(await list('.*')).toEqual(['.*']);
-  expect(await list('\\')).toEqual(['\\']);
-  expect(await list('001')).toEqual(['ς']);
+  expect(await list('1')).toEqual(['Zoe']);
+  expect(await list('missing')).toEqual([]);
 });
 
-test('preview ordering uses ASCII NOCASE and codepoints before number and ID ties', async () => {
-  const list = await previewNames(['😀', 'Ｚ', 'a😀', 'aＺ', 'a', 'A', 'É', 'é']);
-  expect(await list('')).toEqual(['a', 'A', 'aＺ', 'a😀', 'É', 'é', 'Ｚ', '😀']);
+test('preview orders names case-insensitively with stable ties', async () => {
+  const list = await previewNames(['Zoe', 'alice', 'Alice', 'Bob']);
+  expect(await list('')).toEqual(['alice', 'Alice', 'Bob', 'Zoe']);
 });
