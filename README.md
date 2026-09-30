@@ -2,8 +2,9 @@
 
 ## Desktop app
 
-Install dependencies with `pnpm install`, then run `pnpm dev` to start the Vite
-renderer and Electron together. React changes use Vite's HMR.
+Use Node.js 22.18+ (or 24.11+). Install dependencies with `pnpm install`, then run
+`pnpm dev` to start the Vite renderer and Electron together. React changes use
+Vite's HMR.
 
 Build installers on their target operating systems:
 
@@ -23,7 +24,14 @@ or `test:watch` (`@shop-things/db`, `electron`, or `@shop-things/interface`).
 
 Database tests build the package first and exercise real temporary databases,
 migrations, and the migration CLI. Rebuild the database package after changing
-its source during watch mode.
+its source during watch mode, or run `pnpm --filter @shop-things/db dev` alongside
+the test watcher to rebuild automatically.
+
+The contract and database packages build JavaScript and declarations with tsdown.
+Run `pnpm --filter @shop-things/contract dev` or `pnpm --filter @shop-things/db dev`
+to watch a package, or `pnpm dev:packages` to watch both. Their `build` commands
+perform a clean, one-time build. The root `pnpm dev` command continues to rebuild
+these packages before restarting Electron.
 
 Interface tests use jsdom, React Testing Library, user-event, and jest-dom
 matchers. Electron tests run the main entry point in Node with the Electron API

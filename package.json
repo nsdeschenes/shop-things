@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node --experimental-strip-types index.ts",
     "dev": "node scripts/tasks.mjs dev",
+    "dev:packages": "pnpm --parallel --filter @shop-things/contract --filter @shop-things/db dev",
     "build": "node scripts/tasks.mjs build",
     "dist:mac": "pnpm build && pnpm --filter electron exec electron-builder --mac dmg --arm64 --publish never",
     "dist:win": "pnpm build && pnpm --filter electron exec electron-builder --win nsis --x64 --publish never",

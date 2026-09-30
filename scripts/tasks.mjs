@@ -1,6 +1,6 @@
 /* oxlint-disable import/no-named-export -- Build tasks are also consumed by the development supervisor. */
 import { createHash } from "node:crypto";
-import { readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { readFile, readdir, realpath, rm } from "node:fs/promises";
 import { createRequire, builtinModules } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,8 +11,7 @@ const electronRoot = join(root, "packages/electron");
 const requireElectron = createRequire(join(electronRoot, "package.json"));
 const pnpmScript = process.env.npm_execpath;
 const javascriptExtension = /\.[cm]?js$/;
-const configurationFile = /^(?:tsconfig.*\.json|vite\.config\.ts)$/;
-const typescriptExtension = /\.ts$/;
+const configurationFile = /^(?:tsconfig.*\.json|vite\.config\.ts|tsdown\.config\.ts)$/;
 const prohibitedDependency = /(?:^|\/)(?:electron|drizzle-orm|@tursodatabase|db)(?:\/|$)/;
 export function pnpm(args, options = {}) {
   return pnpmScript && javascriptExtension.test(pnpmScript)
@@ -117,16 +116,10 @@ export async function sourceVersion() {
 export async function prepare() {
   await pnpm(["--filter", "@shop-things/contract", "build"]);
   await pnpm(["--filter", "@shop-things/db", "build"]);
-  await fresh();
-}
-
-async function fresh() {
-  await runCommand(process.execPath, ["packages/contract/scripts/freshness.mjs"], { cwd: root });
 }
 
 async function compileElectron() {
   await rm(join(electronRoot, "dist"), { recursive: true, force: true });
-  await fresh();
   await pnpm([
     "--filter",
     "electron",
@@ -147,7 +140,6 @@ async function compileElectron() {
 }
 
 async function compileInterface(build) {
-  await fresh();
   await pnpm(["--filter", "@shop-things/interface", "exec", "tsc", "-b", "--force"]);
   await pnpm(["--filter", "@shop-things/interface", "exec", "tsc", "-p", "tsconfig.contract.json"]);
   if (build) {
@@ -155,67 +147,11 @@ async function compileInterface(build) {
   }
 }
 
-async function artifactHashes() {
-  const artifacts = {};
-  const expected = (await paths(join(electronRoot, "src")))
-    .filter((path) => path.endsWith(".ts") && !path.endsWith(".d.ts"))
-    .map((path) => relative(join(electronRoot, "src"), path).replace(typescriptExtension, ".js"));
-  expected.push("preload.cjs", "preload.meta.json");
-  for (const path of expected.sort((left, right) => left.localeCompare(right))) {
-    artifacts[path] = createHash("sha256")
-      .update(await readFile(join(electronRoot, "dist", path)))
-      .digest("hex");
-  }
-
-  for (const source of (await paths(join(root, "packages/db/src"))).sort((left, right) =>
-    left.localeCompare(right),
-  )) {
-    if (!source.endsWith(".ts")) {
-      continue;
-    }
-
-    const base = relative(join(root, "packages/db/src"), source).slice(0, -3);
-    for (const extension of [".js", ".d.ts"]) {
-      const name = `db/${base}${extension}`;
-      artifacts[name] = createHash("sha256")
-        .update(await readFile(join(root, "packages/db/dist", base + extension)))
-        .digest("hex");
-    }
-  }
-
-  return artifacts;
-}
-
-async function finishBuild(version) {
-  await fresh();
-  if ((await sourceVersion()) !== version) {
-    throw new Error("Build inputs changed during emission. Rebuild before consuming output.");
-  }
-
-  await writeFile(
-    join(electronRoot, "dist/build.json"),
-    JSON.stringify({ source: version, artifacts: await artifactHashes() }, null, 2),
-  );
-}
-
-export async function checkElectronOutput() {
-  await fresh();
-  const marker = JSON.parse(await readFile(join(electronRoot, "dist/build.json"), "utf8"));
-  if (
-    marker.source !== (await sourceVersion()) ||
-    JSON.stringify(marker.artifacts) !== JSON.stringify(await artifactHashes())
-  ) {
-    throw new Error("Electron output is stale or incomplete. Rebuild before starting.");
-  }
-}
-
 export async function buildAll({ interfaceBuild = true } = {}) {
-  const version = await sourceVersion();
   await prepare();
   await compileElectron();
   await compileInterface(interfaceBuild);
   await inspectBrowserDependencies();
-  await finishBuild(version);
 }
 
 export async function inspectBrowserDependencies() {
@@ -290,7 +226,6 @@ function testReportArguments(name) {
 }
 
 async function testElectron(smoke = false, watch = false) {
-  await checkElectronOutput();
   await pnpm(["--filter", "electron", "exec", "tsc", "-p", "tsconfig.test.json"]);
   await pnpm(["--filter", "electron", "exec", "tsc", "-p", "tsconfig.contract.json"]);
   await pnpm([
@@ -344,7 +279,6 @@ export async function task(name) {
       await buildAll();
       return testElectron(true);
     case "test":
-      // Mutation/freshness tests must finish before dependent consumers compile or run.
       await pnpm(["--filter", "@shop-things/contract", "test"]);
       if (process.env.ACCEPTANCE_REPORT_DIR) {
         await pnpm(["--filter", "@shop-things/db", "build"]);
@@ -386,7 +320,6 @@ export async function task(name) {
 
     case "start":
       await buildAll();
-      await checkElectronOutput();
       return runCommand(requireElectron("electron"), ["."], { cwd: electronRoot });
     case "dev": {
       const { develop } = await import("./development.mjs");

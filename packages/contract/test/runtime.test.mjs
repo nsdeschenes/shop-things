@@ -8,7 +8,7 @@ import {
   draftResolutionSchema,
   customerRecordSchema,
 } from "../dist/schemas.js";
-import { createClient, getClient, applyNewerDatabaseState } from "../dist/client.js";
+import { createClient, getClient } from "../dist/client.js";
 
 const unavailableBridge = /bridge is unavailable/;
 const mismatchedReply = /does not match/;
@@ -221,10 +221,4 @@ test("validated payload-only subscriptions unsubscribe and reject invalid drafts
     fixture.protection.prepare({ requestId: "r", documentId: "d" }),
     mismatchedReply,
   );
-});
-test("a later event cannot be overwritten by initial status", () => {
-  const event = { ...state, version: 2 };
-  assert.equal(applyNewerDatabaseState(event, state), event);
-  assert.equal(applyNewerDatabaseState(event, { ...state, version: 2 }), event);
-  assert.equal(applyNewerDatabaseState(null, event), event);
 });

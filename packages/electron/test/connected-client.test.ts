@@ -167,6 +167,10 @@ test("compiled client and real compiled backend complete the saved-data lifecycl
     await service.start();
     expect(service.status().available).toBe(false);
     expect(connections.size).toBe(0);
+    expect(await client.customers.list({ session: "absent", query: "" })).toMatchObject({
+      status: "error",
+      error: { code: "DATABASE_UNAVAILABLE" },
+    });
     const initial = client.database.status();
     await initialStarted;
     const createdState = success(await client.database.create());
@@ -204,6 +208,10 @@ test("compiled client and real compiled backend complete the saved-data lifecycl
     );
     expect(updated.customer).toEqual({ ...created.customer, stock: 3, balance: "23.45" });
     expect(updated.reference.revision).not.toBe(created.reference.revision);
+    expect(await client.customers.delete({ reference: created.reference })).toMatchObject({
+      status: "error",
+      error: { code: "STALE_REVISION" },
+    });
     expect(success(await client.customers.list({ session, query: " love " }))).toEqual([updated]);
     success(
       await client.customers.create({
@@ -219,6 +227,7 @@ test("compiled client and real compiled backend complete the saved-data lifecycl
     expect(content).toContain('"23.45"');
     expect(content).toContain('"Saved ""notes"", line\ntwo"');
     expect(content).not.toContain(unsavedDraft);
+    expect(content).not.toContain("revision");
     expect(success(await client.database.backup({ session }))).toEqual({ path: backupPath });
     expect(frozen).toBe(false);
     expect(unsavedDraft).toBe("local unsaved edits");
@@ -279,6 +288,10 @@ test("compiled client and real compiled backend complete the saved-data lifecycl
     expect(current.customer).toEqual(restoredRecord.customer);
     expect(success(await freshClient.customers.delete({ reference: current.reference }))).toEqual({
       deleted: true,
+    });
+    expect(await freshClient.customers.get({ session: reopened.session!, id: 1 })).toMatchObject({
+      status: "error",
+      error: { code: "CUSTOMER_DELETED" },
     });
     expect(
       success(await freshClient.customers.list({ session: reopened.session!, query: "" })),

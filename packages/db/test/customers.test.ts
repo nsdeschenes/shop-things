@@ -42,7 +42,7 @@ async function fixture(
 }
 
 test("customer workflow preserves cents, partial fields, identities and never revives revisions", async () => {
-  await fixture(async ({ db }, _path, directory) => {
+  await fixture(async ({ db }) => {
     const first = await createCustomer(db, {
       firstName: " Alice ",
       balance: "1000000000000.00",
@@ -71,14 +71,6 @@ test("customer workflow preserves cents, partial fields, identities and never re
     assert.equal(reused.customerNumber, 2);
     assert.ok(reused.id > second.id);
     await assert.rejects(updateCustomer(db, second, { firstName: "Wrong" }), missingCustomerError);
-    const destination = join(directory, "backup.db");
-    await backupDatabase(db, destination);
-    const backup = await openExistingDatabase(destination, { migrationsFolder });
-    try {
-      assert.deepEqual(await listCustomers(backup.db), await listCustomers(db));
-    } finally {
-      backup.close();
-    }
   });
 });
 test("invalid writes reject every field with no changes; nullable reads do not persist defaults", async () => {

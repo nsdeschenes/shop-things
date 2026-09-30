@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { buildAll, checkElectronOutput, root, sourceVersion, task } from "./tasks.mjs";
+import { buildAll, root, sourceVersion, task } from "./tasks.mjs";
 import { requestOrderlyExit, RestartSupervisor } from "./processes.mjs";
 
 export async function develop() {
@@ -22,7 +22,6 @@ export async function develop() {
         return;
       }
 
-      await checkElectronOutput();
       if (vite === null) {
         const requireInterface = createRequire(join(root, "packages/interface/package.json"));
         vite = spawn(

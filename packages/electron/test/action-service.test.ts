@@ -1,83 +1,9 @@
 import { chmod, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createDatabase, openDatabase, getCustomer } from "@shop-things/db";
+import { createDatabase, openDatabase } from "@shop-things/db";
 import { expect, test } from "vitest";
 import { ActionService, databaseOperations } from "../src/action-service.js";
 import { fixture, migrationsFolder, success, values } from "./backend-fixture.js";
-
-test("first launch offers selection and CRUD persists through a fresh remembered lifecycle", async () => {
-  const f = await fixture();
-  try {
-    await f.service.start();
-    expect(f.service.status()).toEqual({
-      available: false,
-      selectedPath: null,
-      session: null,
-      version: 0,
-    });
-    expect(
-      await f.service.handlers["customers.list"]({ session: "absent", query: "" }),
-    ).toMatchObject({ status: "error", error: { code: "DATABASE_UNAVAILABLE" } });
-    const events: unknown[] = [];
-    const unsubscribe = f.service.onStateChanged((state) => events.push(state));
-    const selected = success(await f.service.handlers["database.create"]());
-    const session = selected.session!;
-    const created = success(await f.service.handlers["customers.create"]({ session, values }));
-    expect(created.customer).toMatchObject({ id: 1, customerNumber: 1, balance: "12.34" });
-    expect(
-      success(await f.service.handlers["customers.list"]({ session, query: " smi " })),
-    ).toEqual([created]);
-    expect(success(await f.service.handlers["customers.get"]({ session, id: 1 }))).toEqual(created);
-    const updated = success(
-      await f.service.handlers["customers.update"]({
-        reference: created.reference,
-        changes: { balance: "-1.01" },
-      }),
-    );
-    expect(updated.reference.revision).not.toBe(created.reference.revision);
-    expect(
-      await f.service.handlers["customers.delete"]({ reference: created.reference }),
-    ).toMatchObject({ status: "error", error: { code: "STALE_REVISION" } });
-    expect(
-      await f.service.handlers["customers.list"]({ session: "wrong", query: "" }),
-    ).toMatchObject({ status: "error", error: { code: "STALE_SESSION" } });
-    expect(await f.service.handlers["database.open"]()).toMatchObject({ status: "error" });
-    expect(await f.settings.read()).toBe(f.choices.create);
-    f.service.closeUnprotected();
-    const reopened = new ActionService(f.options);
-    try {
-      await reopened.start();
-      expect(reopened.status().session).not.toBe(session);
-      expect(await reopened.handlers["customers.get"]({ session, id: 1 })).toMatchObject({
-        status: "error",
-        error: { code: "STALE_SESSION" },
-      });
-      const record = success(
-        await reopened.handlers["customers.get"]({ session: reopened.status().session!, id: 1 }),
-      );
-      expect(record.customer.balance).toBe("-1.01");
-      success(await reopened.handlers["customers.delete"]({ reference: record.reference }));
-      expect(
-        await reopened.handlers["customers.get"]({ session: reopened.status().session!, id: 1 }),
-      ).toMatchObject({ status: "error", error: { code: "CUSTOMER_DELETED" } });
-    } finally {
-      reopened.closeUnprotected();
-    }
-
-    unsubscribe();
-    const count = events.length;
-    f.service.closeUnprotected();
-    expect(events).toHaveLength(count);
-    const handle = openDatabase(f.choices.create!);
-    try {
-      expect(await getCustomer(handle.db, 1)).toBeNull();
-    } finally {
-      handle.close();
-    }
-  } finally {
-    await f.cleanup();
-  }
-});
 
 test("remembered missing file recovery never creates a replacement and Retry recovers", async () => {
   const f = await fixture();

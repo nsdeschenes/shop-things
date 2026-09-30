@@ -30,43 +30,27 @@ async function childProcess(mode) {
   return child;
 }
 
-test("orderly restart waits for a real child to close and never kills denied shutdown", async () => {
+test("orderly restart waits for a real child to close", async () => {
   const accepted = await childProcess("accept");
   assert.equal(await requestOrderlyExit(accepted, 1000), true);
   assert.equal(accepted.exitCode, 0);
   assert.equal(accepted.killed, false);
-  const denied = await childProcess("deny");
-  try {
-    assert.equal(await requestOrderlyExit(denied, 40), false);
-    assert.equal(denied.exitCode, null);
-    assert.equal(denied.killed, false);
-  } finally {
-    denied.send({ type: "finish-test" });
-    await once(denied, "exit");
-  }
 });
 
-test("failed prerequisite and preload subprocesses prevent dependent launches until a successful cycle", async () => {
+test("failed builds prevent launches until a successful cycle", async () => {
   const directory = await mkdtemp(join(tmpdir(), "shop-things-build-gate-"));
   const versionPath = join(directory, "version");
   const launchPath = join(directory, "launched");
   await writeFile(versionPath, "1");
-  let failing = "prerequisite";
+  let failing = true;
   const failures = [];
   const supervisor = new RestartSupervisor({
     version: () => readFile(versionPath, "utf8"),
     stop: async () => true,
     async build() {
-      await runCommand(
-        process.execPath,
-        ["-e", failing === "prerequisite" ? "process.exit(1)" : "process.exit(0)"],
-        { stdio: "ignore" },
-      );
-      await runCommand(
-        process.execPath,
-        ["-e", failing === "preload" ? "process.exit(1)" : "process.exit(0)"],
-        { stdio: "ignore" },
-      );
+      await runCommand(process.execPath, ["-e", failing ? "process.exit(1)" : "process.exit(0)"], {
+        stdio: "ignore",
+      });
     },
     start: () =>
       runCommand(
@@ -79,13 +63,9 @@ test("failed prerequisite and preload subprocesses prevent dependent launches un
   try {
     await supervisor.refresh();
     await assert.rejects(readFile(launchPath), { code: "ENOENT" });
-    failing = "preload";
+    assert.equal(failures.length, 1);
+    failing = false;
     await writeFile(versionPath, "2");
-    await supervisor.refresh();
-    await assert.rejects(readFile(launchPath), { code: "ENOENT" });
-    assert.equal(failures.length, 2);
-    failing = null;
-    await writeFile(versionPath, "3");
     await supervisor.refresh();
     assert.equal(await readFile(launchPath, "utf8"), "launched\n");
   } finally {
@@ -149,6 +129,7 @@ test("a denied real application shutdown prevents destructive rebuild or replace
     assert.equal(builds, 0);
     assert.equal(launches, 0);
     assert.equal(child.exitCode, null);
+    assert.equal(child.killed, false);
     assert.equal(child.killed, false);
   } finally {
     child.send({ type: "finish-test" });

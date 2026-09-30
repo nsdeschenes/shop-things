@@ -22,8 +22,8 @@
     }
   },
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "check:fresh": "node scripts/freshness.mjs",
+    "build": "tsdown",
+    "dev": "tsdown --watch",
     "test": "pnpm build && node --test --test-concurrency=1 test/*.test.mjs && pnpm test:conformance",
     "test:conformance": "pnpm --filter electron exec tsc -p tsconfig.contract.json && pnpm --filter @shop-things/interface exec tsc -p tsconfig.contract.json"
   },
@@ -31,6 +31,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "tsdown": "^0.23.0",
     "typescript": "^7"
   }
 }

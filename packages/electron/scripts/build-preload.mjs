@@ -1,14 +1,6 @@
 import { build } from "esbuild";
 import { rm, writeFile } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
 const forbiddenInput = /(?:\/db\/|action-service|node:)/;
-const checked = spawnSync("pnpm", ["--filter", "@shop-things/contract", "check:fresh"], {
-  stdio: "inherit",
-});
-if (checked.status !== 0) {
-  process.exit(checked.status ?? 1);
-}
-
 await Promise.all([
   rm("dist/preload.cjs", { force: true }),
   rm("dist/preload.meta.json", { force: true }),
