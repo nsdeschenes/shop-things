@@ -1,15 +1,44 @@
-import {screen} from '@testing-library/react';
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from '@tanstack/react-router';
+import {render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, test} from 'vitest';
 
-import renderRoute from '../../../test/renderRoute';
 import previewCustomer from '../../fixtures/previewCustomer';
 import customerFormOptions from '../../forms/customerFormOptions';
 import customerFormSchema from '../../forms/customerFormSchema';
+import CustomerForm from './customerForm';
+
+function renderForm(path: '/customers/new' | '/customers/1') {
+  const root = createRootRoute();
+  const editor = createRoute({
+    getParentRoute: () => root,
+    path,
+    component: () => (
+      <CustomerForm customer={path === '/customers/1' ? previewCustomer : undefined} />
+    ),
+  });
+  const list = createRoute({
+    getParentRoute: () => root,
+    path: '/customers',
+    component: () => <h1>Customers</h1>,
+  });
+  const router = createRouter({
+    routeTree: root.addChildren([editor, list]),
+    history: createMemoryHistory({initialEntries: [path]}),
+  });
+  render(<RouterProvider router={router} />);
+  return {router};
+}
 
 test('rejects invalid stock and prevents submission until it is a nonnegative integer', async () => {
   const user = userEvent.setup();
-  const {router} = renderRoute('/customers/new');
+  const {router} = renderForm('/customers/new');
   const stock = await screen.findByRole('textbox', {name: 'Items in stock'});
   const save = screen.getByRole('button', {name: 'Save'});
   await user.type(screen.getByRole('textbox', {name: 'Customer number'}), '3003');
@@ -45,7 +74,7 @@ test('rejects invalid stock and prevents submission until it is a nonnegative in
 
 test('requires digits in home phone while preserving leading zeros and allowing a blank value', async () => {
   const user = userEvent.setup();
-  renderRoute('/customers/1');
+  renderForm('/customers/1');
   const phone = await screen.findByRole('textbox', {name: 'Home phone'});
   const save = screen.getByRole('button', {name: 'Save'});
 
@@ -75,7 +104,7 @@ test('requires digits in home phone while preserving leading zeros and allowing 
 
 test('validates balance precision and optional email addresses', async () => {
   const user = userEvent.setup();
-  renderRoute('/customers/1');
+  renderForm('/customers/1');
   const balance = await screen.findByRole('textbox', {name: 'Balance ($)'});
   const email = screen.getByRole('textbox', {name: 'Email address'});
   const save = screen.getByRole('button', {name: 'Save'});

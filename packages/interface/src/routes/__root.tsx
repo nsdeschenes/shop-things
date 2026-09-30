@@ -1,7 +1,9 @@
 import * as stylex from '@stylexjs/stylex';
 import type {QueryClient} from '@tanstack/react-query';
 import {createRootRouteWithContext, Link, Outlet} from '@tanstack/react-router';
+import {useSyncExternalStore} from 'react';
 
+import type {Application} from '../application/controller';
 import Button from '../components/button/button';
 import {breakpoints} from '../styles/breakpoints.stylex';
 import {colors} from '../styles/colors.stylex';
@@ -11,6 +13,7 @@ import {typography} from '../styles/typography.stylex';
 
 interface RouterContext {
   queryClient: QueryClient;
+  application: Application;
 }
 
 const styles = stylex.create({
@@ -55,6 +58,8 @@ const styles = stylex.create({
 });
 
 function RootLayout() {
+  const {application} = Route.useRouteContext();
+  const state = useSyncExternalStore(application.subscribe, application.getState);
   return (
     <div {...stylex.props(styles.layout)}>
       <header {...stylex.props(styles.header)}>
@@ -69,8 +74,35 @@ function RootLayout() {
           <Button disabled>Export all customers</Button>
         </div>
       </header>
-      <p {...stylex.props(styles.database)}>Sample database: customers.sqlite</p>
-      <Outlet />
+      <p {...stylex.props(styles.database)}>
+        {state.mode === 'live'
+          ? 'Live mode'
+          : state.mode === 'preview'
+            ? 'Browser preview — temporary data'
+            : 'Application unavailable'}
+        {state.database?.selectedPath && ` · ${state.database.selectedPath}`}
+      </p>
+      {state.mode === 'unavailable' ? (
+        <p>
+          Open Shop Things in Electron, or add ?preview=true to the browser URL for a
+          temporary preview.
+        </p>
+      ) : state.phase === 'loading' ? (
+        <p role="status">Connecting to the application…</p>
+      ) : state.phase === 'error' ? (
+        <section role="alert">
+          <p>{state.error}</p>
+          <Button
+            onClick={() => {
+              void application.start();
+            }}
+          >
+            Retry
+          </Button>
+        </section>
+      ) : (
+        <Outlet />
+      )}
     </div>
   );
 }

@@ -1,11 +1,17 @@
 import {createFileRoute} from '@tanstack/react-router';
 
-import CustomerForm from '../components/customerForm/customerForm';
+import Button from '../components/button/button';
+import PageShell from '../components/pageShell/pageShell';
 
-export const Route = createFileRoute('/customers_/new')({
-  component: RouteComponent,
-});
+export const Route = createFileRoute('/customers_/new')({component: RouteComponent});
 
 function RouteComponent() {
-  return <CustomerForm />;
+  return (
+    <PageShell
+      title="Customer Editing Unavailable"
+      actions={<Button disabled>Save</Button>}
+    >
+      <p>Customer editing will be available after draft protection is connected.</p>
+    </PageShell>
+  );
 }

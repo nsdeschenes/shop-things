@@ -18,9 +18,10 @@ Rejected or timed-out shutdown leaves the app open; it never forcibly kills Elec
 New or failed emission prevents a replacement launch. Test watch commands run serialized
 checks after source changes, including contract mutation checks.
 
-The preload stays unattached and renderer authorization/protected hooks stay inactive.
-Actual renderer refresh, draft preservation during watcher restarts, native-dialog GUI,
-and navigation/security journeys remain deferred to renderer integration. Build/process
+The sandboxed preload is attached and exact-resource renderer authorization is active.
+The renderer owns one subscription and explicitly clean participant while editing remains
+unavailable. Protected lifecycle activation and watcher draft preservation belong to the
+next integration stage. See `acceptance/README.md` for actual renderer checks and deferrals. Build/process
 checks exercise emitted code and controlled participants rather than a connected GUI.
 
 Run `node --experimental-strip-types scripts/acceptance.ts` from a clean committed checkout on Linux glibc x64

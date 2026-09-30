@@ -159,7 +159,7 @@ test('complete named action surface denies wrong sender/frame/document and malfo
     return original(args);
   };
 
-  expect(f.handlers.size).toBe(Object.keys(actions).length + 1);
+  expect(f.handlers.size).toBe(Object.keys(actions).length + 3);
   const payload = {documentId: 'document-1', arguments: {session: 's', query: ''}};
   for (const event of [
     {sender: {}, senderFrame: f.frame},

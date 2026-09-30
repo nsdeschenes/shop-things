@@ -1,4 +1,4 @@
-/* oxlint-disable import/no-named-export -- Future renderer integration document policy; inactive in main. */
+/* oxlint-disable import/no-named-export -- Trusted renderer document policy. */
 import {randomUUID} from 'node:crypto';
 
 import type {ApprovedDocument} from './ipc.js';
@@ -25,6 +25,27 @@ export interface DocumentWebContents extends DocumentContents {
   ): unknown;
 }
 
+export function isTrustedRendererUrl(candidate: string, approvedUrl: string): boolean {
+  try {
+    const actual = new URL(candidate);
+    const approved = new URL(approvedUrl);
+    actual.hash = '';
+    approved.hash = '';
+    // The preview switch is intentional routing state, never a trust credential.
+    if (actual.searchParams.get('preview') === 'true') {
+      actual.searchParams.delete('preview');
+    }
+
+    if (approved.searchParams.get('preview') === 'true') {
+      approved.searchParams.delete('preview');
+    }
+
+    return actual.href === approved.href;
+  } catch {
+    return false;
+  }
+}
+
 export function trackAuthorizedDocument(
   webContents: DocumentWebContents,
   approvedUrl: string
@@ -40,21 +61,26 @@ export function trackAuthorizedDocument(
 
   function navigating(
     _event: unknown,
-    _url: string,
-    _inPlace: boolean,
+    url: string,
+    inPlace: boolean,
     isMainFrame: boolean
   ) {
-    if (isMainFrame) {
+    if (isMainFrame && !inPlace) {
       invalidate();
+    } else if (isMainFrame && document && isTrustedRendererUrl(url, approvedUrl)) {
+      document.url = url;
     }
   }
 
   function ready() {
     invalidate();
-    if (!webContents.isDestroyed() && webContents.mainFrame.url === approvedUrl) {
+    if (
+      !webContents.isDestroyed() &&
+      isTrustedRendererUrl(webContents.mainFrame.url, approvedUrl)
+    ) {
       document = {
         documentId: randomUUID(),
-        url: approvedUrl,
+        url: webContents.mainFrame.url,
         frame: webContents.mainFrame,
         webContents,
       };
