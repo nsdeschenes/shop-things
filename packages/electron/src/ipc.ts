@@ -241,12 +241,18 @@ export function registerIpc(options: IpcOptions): () => void {
     return {document, payload};
   }
 
-  listen(controls.stateSubscribe, (event, ...payloads) => {
+  function subscribe(event: IpcSender, ...payloads: unknown[]) {
     const input = control(event, payloads, ['documentId', 'subscriptionId']);
     if (input && isToken(input.payload.subscriptionId)) {
       subscriptions.set(input.payload.subscriptionId, input.document);
+      return true;
     }
-  });
+
+    return false;
+  }
+
+  listen(controls.stateSubscribe, subscribe);
+  handle(controls.stateSubscribe, subscribe);
 
   listen(controls.stateUnsubscribe, (event, ...payloads) => {
     const input = control(event, payloads, ['documentId', 'subscriptionId']);
@@ -291,10 +297,10 @@ export function registerIpc(options: IpcOptions): () => void {
     }
   });
 
-  listen(controls.draftRegister, (event, ...payloads) => {
+  function registerProtection(event: IpcSender, ...payloads: unknown[]) {
     const input = control(event, payloads, ['documentId', 'registrationId']);
     if (!input || !isToken(input.payload.registrationId)) {
-      return;
+      return false;
     }
 
     registration?.stop();
@@ -336,7 +342,11 @@ export function registerIpc(options: IpcOptions): () => void {
       request: null,
       stop: drafts.register(participant),
     };
-  });
+    return true;
+  }
+
+  listen(controls.draftRegister, registerProtection);
+  handle(controls.draftRegister, registerProtection);
 
   listen(controls.draftUnregister, (event, ...payloads) => {
     const input = control(event, payloads, ['documentId', 'registrationId']);

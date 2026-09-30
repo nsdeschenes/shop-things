@@ -1,3 +1,4 @@
+import {EventEmitter} from 'node:events';
 import {fileURLToPath} from 'node:url';
 
 import {beforeEach, expect, test, vi} from 'vitest';
@@ -24,6 +25,14 @@ const electron = vi.hoisted(() => {
       vi.fn(function (this: {loadURL: typeof loadURL; loadFile: typeof loadFile}) {
         this.loadURL = loadURL;
         this.loadFile = loadFile;
+        Object.assign(this, {
+          webContents: Object.assign(new EventEmitter(), {
+            mainFrame: {url: ''},
+            isDestroyed: () => false,
+            send: vi.fn(),
+            setWindowOpenHandler: vi.fn(),
+          }),
+        });
       }),
       {getAllWindows: vi.fn<() => object[]>()}
     ),
@@ -56,7 +65,12 @@ test('loads the development server when configured', async () => {
   expect(electron.BrowserWindow).toHaveBeenCalledWith({
     width: 800,
     height: 600,
-    webPreferences: {contextIsolation: true, sandbox: true, nodeIntegration: false},
+    webPreferences: {
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      preload: fileURLToPath(new URL('../src/preload.cjs', import.meta.url)),
+    },
   });
   expect(electron.loadURL).toHaveBeenCalledWith('http://127.0.0.1:5173');
   expect(electron.loadFile).not.toHaveBeenCalled();
@@ -89,12 +103,17 @@ test('activation opens a window only when none remain', async () => {
   expect(electron.BrowserWindow).toHaveBeenCalledTimes(2);
 });
 
-test('keeps preload and renderer-dependent protection inactive', async () => {
+test('attaches sandboxed preload while rejecting unknown senders', async () => {
   await startApp();
   expect(electron.BrowserWindow).toHaveBeenCalledWith({
     width: 800,
     height: 600,
-    webPreferences: {contextIsolation: true, sandbox: true, nodeIntegration: false},
+    webPreferences: {
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      preload: fileURLToPath(new URL('../src/preload.cjs', import.meta.url)),
+    },
   });
   const status = electron.ipcMain.handle.mock.calls.find(
     ([channel]) => channel === 'shop-things:database.status'

@@ -1,0 +1,150 @@
+import {mkdtemp, rm} from 'node:fs/promises';
+import {createRequire} from 'node:module';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+import {_electron, expect, test} from '@playwright/test';
+
+const root = fileURLToPath(new URL('..', import.meta.url));
+
+for (const parameter of ['', '?preview=false', '?preview=TRUE', '?preview=empty']) {
+  test(`browser disables preview with ${parameter || 'no switch'}`, async ({page}) => {
+    await page.goto(`/${parameter}#/customers`);
+    await expect(page.getByText('Application unavailable', {exact: true})).toBeVisible();
+    await expect(page.getByRole('button', {name: 'Add customer'})).toHaveCount(0);
+  });
+}
+
+test('explicit preview survives routing and reload without native storage', async ({
+  page,
+}) => {
+  await page.goto('/?preview=true#/customers/new');
+  await expect(
+    page.getByText('Browser preview — temporary data', {exact: false})
+  ).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+  await page.getByRole('link', {name: 'Customer records Shop Things'}).click();
+  await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('preview')).toBe('true');
+  await page.reload();
+  await expect(
+    page.getByText('Browser preview — temporary data', {exact: false})
+  ).toBeVisible();
+  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual(
+    [0, 0]
+  );
+});
+
+for (const development of [true, false]) {
+  test(`real Electron ${development ? 'development resource' : 'bundled HTML'} bootstrap`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'shop-things-renderer-'));
+    const application = await _electron.launch({
+      executablePath: createRequire(
+        new URL('../packages/electron/package.json', import.meta.url)
+      )('electron'),
+      args: [join(root, 'acceptance/electron-entry.mjs')],
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: '',
+        SHOP_THINGS_ACCEPTANCE_DATA: directory,
+        SHOP_THINGS_ACCEPTANCE_DENY_HANDSHAKE: 'true',
+        VITE_DEV_SERVER_URL: development ? 'http://127.0.0.1:5179/' : '',
+      },
+    });
+    try {
+      const page = await application.firstWindow();
+      await expect(page.getByText('Live mode', {exact: false})).toBeVisible();
+      await expect(
+        page.getByRole('heading', {name: 'Customers', exact: true})
+      ).toBeVisible();
+      expect(
+        await application.evaluate(() => Reflect.get(globalThis, 'acceptanceIpc'))
+      ).toEqual(
+        expect.arrayContaining([
+          'shop-things:document',
+          'shop-things:state-subscribe',
+          'shop-things:draft-register',
+          'shop-things:database.status',
+        ])
+      );
+      const messages = await application.evaluate(() =>
+        Reflect.get(globalThis, 'acceptanceIpc')
+      );
+      expect(messages.indexOf('shop-things:state-subscribe')).toBeLessThan(
+        messages.indexOf('shop-things:database.status')
+      );
+      expect(messages.indexOf('shop-things:draft-register')).toBeLessThan(
+        messages.indexOf('shop-things:database.status')
+      );
+      const url = new URL(page.url());
+      url.search = '?preview=true';
+      url.hash = '/customers/new';
+      await application.evaluate(async ({BrowserWindow}, destination) => {
+        await BrowserWindow.getAllWindows()[0]!.loadURL(destination);
+      }, url.href);
+      await expect(page.getByText('Live mode', {exact: false})).toBeVisible();
+      await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+      await page.reload();
+      await expect(
+        page.getByRole('heading', {name: 'Customer Editing Unavailable'})
+      ).toBeVisible();
+      await page.evaluate(() => {
+        window.open('https://example.com');
+      });
+      expect(application.windows()).toHaveLength(1);
+      const before = page.url();
+      await page.evaluate(() => {
+        location.href = 'https://example.com';
+      });
+      expect(
+        await application.evaluate(({BrowserWindow}) =>
+          BrowserWindow.getAllWindows()[0]!.webContents.getURL()
+        )
+      ).toBe(before);
+      expect(
+        await application.evaluate(({BrowserWindow}) =>
+          BrowserWindow.getAllWindows()[0]!.webContents.executeJavaScript(
+            'document.querySelector("h1").textContent'
+          )
+        )
+      ).toBe('Customer Editing Unavailable');
+    } finally {
+      await application.close();
+      await rm(directory, {recursive: true, force: true});
+    }
+  });
+}
+
+test('failed live handshake never enters preview and Retry restores live registration', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-renderer-retry-'));
+  const application = await _electron.launch({
+    executablePath: createRequire(
+      new URL('../packages/electron/package.json', import.meta.url)
+    )('electron'),
+    args: [join(root, 'acceptance/electron-entry.mjs')],
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '',
+      SHOP_THINGS_ACCEPTANCE_DATA: directory,
+      SHOP_THINGS_ACCEPTANCE_DENY_HANDSHAKE: 'always',
+      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/?preview=true',
+    },
+  });
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByRole('button', {name: 'Retry'})).toBeVisible();
+    await expect(page.getByText('Live mode', {exact: false})).toBeVisible();
+    await expect(page.getByText('Browser preview', {exact: false})).toHaveCount(0);
+    await application.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceDenyHandshake', null);
+    });
+    await page.getByRole('button', {name: 'Retry'}).click();
+    await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
+  } finally {
+    await application.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});

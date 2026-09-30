@@ -22,11 +22,13 @@
     "test": "node --experimental-strip-types scripts/test.ts",
     "typecheck": "node --experimental-strip-types scripts/typecheck.ts",
     "test:watch": "node --experimental-strip-types scripts/test-watch.ts",
-    "prepare:backend": "node --experimental-strip-types scripts/prepare.ts"
+    "prepare:backend": "node --experimental-strip-types scripts/prepare.ts",
+    "test:renderer": "pnpm build && playwright test --config acceptance/playwright.config.ts"
   },
   "devDependencies": {
     "@e18e/eslint-plugin": "^0.8.1",
     "@j178/prek": "^0.5.3",
+    "@playwright/test": "^1.63.0",
     "@stylexjs/eslint-plugin": "^0.19.1",
     "@stylistic/eslint-plugin": "^5.10.0",
     "@tanstack/eslint-plugin-query": "^5.104.0",
