@@ -432,7 +432,7 @@ test('obsolete Save completion cannot navigate into a replacement database sessi
   await act(async () => {
     emit({...previous, session: 'replacement', version: previous.version + 1});
     // Replace the route before the old response arrives, as a lifecycle owner may do.
-    await router.navigate({to: '/customers', ignoreBlocker: true});
+    void router.navigate({to: '/customers', ignoreBlocker: true});
   });
   expect(application.getState().database?.session).toBe('replacement');
   release();
@@ -458,9 +458,8 @@ test('create and edit refresh previously visited lists and searches through hist
   await screen.findByRole('heading', {name: 'Ada'});
   await user.click(screen.getByRole('link', {name: 'Back to customers'}));
   expect(await screen.findByRole('link', {name: 'Ada'})).toBeVisible();
-  expect(screen.getByRole('textbox', {name: 'Search customers'})).toHaveValue('Ada');
-  await user.click(screen.getByRole('button', {name: 'Clear'}));
-  expect(await screen.findByRole('link', {name: 'Ada'})).toBeVisible();
+  expect(screen.getByRole('textbox', {name: 'Search customers'})).toHaveValue('');
+  expect(screen.getByRole('button', {name: 'Clear'})).toBeDisabled();
   await user.click(screen.getByRole('link', {name: 'Ada'}));
   await user.click(await screen.findByRole('button', {name: 'Edit customer'}));
   const name = screen.getByRole('textbox', {name: 'First name'});

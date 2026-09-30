@@ -227,7 +227,6 @@ export default function CustomerForm({
             void navigate({
               to: '/customers/$customerId',
               params: {customerId: String(result.customer.id)},
-              search: previous => previous,
               state: previous => ({...previous, customerNotice: 'Customer saved.'}),
             });
           });
@@ -336,11 +335,7 @@ export default function CustomerForm({
             Save
           </Button>
 
-          <Link
-            to="/customers"
-            search={previous => previous}
-            {...stylex.props(buttonStyles.base)}
-          >
+          <Link to="/customers" {...stylex.props(buttonStyles.base)}>
             Cancel
           </Link>
         </div>

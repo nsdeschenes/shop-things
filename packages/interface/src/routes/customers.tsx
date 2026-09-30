@@ -1,11 +1,24 @@
 import * as stylex from '@stylexjs/stylex';
+import {useDebouncedCallback} from '@tanstack/react-pacer';
 import {isCancelledError, useQuery} from '@tanstack/react-query';
-import {createFileRoute, Link, useLocation} from '@tanstack/react-router';
+import {
+  createFileRoute,
+  Link,
+  useLocation,
+  useRouter,
+  useRouterState,
+} from '@tanstack/react-router';
 import {useEffect, useState, useSyncExternalStore} from 'react';
+import {z} from 'zod';
 
 import {customerListOptions} from '../application/customers';
+import {admitCustomerRoute} from '../application/routing';
 import Button from '../components/button/button';
 import buttonStyles from '../components/button/buttonStyles';
+import {
+  CustomerRouteError,
+  CustomerRoutePending,
+} from '../components/customerRouteFeedback/customerRouteFeedback';
 import Input from '../components/input/input';
 import PageShell from '../components/pageShell/pageShell';
 import Table from '../components/table/table';
@@ -16,7 +29,31 @@ import {radii} from '../styles/radii.stylex';
 import {spacing} from '../styles/spacing.stylex';
 import {typography} from '../styles/typography.stylex';
 
-export const Route = createFileRoute('/customers')({component: RouteComponent});
+const customerSearchSchema = z.object({q: z.string().optional().catch(undefined)});
+
+export const Route = createFileRoute('/customers')({
+  validateSearch: customerSearchSchema,
+  loaderDeps: ({search}) => ({q: search.q ?? ''}),
+  beforeLoad: admitCustomerRoute,
+  loader: async ({
+    context: {application, queryClient, session, readScope},
+    deps,
+    preload,
+  }) => {
+    if (session && readScope) {
+      await queryClient.fetchQuery(
+        customerListOptions(application, session, deps.q, {
+          ...readScope,
+          coalesceKey: preload ? 'customers:preload:list' : 'customers:list',
+        })
+      );
+    }
+  },
+  pendingComponent: CustomerRoutePending,
+  pendingMs: Infinity,
+  errorComponent: CustomerRouteError,
+  component: RouteComponent,
+});
 
 const styles = stylex.create({
   searchLabel: {
@@ -56,14 +93,24 @@ function RouteComponent() {
     application.protection.getState
   );
   const {q = ''} = Route.useSearch();
+  const searching = useRouterState({
+    select: router => router.isLoading && router.location.pathname === '/customers',
+  });
   const location = useLocation();
   const notice = Reflect.get(location.state, 'customerNotice');
   const navigate = Route.useNavigate();
-  const [draftSearch, setDraftSearch] = useState({committed: q, value: q});
-  const input = draftSearch.committed === q ? draftSearch.value : q;
-  function setInput(value: string) {
-    setDraftSearch({committed: q, value});
-  }
+  const router = useRouter();
+  const [input, setInput] = useState(q);
+
+  useEffect(
+    () =>
+      router.subscribe('onBeforeNavigate', ({toLocation}) => {
+        if (toLocation.pathname === '/customers') {
+          setInput(customerSearchSchema.parse(toLocation.search).q ?? '');
+        }
+      }),
+    [router]
+  );
 
   const session = state.database?.session ?? '';
   const available = state.database?.available === true && !state.recoveryRequired;
@@ -74,19 +121,20 @@ function RouteComponent() {
     enabled: !disabled,
   });
 
-  useEffect(() => {
-    if (input === q || disabled) {
-      return;
+  function submitSearch(value: string) {
+    if (!disabled && value !== (router.state.location.search.q ?? '')) {
+      void navigate({search: {q: value || undefined}, replace: true});
     }
+  }
 
-    const timeout = setTimeout(() => {
-      void navigate({
-        search: previous => ({...previous, q: input || undefined}),
-        replace: true,
-      });
-    }, 250);
-    return () => clearTimeout(timeout);
-  }, [input, q, disabled, navigate]);
+  const search = useDebouncedCallback(
+    (value: string) => {
+      if (value === input) {
+        submitSearch(value);
+      }
+    },
+    {wait: 250, enabled: !disabled}
+  );
 
   return (
     <PageShell
@@ -95,11 +143,7 @@ function RouteComponent() {
         disabled ? (
           <Button disabled>Add customer</Button>
         ) : (
-          <Link
-            to="/customers/new"
-            search={previous => previous}
-            {...stylex.props(buttonStyles.base)}
-          >
+          <Link to="/customers/new" {...stylex.props(buttonStyles.base)}>
             Add customer
           </Link>
         )
@@ -116,14 +160,14 @@ function RouteComponent() {
           value={input}
           disabled={disabled}
           placeholder="Name or customer number"
-          onValueChange={setInput}
+          onValueChange={value => {
+            setInput(value);
+            search(value);
+          }}
           onKeyDown={event => {
             if (event.key === 'Enter') {
               event.preventDefault();
-              void navigate({
-                search: previous => ({...previous, q: input || undefined}),
-                replace: true,
-              });
+              submitSearch(input);
             }
           }}
         />
@@ -131,10 +175,7 @@ function RouteComponent() {
           disabled={disabled || (!input && !q)}
           onClick={() => {
             setInput('');
-            void navigate({
-              search: previous => ({...previous, q: undefined}),
-              replace: true,
-            });
+            void navigate({replace: true});
           }}
         >
           Clear
@@ -145,7 +186,7 @@ function RouteComponent() {
           {state.error ??
             'The database is unavailable. Open or retry the database to continue.'}
         </p>
-      ) : customers.isPending || isCancelledError(customers.error) ? (
+      ) : searching || customers.isPending || isCancelledError(customers.error) ? (
         <p role="status">Loading customers…</p>
       ) : customers.isError ? (
         <section role="alert">
@@ -202,7 +243,6 @@ function RouteComponent() {
                         void navigate({
                           to: '/customers/$customerId',
                           params: {customerId: String(customer.id)},
-                          search: previous => previous,
                         });
                       }}
                     >
@@ -211,7 +251,7 @@ function RouteComponent() {
                         <Link
                           to="/customers/$customerId"
                           params={{customerId: String(customer.id)}}
-                          search={previous => previous}
+
                           disabled={disabled}
                           {...stylex.props(styles.customerLink)}
                         >

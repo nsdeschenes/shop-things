@@ -1,9 +1,10 @@
 import type {QueryClient} from '@tanstack/react-query';
 import {createRootRouteWithContext, Outlet} from '@tanstack/react-router';
-import {z} from 'zod';
 
 import type {Application} from '../application/controller';
+import {waitForApplication} from '../application/routing';
 import ApplicationShell from '../components/applicationShell/applicationShell';
+import {CustomerRoutePending} from '../components/customerRouteFeedback/customerRouteFeedback';
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -20,6 +21,8 @@ function RootLayout() {
 }
 
 export const Route = createRootRouteWithContext<RouterContext>()({
-  validateSearch: z.object({q: z.string().optional().catch(undefined)}),
+  beforeLoad: ({context}) => waitForApplication(context.application),
+  pendingComponent: CustomerRoutePending,
+  pendingMs: 0,
   component: RootLayout,
 });

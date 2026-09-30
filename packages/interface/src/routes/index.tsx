@@ -1,28 +1,30 @@
-import * as stylex from '@stylexjs/stylex';
 import {createFileRoute, redirect} from '@tanstack/react-router';
+import {useEffect, useSyncExternalStore} from 'react';
 
-import {spacing} from '../styles/spacing.stylex';
+import PageShell from '../components/pageShell/pageShell';
 
 export const Route = createFileRoute('/')({
-  component: Index,
-  loader: () => {
-    const loadedDB = true;
-    if (loadedDB) {
+  beforeLoad: ({context: {application}}) => {
+    const state = application.getState();
+    if (state.phase === 'ready' && state.database?.available && !state.recoveryRequired) {
       throw redirect({to: '/customers'});
     }
   },
-});
-
-const styles = stylex.create({
-  div: {
-    padding: spacing.space4,
-  },
+  component: Index,
 });
 
 function Index() {
+  const {application} = Route.useRouteContext();
+  const state = useSyncExternalStore(application.subscribe, application.getState);
+  const navigate = Route.useNavigate();
+  useEffect(() => {
+    if (state.phase === 'ready' && state.database?.available && !state.recoveryRequired) {
+      void navigate({to: '/customers', replace: true});
+    }
+  }, [state, navigate]);
   return (
-    <div {...stylex.props(styles.div)}>
-      <h3>Welcome to Shop Things!</h3>
-    </div>
+    <PageShell title="Shop Things">
+      <p>Open or create a database to view customers.</p>
+    </PageShell>
   );
 }
