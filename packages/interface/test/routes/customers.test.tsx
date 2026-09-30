@@ -3,12 +3,12 @@ import {expect, test} from 'vitest';
 
 import renderRoute from '../renderRoute';
 
-test('offers the persistent Database menu and protected Create from the empty customer list', async () => {
+test('offers temporary customer workflows without database file controls', async () => {
   renderRoute('/customers');
-  expect(await screen.findByRole('button', {name: 'Database'})).toBeEnabled();
   expect(
-    await screen.findByText('Active database: Preview: temporary customers.sqlite')
+    await screen.findByText('Browser preview — temporary data', {exact: false})
   ).toBeVisible();
+  expect(screen.queryByRole('button', {name: 'Database'})).not.toBeInTheDocument();
   expect(await screen.findByRole('link', {name: 'Add customer'})).toHaveAttribute(
     'href',
     '/customers/new'

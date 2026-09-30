@@ -4,11 +4,6 @@ import * as stylex from '@stylexjs/stylex';
 import {useState, useSyncExternalStore} from 'react';
 
 import type {Application} from '../../application/controller';
-import {
-  setPreviewOutcome,
-  simulatePreviewRecovery,
-  type PreviewOutcome,
-} from '../../application/preview';
 import {colors} from '../../styles/colors.stylex';
 import {radii} from '../../styles/radii.stylex';
 import {spacing} from '../../styles/spacing.stylex';
@@ -57,9 +52,8 @@ export default function DatabaseActions({application}: {application: Application
     protection.frozen ||
     protection.saving;
   const database = state.database;
-  const preview = state.mode === 'preview';
-  function label(value: string) {
-    return preview ? `${value} (simulation)` : value;
+  if (state.mode === 'preview') {
+    return null;
   }
 
   function run(action: 'create' | 'open' | 'retry' | 'backup' | 'export') {
@@ -79,35 +73,35 @@ export default function DatabaseActions({application}: {application: Application
                   onClick={() => run('create')}
                   {...stylex.props(styles.item)}
                 >
-                  {label('Create database')}
+                  Create database
                 </Menu.Item>
                 <Menu.Item
                   disabled={disabled}
                   onClick={() => run('open')}
                   {...stylex.props(styles.item)}
                 >
-                  {label('Open database')}
+                  Open database
                 </Menu.Item>
                 <Menu.Item
                   disabled={disabled || !database?.available || state.recoveryRequired}
                   onClick={() => run('backup')}
                   {...stylex.props(styles.item)}
                 >
-                  {label('Back up database')}
+                  Back up database
                 </Menu.Item>
                 <Menu.Item
                   disabled={disabled}
                   onClick={() => setRestoreExplanation(true)}
                   {...stylex.props(styles.item)}
                 >
-                  {label('Restore backup')}
+                  Restore backup
                 </Menu.Item>
                 <Menu.Item
                   disabled={disabled || !database?.available || state.recoveryRequired}
                   onClick={() => run('export')}
                   {...stylex.props(styles.item)}
                 >
-                  {label('Export all customers')}
+                  Export all customers
                 </Menu.Item>
               </Menu.Popup>
             </Menu.Positioner>
@@ -124,25 +118,6 @@ export default function DatabaseActions({application}: {application: Application
             <p {...stylex.props(styles.path)}>{database.selectedPath}</p>
           </details>
         )}
-        {preview && (
-          <label>
-            Simulation result{' '}
-            <select
-              disabled={disabled}
-              defaultValue="success"
-              onChange={event => {
-                const client = application.getClient();
-                if (client) {
-                  setPreviewOutcome(client, event.target.value as PreviewOutcome);
-                }
-              }}
-            >
-              <option value="success">Success</option>
-              <option value="cancelled">Cancel</option>
-              <option value="error">File error</option>
-            </select>
-          </label>
-        )}
       </div>
       <Dialog.Root open={restoreExplanation} onOpenChange={setRestoreExplanation}>
         <Dialog.Portal>
@@ -150,13 +125,11 @@ export default function DatabaseActions({application}: {application: Application
             initialFocus={() => document.getElementById('restore-cancel')}
             {...stylex.props(styles.dialog)}
           >
-            <Dialog.Title>{label('Restore Backup into a Separate File')}</Dialog.Title>
+            <Dialog.Title>Restore Backup into a Separate File</Dialog.Title>
             <Dialog.Description>
               Choose a backup, then a new destination. The restored database opens when
               complete. Your backup and previous working database are preserved. Existing
               destination files cannot be replaced.
-              {preview &&
-                ' This simulation uses temporary saved data and opens no native file pickers.'}
             </Dialog.Description>
             <div {...stylex.props(styles.dialogActions)}>
               <Button id="restore-cancel" onClick={() => setRestoreExplanation(false)}>
@@ -169,25 +142,12 @@ export default function DatabaseActions({application}: {application: Application
                   void application.fileAction('restore');
                 }}
               >
-                {label('Continue')}
+                Continue
               </Button>
             </div>
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
-      {preview && (
-        <Button
-          disabled={disabled}
-          onClick={() => {
-            const client = application.getClient();
-            if (client) {
-              simulatePreviewRecovery(client);
-            }
-          }}
-        >
-          Simulate remembered-file failure
-        </Button>
-      )}
       {state.phase === 'ready' && !database?.available && (
         <section aria-label="Database setup">
           <h1>{database?.selectedPath ? 'Recover Database' : 'Set Up Your Database'}</h1>
@@ -206,14 +166,14 @@ export default function DatabaseActions({application}: {application: Application
           <p>Create a new database or open a saved database to work with customers.</p>
           <div {...stylex.props(styles.row)}>
             <Button disabled={disabled} onClick={() => run('create')}>
-              {label('Create database')}
+              Create database
             </Button>
             <Button disabled={disabled} onClick={() => run('open')}>
-              {label('Open database')}
+              Open database
             </Button>
             {database?.selectedPath && (
               <Button disabled={disabled} onClick={() => run('retry')}>
-                {label('Retry remembered database')}
+                Retry remembered database
               </Button>
             )}
           </div>
@@ -226,11 +186,7 @@ export default function DatabaseActions({application}: {application: Application
         </div>
       )}
       {state.fileSuccess && <p role="status">{state.fileSuccess}</p>}
-      {state.pendingFile && (
-        <p role="status">
-          {preview ? 'Simulating database operation…' : 'Waiting for database operation…'}
-        </p>
-      )}
+      {state.pendingFile && <p role="status">Waiting for database operation…</p>}
     </section>
   );
 }

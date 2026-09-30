@@ -3,7 +3,7 @@
 Specification [#54](https://github.com/nsdeschenes/shop-things/issues/54), behavior
 decisions #47–#52, and acceptance decision
 [#52](https://github.com/nsdeschenes/shop-things/issues/52#issuecomment-5909254348)
-remain authoritative. This document maps runnable evidence; it is not a release
+remain authoritative, with browser preview scope superseded by [#69](https://github.com/nsdeschenes/shop-things/issues/69). This document maps runnable evidence; it is not a release
 certificate or a substitute for the generated same-commit record.
 
 The owner deferred Linux automated execution and all required manual GUI checks
@@ -22,8 +22,8 @@ Unsigned local macOS automation supplies supporting evidence only.
 | Saved query/mutation/session/revision coherence and explicit recovery                      | `customers`, `deletion`, `recovery` specs; real delayed responses, stale writes, same-file fresh sessions                   |
 | Exact invalid dirty values, Save/transition/lifecycle races, matching-only protocol        | `create`, `edit`, `protection`, protocol and history cases through real renderer/preload; supporting correlated-owner tests |
 | Back/Forward/Cancel/link guard, native preview unload and no persistent storage            | `history`, `unload`, preview cases; actual Chromium native beforeunload and empty local/session/IndexedDB                   |
-| All saved Backup/CSV, search/draft exclusion, cancel/BUSY/EEXIST                           | `savedFiles.spec.ts`, actual files/independent backup reopen and temporary simulations                                      |
-| Separate-file Restore, both picker Cancels, source/prior preservation, failure cleanup     | `restore.spec.ts`, real files, candidate faults and remembered reopen; cloned preview snapshots                             |
+| All saved Backup/CSV, search/draft exclusion, cancel/BUSY/EEXIST                           | `savedFiles.spec.ts`, actual files/independent backup reopen                                                                |
+| Separate-file Restore, both picker Cancels, source/prior preservation, failure cleanup     | `restore.spec.ts`, real files, candidate faults and remembered reopen                                                       |
 | Trusted development/bundled authorization; wrong sender/frame/stale identity and cleanup   | `foundation` and boundary cases, actual IPC metadata and session frame preload fixture alongside unchanged shipped preload  |
 | Guarded reload and cooperative development restarts                                        | Protection/cold Vite cases and `acceptance/watcher.mjs`, original parent IPC, graceful child exits before build/replacement |
 | Normal packaged main/resources/native SQLite/preload/hash routes                           | `acceptance/packagedRenderer.mjs`, normal executable, artifact/inventory/source hashes and real UI persistence              |
