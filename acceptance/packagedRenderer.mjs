@@ -34,6 +34,7 @@ const report = {
   status: 'running',
   startedAt: new Date().toISOString(),
   target,
+  command: process.argv,
   evidence: supporting
     ? 'unsigned macOS arm64 packaged renderer supporting automation'
     : 'Linux glibc x64 normal packaged renderer automation',
@@ -116,6 +117,7 @@ async function launch() {
   // This assertion supplements the separately verified BEFORE-ready isolation fixture.
   const runtime = await application.evaluate(({app, BrowserWindow}) => ({
     packaged: app.isPackaged,
+    appVersion: app.getVersion(),
     userData: app.getPath('userData'),
     appPath: app.getAppPath(),
     resources: process.resourcesPath,
@@ -205,7 +207,20 @@ async function closeNormally(discard = false) {
     discard
   );
   await page.context().tracing.stop();
+  const child = application.process();
   await application.close();
+  report.closures ??= [];
+  report.closures.push({
+    pid: child.pid,
+    exitCode: child.exitCode,
+    signal: child.signalCode,
+  });
+  assert.equal(child.exitCode, 0, 'Normal packaged app must exit gracefully');
+  assert.equal(
+    child.signalCode,
+    null,
+    'Graceful close must not terminate the process by signal'
+  );
   application = undefined;
   page = undefined;
 }
@@ -449,6 +464,13 @@ try {
     await application.evaluate(({BrowserWindow}) => BrowserWindow.getAllWindows().length),
     1
   );
+  const protections = await application.evaluate(() =>
+    Reflect.get(globalThis, 'packagedDialogs')
+  );
+  assert.ok(
+    protections.every(options => options.defaultId === 0 && options.cancelId === 0)
+  );
+  report.protectionDialogs = protections;
   await application.evaluate(() => Reflect.set(globalThis, 'packagedDiscard', true));
   const navigated = page.waitForEvent('load');
   await application.evaluate(({Menu}) =>
