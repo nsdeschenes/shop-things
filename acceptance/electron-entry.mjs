@@ -21,7 +21,13 @@ dialog.showMessageBox = async (...args) => {
 };
 
 globalThis.acceptanceFiles = [];
-async function selectedFile(kind) {
+globalThis.acceptancePickers = [];
+async function selectedFile(kind, args) {
+  globalThis.acceptancePickers.push({
+    kind,
+    title: args.at(-1).title,
+    windowId: args[0].id,
+  });
   const selection = globalThis.acceptanceFiles.shift();
   if (selection?.hold) {
     globalThis.acceptancePickerHeld = true;
@@ -39,8 +45,8 @@ async function selectedFile(kind) {
     : {canceled: !path, filePaths: path ? [path] : []};
 }
 
-dialog.showSaveDialog = async () => selectedFile('save');
-dialog.showOpenDialog = async () => selectedFile('open');
+dialog.showSaveDialog = async (...args) => selectedFile('save', args);
+dialog.showOpenDialog = async (...args) => selectedFile('open', args);
 
 const handle = ipcMain.handle.bind(ipcMain);
 globalThis.acceptanceDenyHandshake = process.env.SHOP_THINGS_ACCEPTANCE_DENY_HANDSHAKE;
@@ -150,6 +156,7 @@ if (
   process.env.SHOP_THINGS_ACCEPTANCE_RECOVERY ||
   process.env.SHOP_THINGS_ACCEPTANCE_DELAY_STARTUP
 ) {
+  globalThis.acceptanceDatabase = await import('../packages/db/dist/index.js');
   const {ActionService} = await import('../packages/electron/dist/actionService.js');
   // Capture the real method and apply it to the production instance below.
   // oxlint-disable-next-line typescript/unbound-method

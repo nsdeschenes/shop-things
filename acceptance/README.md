@@ -142,3 +142,22 @@ checks visibly labelled simulations and empty browser storage. Run this focused 
 with `pnpm build && pnpm exec playwright test --config acceptance/playwright.config.ts
 acceptance/savedFiles.spec.ts`. These local checks supplement the deferred Linux and
 manual native-dialog acceptance gates.
+
+### Separate-file Restore (#66)
+
+`restore.spec.ts` drives the explanatory Continue/Cancel step through the persistent
+Database menu before the native action. Actual BrowserWindow/preload/IPC checks
+cover Stay before pickers, each picker cancellation after approval, destination
+conflicts with preserved bytes, unsupported backups, failed migration and settings
+persistence with candidate cleanup, and BUSY during a held picker. They retain the
+original session, reference, exact draft, route and search after failure. Successful
+Restore migrates a separate copy of a read-only backup, preserves both source and
+previous working file, clears the old view on commit and reopens the remembered
+restored destination. Restore also works without an active database.
+
+Chromium exercises visibly labelled Restore simulation, explanatory cancellation,
+Stay, simulated cancellation/failure and committed restoration of all saved backup
+records despite search and unsaved edits. Restored records receive fresh references;
+changing the working copy cannot mutate the saved backup snapshot. No native dialogs,
+files or persistent browser storage are used in preview. These local checks remain
+supporting evidence; the authorized Linux/manual acceptance deferral still applies.

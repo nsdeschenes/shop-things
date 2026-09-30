@@ -1,6 +1,7 @@
+import {Dialog} from '@base-ui/react/dialog';
 import {Menu} from '@base-ui/react/menu';
 import * as stylex from '@stylexjs/stylex';
-import {useSyncExternalStore} from 'react';
+import {useState, useSyncExternalStore} from 'react';
 
 import type {Application} from '../../application/controller';
 import {
@@ -9,6 +10,7 @@ import {
   type PreviewOutcome,
 } from '../../application/preview';
 import {colors} from '../../styles/colors.stylex';
+import {radii} from '../../styles/radii.stylex';
 import {spacing} from '../../styles/spacing.stylex';
 import Button from '../button/button';
 
@@ -23,10 +25,24 @@ const styles = stylex.create({
     zIndex: 20,
   },
   item: {padding: spacing.space10, display: 'block'},
+  dialog: {
+    padding: spacing.space24,
+    borderRadius: radii.panel,
+    backgroundColor: colors.surface,
+    color: colors.text,
+    position: 'fixed',
+    transform: 'translate(-50%, -50%)',
+    zIndex: 30,
+    left: '50%',
+    top: '50%',
+    width: 'min(440px, 90vw)',
+  },
+  dialogActions: {gap: spacing.space12, display: 'flex', marginTop: spacing.space20},
   path: {overflowWrap: 'anywhere'},
 });
 
 export default function DatabaseActions({application}: {application: Application}) {
+  const [restoreExplanation, setRestoreExplanation] = useState(false);
   const state = useSyncExternalStore(application.subscribe, application.getState);
   const protection = useSyncExternalStore(
     application.protection.subscribe,
@@ -79,7 +95,11 @@ export default function DatabaseActions({application}: {application: Application
                 >
                   {label('Back up database')}
                 </Menu.Item>
-                <Menu.Item disabled {...stylex.props(styles.item)}>
+                <Menu.Item
+                  disabled={disabled}
+                  onClick={() => setRestoreExplanation(true)}
+                  {...stylex.props(styles.item)}
+                >
                   {label('Restore backup')}
                 </Menu.Item>
                 <Menu.Item
@@ -124,6 +144,37 @@ export default function DatabaseActions({application}: {application: Application
           </label>
         )}
       </div>
+      <Dialog.Root open={restoreExplanation} onOpenChange={setRestoreExplanation}>
+        <Dialog.Portal>
+          <Dialog.Popup
+            initialFocus={() => document.getElementById('restore-cancel')}
+            {...stylex.props(styles.dialog)}
+          >
+            <Dialog.Title>{label('Restore backup into a separate file')}</Dialog.Title>
+            <Dialog.Description>
+              Choose a backup, then a new destination. The restored database opens when
+              complete. Your backup and previous working database are preserved. Existing
+              destination files cannot be replaced.
+              {preview &&
+                ' This simulation uses temporary saved data and opens no native file pickers.'}
+            </Dialog.Description>
+            <div {...stylex.props(styles.dialogActions)}>
+              <Button id="restore-cancel" onClick={() => setRestoreExplanation(false)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={disabled}
+                onClick={() => {
+                  setRestoreExplanation(false);
+                  void application.fileAction('restore');
+                }}
+              >
+                {label('Continue')}
+              </Button>
+            </div>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
       {preview && (
         <Button
           disabled={disabled}
