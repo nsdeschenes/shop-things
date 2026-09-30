@@ -218,3 +218,51 @@ test('real stale revision fails safely and late prior-session deletion cannot na
     await rm(directory, {recursive: true, force: true});
   }
 });
+
+test('Chromium preview cancels identifying deletion then removes the temporary saved customer', async ({
+  page,
+}) => {
+  await page.goto('/?preview=true#/customers');
+  await page.getByRole('link', {name: 'Add customer'}).click();
+  await page.getByRole('textbox', {name: 'First name'}).fill('Temporary Delete');
+  await page.getByRole('button', {name: 'Save'}).click();
+  await expect(
+    page.getByRole('heading', {name: 'Temporary Delete', exact: true})
+  ).toBeVisible();
+  await page.getByRole('link', {name: 'Back to customers'}).click();
+  const search = page.getByRole('textbox', {name: 'Search customers'});
+  await search.fill('Temporary');
+  await search.press('Enter');
+  await page.getByRole('link', {name: 'Temporary Delete', exact: true}).click();
+  const detailRoute = new URL(page.url()).hash;
+  await page.getByRole('button', {name: 'Delete customer'}).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Temporary Delete (customer number 1)');
+  await expect(dialog.getByRole('button', {name: 'Cancel'})).toBeFocused();
+  await dialog.getByRole('button', {name: 'Cancel'}).click();
+  await expect(
+    page.getByRole('heading', {name: 'Temporary Delete', exact: true})
+  ).toBeVisible();
+  await page.getByRole('link', {name: 'Back to customers'}).click();
+  await expect(search).toHaveValue('Temporary');
+  await expect(
+    page.getByRole('link', {name: 'Temporary Delete', exact: true})
+  ).toBeVisible();
+  await page.getByRole('link', {name: 'Temporary Delete', exact: true}).click();
+  await confirm(page);
+  await expect(page.getByText('Customer deleted.', {exact: true})).toBeVisible();
+  await expect(search).toHaveValue('Temporary');
+  await expect(page.getByRole('heading', {name: 'No matching customers'})).toBeVisible();
+  await expect(page.getByText('0 results', {exact: true})).toBeVisible();
+  await expect(
+    page.getByRole('link', {name: 'Temporary Delete', exact: true})
+  ).toHaveCount(0);
+  await page.evaluate(hash => {
+    location.hash = hash;
+  }, detailRoute);
+  await expect(page.getByRole('heading', {name: 'Customer not found'})).toBeVisible();
+  await page.getByRole('link', {name: 'Back to customers'}).click();
+  await page.getByRole('button', {name: 'Clear'}).click();
+  await expect(page.getByRole('heading', {name: 'No customers yet'})).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('preview')).toBe('true');
+});
