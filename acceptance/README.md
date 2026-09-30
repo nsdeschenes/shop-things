@@ -122,3 +122,12 @@ optimized-module requests from leaving the renderer blank; a warm cache is not u
 as startup evidence. Test-owned processes/server are cleaned up separately from the
 user's application. This case proves development bootstrap and draft protection;
 watcher source-change, retry, failed-build, and replacement evidence remains with #67.
+
+`database.spec.ts` covers startup loading before remembered recovery settles, first-launch
+Create cancellation/success and remembered reopen, missing-file Retry/Open recovery,
+and dirty-editor preservation after cancelled or failed candidates (existing destination,
+unsupported file, and remembered-path write failure). Chromium exercises labelled
+Create/Open/Retry simulations with correlated draft abort/commit and temporary state.
+The launcher queues test-only picker selections in `acceptanceFiles`; it continues to use
+the actual protected action service and IPC boundary. Linux and native manual gates remain
+deferred as recorded in the parent acceptance plan.

@@ -8,12 +8,13 @@ import {
   useBlocker,
   useRouter,
 } from '@tanstack/react-router';
-import {useEffect, useSyncExternalStore} from 'react';
+import {useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {z} from 'zod';
 
 import type {Application} from '../application/controller';
 import {navigationTarget} from '../application/protection';
 import Button from '../components/button/button';
+import DatabaseActions from '../components/databaseActions/databaseActions';
 import {breakpoints} from '../styles/breakpoints.stylex';
 import {colors} from '../styles/colors.stylex';
 import {controls} from '../styles/controls.stylex';
@@ -67,7 +68,6 @@ const styles = stylex.create({
     letterSpacing: -0.8,
     lineHeight: 1.3,
   },
-  actions: {gap: spacing.space10, display: 'flex', flexWrap: 'wrap'},
   database: {
     paddingBlock: spacing.space12,
     paddingInline: {default: spacing.space24, [breakpoints.compact]: spacing.space16},
@@ -87,8 +87,18 @@ function RootLayout() {
     application.protection.getState
   );
   const router = useRouter();
+  const committedNavigation = useRef(false);
+  const [retainedView, setRetainedView] = useState(false);
+  if (!retainedView && state.phase === 'ready' && state.database?.available) {
+    setRetainedView(true);
+  }
+
   useBlocker({
     shouldBlockFn: async ({next}) => {
+      if (application.getState().pendingFile && !committedNavigation.current) {
+        return true;
+      }
+
       const target = navigationTarget(next.pathname, next.search);
       const blocked = await application.protection.blockNavigation(target);
       if (blocked || !application.protection.getState().frozen) {
@@ -120,7 +130,12 @@ function RootLayout() {
   useEffect(
     () =>
       application.onSessionChanged(() => {
-        void router.navigate({to: '/customers', search: {}, replace: true});
+        committedNavigation.current = true;
+        void router
+          .navigate({to: '/customers', search: {}, replace: true})
+          .finally(() => {
+            committedNavigation.current = false;
+          });
       }),
     [application, router]
   );
@@ -153,7 +168,7 @@ function RootLayout() {
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
-      <header {...stylex.props(styles.header)}>
+      <header inert={Boolean(state.pendingFile)} {...stylex.props(styles.header)}>
         <Link
           to="/customers"
           search={previous => previous}
@@ -162,12 +177,6 @@ function RootLayout() {
           <p {...stylex.props(styles.eyebrow)}>Customer records</p>
           <p {...stylex.props(styles.title)}>Shop Things</p>
         </Link>
-        <div {...stylex.props(styles.actions)}>
-          <Button disabled>Open database</Button>
-          <Button disabled>Back up database</Button>
-          <Button disabled>Restore backup</Button>
-          <Button disabled>Export all customers</Button>
-        </div>
       </header>
       <p {...stylex.props(styles.database)}>
         {state.mode === 'live'
@@ -175,8 +184,8 @@ function RootLayout() {
           : state.mode === 'preview'
             ? 'Browser preview — temporary data'
             : 'Application unavailable'}
-        {state.database?.selectedPath && ` · ${state.database.selectedPath}`}
       </p>
+      <DatabaseActions application={application} />
       {protection.error && <p role="alert">{protection.error}</p>}
       {state.mode === 'unavailable' ? (
         <p>
@@ -197,7 +206,9 @@ function RootLayout() {
           </Button>
         </section>
       ) : (
-        <Outlet />
+        <div inert={Boolean(state.pendingFile)} aria-busy={Boolean(state.pendingFile)}>
+          {retainedView && <Outlet />}
+        </div>
       )}
     </div>
   );

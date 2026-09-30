@@ -157,16 +157,16 @@ void app.whenReady().then(async () => {
     drafts,
     currentDocument: () => documentTracker?.currentDocument() ?? null,
     onDocumentChanged,
+    ready: async () => {
+      await starting;
+    },
     logError: error => {
       console.error(error);
     },
   });
-  starting = service.start();
-  await starting;
-  if (shuttingDown) {
-    return;
-  }
-
+  starting = service.start().catch(error => {
+    console.error(error);
+  });
   createWindow();
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([

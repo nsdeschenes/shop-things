@@ -1,6 +1,6 @@
 import {expect, test} from 'vitest';
 
-import createPreviewClient from './preview';
+import createPreviewClient, {setPreviewOutcome} from './preview';
 
 test('temporary canonical records normalize decimal strings and retain opaque revision checks', async () => {
   const client = createPreviewClient();
@@ -126,4 +126,33 @@ test('preview uses numeric search and number ordering before immutable ID ties',
     status: 'success',
     value: [{customer: {id: first.value.customer.id}}],
   });
+});
+
+test('preview transitions clone state, correlate abort/commit and preserve a cancelled snapshot', async () => {
+  const client = createPreviewClient();
+  const before = await client.database.status();
+  if (before.status !== 'success') {
+    throw new Error('No preview');
+  }
+
+  const resolutions: string[] = [];
+  client.drafts.registerProtection({
+    prepare: async request => ({...request, hasUnsavedDraft: false}),
+    resolve: resolution => {
+      resolutions.push(resolution.outcome);
+    },
+  });
+  setPreviewOutcome(client, 'cancelled');
+  expect(await client.database.open()).toEqual({status: 'cancelled'});
+  expect(await client.database.status()).toEqual(before);
+  setPreviewOutcome(client, 'success');
+  const opened = await client.database.open();
+  expect(opened.status).toBe('success');
+  expect(before.value.version).toBe(1);
+  expect(resolutions).toEqual(['aborted', 'committed']);
+  if (opened.status !== 'success') {
+    throw new Error('Transition failed');
+  }
+
+  expect(opened.value.session).not.toBe(before.value.session);
 });

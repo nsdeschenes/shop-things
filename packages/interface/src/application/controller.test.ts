@@ -433,3 +433,30 @@ test('protected customer replacement permits only its coordinated get and suppre
   expect(f.application.protection.getState().frozen).toBe(false);
   f.application.dispose();
 });
+
+test('saved file operations gate customer dispatch and retain session while their held result settles', async () => {
+  const client = createPreviewClient();
+  const held = deferred<{status: 'success'; value: {path: string}}>();
+  client.database.backup = () => held.promise;
+  const application = createApplication('http://localhost/?preview=true', false, {
+    client,
+  });
+  await application.start();
+  const before = application.getState().database;
+  if (!before?.session) {
+    throw new Error('Missing session');
+  }
+
+  const saving = application.fileAction('backup');
+  expect(application.getState().pendingFile).toBe('backup');
+  const read = await application.request(before.session, client =>
+    client.customers.list({session: before.session!, query: ''})
+  );
+  expect(read).toMatchObject({status: 'error', error: {code: 'BUSY'}});
+  held.resolve({status: 'success', value: {path: 'Preview: backup.sqlite'}});
+  await saving;
+  expect(application.getState().database).toEqual(before);
+  expect(application.getState().pendingFile).toBeNull();
+  expect(application.getState().fileSuccess).toContain('Preview: backup.sqlite');
+  application.dispose();
+});

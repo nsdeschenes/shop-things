@@ -25,7 +25,7 @@ test('actual IPC protects invalid controlled drafts, reversion, native close/qui
   try {
     const page = await application.firstWindow();
     await expect(
-      page.getByRole('heading', {name: 'Customers', exact: true})
+      page.getByRole('heading', {name: 'Set up your database', exact: true})
     ).toBeVisible();
     await page.addScriptTag({
       path: join(root, 'acceptance-reports/harness/controlled-editor.mjs'),
@@ -77,7 +77,7 @@ test('actual IPC protects invalid controlled drafts, reversion, native close/qui
     await input.fill('0.00');
     await reload();
     await expect(
-      page.getByRole('heading', {name: 'Customers', exact: true})
+      page.getByRole('heading', {name: 'Set up your database', exact: true})
     ).toBeVisible();
     await expect(input).toHaveCount(0);
     expect(
