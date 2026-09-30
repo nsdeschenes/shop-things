@@ -11,7 +11,7 @@ import {
   updateCustomerInputSchema,
 } from '@shop-things/contract/schemas';
 
-import {recordPreviewBackup, recordPreviewExport} from './previewFiles';
+import {getPreviewBackup, recordPreviewBackup, recordPreviewExport} from './previewFiles';
 
 export type PreviewOutcome = 'success' | 'cancelled' | 'error';
 const outcomes = new WeakMap<Client, (outcome: PreviewOutcome) => void>();
@@ -41,7 +41,10 @@ export default function createPreviewClient(
   const listeners = new Set<(state: DatabaseState) => void>();
   let participant: Parameters<Client['drafts']['registerProtection']>[0] | null = null;
   let outcome: PreviewOutcome = 'success';
-  async function transition(action: string) {
+  async function transition(
+    action: string,
+    snapshot: ReturnType<typeof getPreviewBackup> = null
+  ) {
     const owner = participant;
     if (!owner) {
       return error(
@@ -77,12 +80,18 @@ export default function createPreviewClient(
         );
       }
 
-      customers.length = 0;
-      nextId = 1;
+      const session = crypto.randomUUID();
+      const restored =
+        snapshot?.customers.map(record => ({
+          customer: {...record.customer},
+          reference: {session, id: record.customer.id, revision: crypto.randomUUID()},
+        })) ?? [];
+      customers.splice(0, customers.length, ...restored);
+      nextId = snapshot?.nextId ?? 1;
       state = {
         available: true,
         selectedPath: `Preview: ${action} customers.sqlite`,
-        session: crypto.randomUUID(),
+        session,
         version: state.version + 1,
       };
       for (const listener of listeners) {
@@ -148,16 +157,6 @@ export default function createPreviewClient(
       '.' +
       fraction.padEnd(2, '0')
     );
-  }
-
-  async function disabled() {
-    return {
-      status: 'error' as const,
-      error: {
-        code: 'DATABASE_UNAVAILABLE' as const,
-        message: 'This action is not available yet.',
-      },
-    };
   }
 
   async function savedFile(session: string, action: 'backup' | 'csv') {
@@ -331,7 +330,17 @@ export default function createPreviewClient(
       create: () => transition('create'),
       open: () => transition('open'),
       backup: ({session}) => savedFile(session, 'backup'),
-      restore: disabled,
+      restore: () => {
+        const snapshot = getPreviewBackup(client);
+        return snapshot
+          ? transition('restored', snapshot)
+          : Promise.resolve(
+              error(
+                'DATABASE_UNAVAILABLE',
+                'Simulated restore needs a saved backup. Back up the temporary database first.'
+              )
+            );
+      },
       onStateChanged: listener => {
         listeners.add(listener);
         return () => {
