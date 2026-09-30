@@ -3,8 +3,10 @@
 ## Desktop app
 
 Use Node.js 22.18+ (or 24.11+). Install dependencies with `pnpm install`, then run
-`pnpm dev` to start the Vite renderer and Electron together. React changes use
-Vite's HMR.
+`pnpm dev` to start the Vite renderer and Electron together. Source changes request
+a guarded app restart; Vite HMR is disabled to preserve drafts before approval.
+If you keep editing or a build fails, type `r` and press Enter to retry. Cancelling
+shutdown keeps development watching active.
 
 Build installers on their target operating systems:
 
