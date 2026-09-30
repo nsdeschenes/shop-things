@@ -178,13 +178,13 @@ function RootLayout() {
           <p {...stylex.props(styles.title)}>Shop Things</p>
         </Link>
       </header>
-      <p {...stylex.props(styles.database)}>
-        {state.mode === 'live'
-          ? 'Live mode'
-          : state.mode === 'preview'
+      {state.mode !== 'live' && (
+        <p {...stylex.props(styles.database)}>
+          {state.mode === 'preview'
             ? 'Browser preview — temporary data'
             : 'Application unavailable'}
-      </p>
+        </p>
+      )}
       <DatabaseActions application={application} />
       {protection.error && <p role="alert">{protection.error}</p>}
       {state.mode === 'unavailable' ? (

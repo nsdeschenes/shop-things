@@ -3,7 +3,8 @@
 The integrated application has startup/setup/recovery, protected Create/Open/Retry,
 customer CRUD and search, explicit stale/deleted/unavailable recovery, all-saved
 Backup/CSV, and separate-file Restore. Browser preview requires exactly
-`preview=true`, identifies temporary data, and labels simulated file operations.
+`preview=true` and identifies temporary customer data that clears on reload.
+File operations are available only in Electron; preview has no file or failure controls.
 
 ## Run the complete automated record
 
@@ -62,11 +63,10 @@ controlled; no operator settings or application processes are used.
   failures preserving the old session/view/draft even after discard approval.
 - `savedFiles.spec.ts`: all saved rows despite search, CSV escaping/money/null
   values, unsaved draft exclusion, independent backup reopen, no leave prompt,
-  pending/Cancel/EEXIST/folder/BUSY feedback and temporary simulations.
-- `restore.spec.ts`: explanation before native action, Stay/both picker Cancels,
+  pending/Cancel/EEXIST/folder/BUSY feedback.
+- `restore.spec.ts`: direct protected action, Stay/both picker Cancels,
   separate destination/source preservation, unsupported/migration/persistence
-  failure cleanup, fresh-session reset and remembered reopen; preview snapshot
-  cloning and correlated cancel/failure/commit.
+  failure cleanup, fresh-session reset and remembered reopen.
 - `history.spec.ts`, `unload.spec.ts`: actual Back/Forward safe Stay/Discard,
   editor handoff after approved navigation, native Chromium beforeunload dismissal
   retaining invalid edits and acceptance resetting temporary data without a stacked

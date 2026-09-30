@@ -20,7 +20,6 @@ interface PendingPreparation {
   participant: DraftParticipant;
   request: DraftRequest;
   replied: boolean;
-  valid: boolean;
   complete(hasUnsavedDraft: boolean): void;
   fail(error: Error): void;
   timer: ReturnType<typeof setTimeout>;
@@ -44,12 +43,7 @@ export class DraftCoordinator {
 
   reply(participant: DraftParticipant, payload: unknown): boolean {
     const pending = this.pending;
-    if (
-      !pending ||
-      pending.participant !== participant ||
-      pending.replied ||
-      !pending.valid
-    ) {
+    if (!pending || pending.participant !== participant || pending.replied) {
       return false;
     }
 
@@ -86,7 +80,6 @@ export class DraftCoordinator {
         participant,
         request,
         replied: false,
-        valid: true,
         complete,
         fail,
         timer: setTimeout(() => {
@@ -104,11 +97,7 @@ export class DraftCoordinator {
     return {
       hasUnsavedDraft,
       assertCurrent: () => {
-        if (
-          !pending.valid ||
-          this.participant !== participant ||
-          participant.documentId !== request.documentId
-        ) {
+        if (this.pending !== pending) {
           throw new Error('The prepared editor document changed');
         }
       },
@@ -129,15 +118,12 @@ export class DraftCoordinator {
   }
 
   private finish(pending: PendingPreparation, outcome: DraftResolution['outcome']): void {
-    if (!pending.valid) {
+    if (this.pending !== pending) {
       return;
     }
 
-    pending.valid = false;
+    this.pending = null;
     clearTimeout(pending.timer);
-    if (this.pending === pending) {
-      this.pending = null;
-    }
 
     try {
       pending.participant.resolve({...pending.request, outcome});
