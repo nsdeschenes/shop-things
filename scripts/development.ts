@@ -1,18 +1,22 @@
-/* oxlint-disable import/no-named-export -- Development entrypoints are dispatched by the shared task runner. */
+/* oxlint-disable import/no-named-export -- Development entrypoints are shared by development and test-watch scripts. */
 import {spawn} from 'node:child_process';
+import type {ChildProcess} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {dirname, join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 
-import {requestOrderlyExit, RestartSupervisor} from './processes.mjs';
-import {buildAll, root, sourceVersion, task} from './tasks.mjs';
+import {buildAll} from './build.ts';
+import {requestOrderlyExit, RestartSupervisor} from './processes.ts';
+import {sourceVersion} from './sourceVersion.ts';
+import {testAll} from './test.ts';
+import {root} from './workspace.ts';
 
 export async function develop() {
   const requireElectron = createRequire(join(root, 'packages/electron/package.json'));
-  let electron = null;
-  let vite = null;
+  let electron: ChildProcess | null = null;
+  let vite: ChildProcess | null = null;
   let stopping = false;
-  let timer = null;
+  let timer: ReturnType<typeof setInterval> | undefined;
   const url = 'http://127.0.0.1:5173';
   const supervisor = new RestartSupervisor({
     version: sourceVersion,
@@ -112,7 +116,7 @@ export async function watchTests() {
     if (version !== last) {
       last = version;
       try {
-        await task('test');
+        await testAll();
       } catch (error) {
         console.error(error);
       }

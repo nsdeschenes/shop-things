@@ -5,13 +5,36 @@ import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 const directory = resolve(process.env.ACCEPTANCE_REPORT_DIR ?? 'acceptance-reports');
 await mkdir(directory, {recursive: true});
-function git(args) {
+function git(args: string[]) {
   const result = spawnSync('git', args, {encoding: 'utf8'});
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
 
-const report = {
+type Step = {
+  name: string;
+  status: 'running' | 'passed' | 'failed';
+  startedAt: string;
+  command: string[];
+  exitCode?: number | null;
+  signal?: NodeJS.Signals | null;
+  error?: string;
+  finishedAt?: string;
+};
+
+type Report = {
+  schemaVersion: number;
+  status: 'running' | 'passed' | 'failed';
+  commit: string;
+  startedAt: string;
+  environment: string;
+  steps: Step[];
+  package?: unknown;
+  error?: string | {message: string; stack: string | undefined};
+  finishedAt?: string;
+};
+
+const report: Report = {
   schemaVersion: 1,
   status: 'running',
   commit: git(['rev-parse', 'HEAD']),
@@ -25,8 +48,8 @@ function persist() {
 }
 
 await persist();
-async function command(name, args) {
-  const step = {
+async function command(name: string, args: string[]) {
+  const step: Step = {
     name,
     status: 'running',
     startedAt: new Date().toISOString(),
@@ -36,7 +59,7 @@ async function command(name, args) {
   await persist();
   let output = '';
   try {
-    await new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       const child = spawn('pnpm', args, {
         env: {
           ...process.env,

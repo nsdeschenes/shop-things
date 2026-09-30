@@ -6,7 +6,7 @@ import {join} from 'node:path';
 
 import {expect, test} from 'vitest';
 
-import {requestOrderlyExit, RestartSupervisor, runCommand} from '../processes.mjs';
+import {requestOrderlyExit, RestartSupervisor, runCommand} from '../processes.ts';
 
 async function childProcess(mode: 'accept' | 'deny') {
   const child = spawn(

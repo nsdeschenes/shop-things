@@ -4,9 +4,9 @@
   "type": "module",
   "scripts": {
     "start": "node --experimental-strip-types index.ts",
-    "dev": "node scripts/tasks.mjs dev",
+    "dev": "node --experimental-strip-types scripts/dev.ts",
     "dev:packages": "pnpm --parallel --filter @shop-things/contract --filter @shop-things/db dev",
-    "build": "node scripts/tasks.mjs build",
+    "build": "node --experimental-strip-types scripts/build.ts",
     "dist:mac": "pnpm build && pnpm --filter electron exec electron-builder --mac dmg --arm64 --publish never",
     "dist:win": "pnpm build && pnpm --filter electron exec electron-builder --win nsis --x64 --publish never",
     "dist:linux": "pnpm dist:linux:x64",
@@ -19,9 +19,9 @@
     "lint:fix": "oxlint --fix",
     "pre-commit:run": "prek run",
     "pre-commit:install": "prek install",
-    "test": "node scripts/tasks.mjs test",
-    "test:watch": "node scripts/tasks.mjs test-watch",
-    "prepare:backend": "node scripts/tasks.mjs prepare"
+    "test": "node --experimental-strip-types scripts/test.ts",
+    "test:watch": "node --experimental-strip-types scripts/test-watch.ts",
+    "prepare:backend": "node --experimental-strip-types scripts/prepare.ts"
   },
   "devDependencies": {
     "@e18e/eslint-plugin": "^0.8.1",

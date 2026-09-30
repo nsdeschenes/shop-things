@@ -23,7 +23,7 @@ Actual renderer refresh, draft preservation during watcher restarts, native-dial
 and navigation/security journeys remain deferred to renderer integration. Build/process
 checks exercise emitted code and controlled participants rather than a connected GUI.
 
-Run `node scripts/acceptance.mjs` from a clean committed checkout on Linux glibc x64
+Run `node --experimental-strip-types scripts/acceptance.ts` from a clean committed checkout on Linux glibc x64
 to install, run all required checks without skipped cases, build/package, and execute
 the shipped backend under the packaged Electron executable in Node mode.
 `ACCEPTANCE_REPORT_DIR` selects the report/log directory (default `acceptance-reports`).

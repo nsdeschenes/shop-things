@@ -3,7 +3,8 @@ import {join} from 'node:path';
 
 import {expect, test} from 'vitest';
 
-import {inspectBrowserDependencies, pnpm, root} from '../tasks.mjs';
+import {inspectBrowserDependencies} from '../inspectBrowserDependencies.ts';
+import {pnpm, root} from '../workspace.ts';
 
 const prohibitedDependency = /Prohibited contract dependency/;
 

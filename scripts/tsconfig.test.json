@@ -1,7 +1,4 @@
 {
-  "extends": "../tsconfig.json",
-  "compilerOptions": {
-    "allowJs": true
-  },
+  "extends": "./tsconfig.json",
   "include": ["test", "vitest.config.ts"]
 }

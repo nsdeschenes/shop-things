@@ -3,7 +3,7 @@ import {dirname, resolve} from 'node:path';
 
 import {defineConfig} from 'tsdown';
 
-import {runCommand} from '../../scripts/processes.mjs';
+import {runCommand} from '../../scripts/processes.ts';
 const require = createRequire(import.meta.url);
 
 export default defineConfig({

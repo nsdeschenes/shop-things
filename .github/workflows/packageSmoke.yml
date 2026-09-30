@@ -19,7 +19,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - name: Clean source checks, package and shipped backend acceptance
-        run: node scripts/acceptance.mjs
+        run: node --experimental-strip-types scripts/acceptance.ts
         env:
           ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
           SMOKE_EXECUTION_ENVIRONMENT: github-actions-ubuntu-24.04-native-linux-x64

@@ -6,13 +6,13 @@
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
-    "start": "node ../../scripts/tasks.mjs start",
-    "dev": "node ../../scripts/tasks.mjs dev",
-    "build:main": "node ../../scripts/tasks.mjs electron-build",
-    "test": "node ../../scripts/tasks.mjs electron-test",
-    "test:watch": "node ../../scripts/tasks.mjs electron-watch",
-    "test:smoke": "node ../../scripts/tasks.mjs electron-smoke",
-    "build:preload": "node ../../scripts/tasks.mjs preload-build"
+    "start": "node --experimental-strip-types ../../scripts/start.ts",
+    "dev": "node --experimental-strip-types ../../scripts/dev.ts",
+    "build:main": "node --experimental-strip-types ../../scripts/electron-build.ts",
+    "test": "node --experimental-strip-types ../../scripts/electron-test.ts",
+    "test:watch": "node --experimental-strip-types ../../scripts/test-watch.ts",
+    "test:smoke": "node --experimental-strip-types ../../scripts/electron-smoke.ts",
+    "build:preload": "node --experimental-strip-types ../../scripts/preload-build.ts"
   },
   "dependencies": {
     "@shop-things/contract": "workspace:*",

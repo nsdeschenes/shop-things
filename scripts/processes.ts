@@ -1,8 +1,9 @@
 /* oxlint-disable import/no-named-export -- Shared build/development process boundaries. */
 import {spawn} from 'node:child_process';
+import type {ChildProcess, SpawnOptions} from 'node:child_process';
 
-export function runCommand(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
+export function runCommand(command: string, args: string[], options: SpawnOptions = {}) {
+  return new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, {stdio: 'inherit', ...options});
     child.once('error', reject);
     child.once('exit', (code, signal) => {
@@ -15,7 +16,7 @@ export function runCommand(command, args, options = {}) {
   });
 }
 
-export function requestOrderlyExit(child, timeoutMs = 10_000) {
+export function requestOrderlyExit(child: ChildProcess, timeoutMs = 10_000) {
   if (child.exitCode !== null || child.signalCode !== null) {
     return Promise.resolve(true);
   }
@@ -24,8 +25,8 @@ export function requestOrderlyExit(child, timeoutMs = 10_000) {
     return Promise.resolve(false);
   }
 
-  return new Promise(resolve => {
-    function finish(exited) {
+  return new Promise<boolean>(resolve => {
+    function finish(exited: boolean) {
       clearTimeout(timer);
       child.removeListener('exit', onExit);
       resolve(exited);
@@ -49,13 +50,25 @@ export function requestOrderlyExit(child, timeoutMs = 10_000) {
   });
 }
 
+type SupervisorOptions = {
+  version: () => string | Promise<string>;
+  stop: () => boolean | Promise<boolean>;
+  build: () => void | Promise<unknown>;
+  start: () => void | Promise<unknown>;
+  report?: (error: unknown) => void;
+};
+
 export class RestartSupervisor {
-  constructor({version, stop, build, start, report = console.error}) {
+  options: SupervisorOptions & {report: (error: unknown) => void};
+  attempted: string | null;
+  running: Promise<void> | null;
+
+  constructor({version, stop, build, start, report = console.error}: SupervisorOptions) {
     this.options = {version, stop, build, start, report};
     this.attempted = null;
     this.running = null;
   }
-  refresh() {
+  refresh(): Promise<void> {
     if (this.running) {
       return this.running;
     }
@@ -71,7 +84,7 @@ export class RestartSupervisor {
       await this.cycle(version);
     }
   }
-  async cycle(version) {
+  async cycle(version: string) {
     while (version !== this.attempted) {
       this.attempted = version;
       if (!(await this.options.stop())) {

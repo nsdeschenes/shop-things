@@ -5,7 +5,7 @@ import {join} from 'node:path';
 
 import {expect, test} from 'vitest';
 
-import {root} from '../tasks.mjs';
+import {root} from '../workspace.ts';
 
 const cleanCheckoutError = /Require clean committed sources/;
 
@@ -35,8 +35,8 @@ test('both acceptance gates reject nonignored untracked source and migrations wh
     await mkdir(join(directory, 'packages/electron/smoke'), {recursive: true});
     await mkdir(join(directory, 'scripts'), {recursive: true});
     await cp(
-      join(root, 'scripts/acceptance.mjs'),
-      join(directory, 'scripts/acceptance.mjs')
+      join(root, 'scripts/acceptance.ts'),
+      join(directory, 'scripts/acceptance.ts')
     );
     await cp(
       join(root, 'packages/electron/smoke/packaged.test.ts'),
@@ -97,9 +97,14 @@ test('both acceptance gates reject nonignored untracked source and migrations wh
       const path = join(directory, input);
       await mkdir(join(path, '..'), {recursive: true});
       await writeFile(path, 'uncommitted input');
-      const accepted = run(process.execPath, ['scripts/acceptance.mjs'], directory, {
-        ACCEPTANCE_REPORT_DIR: join(directory, 'acceptance-reports'),
-      });
+      const accepted = run(
+        process.execPath,
+        ['--experimental-strip-types', 'scripts/acceptance.ts'],
+        directory,
+        {
+          ACCEPTANCE_REPORT_DIR: join(directory, 'acceptance-reports'),
+        }
+      );
       expect(accepted.status).toBe(1);
       const acceptance = JSON.parse(
         await readFile(join(directory, 'acceptance-reports/acceptance.json'), 'utf8')

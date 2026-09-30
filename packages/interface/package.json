@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node ../../scripts/tasks.mjs interface-dev",
-    "build": "node ../../scripts/tasks.mjs interface-build",
+    "dev": "node --experimental-strip-types ../../scripts/interface-dev.ts",
+    "build": "node --experimental-strip-types ../../scripts/interface-build.ts",
     "preview": "vite preview",
-    "test": "node ../../scripts/tasks.mjs interface-test",
-    "test:watch": "node ../../scripts/tasks.mjs interface-watch"
+    "test": "node --experimental-strip-types ../../scripts/interface-test.ts",
+    "test:watch": "node --experimental-strip-types ../../scripts/test-watch.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
