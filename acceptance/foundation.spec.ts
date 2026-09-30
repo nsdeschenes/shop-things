@@ -23,7 +23,7 @@ test('explicit preview survives routing and reload without native storage', asyn
   await expect(
     page.getByText('Browser preview — temporary data', {exact: false})
   ).toBeVisible();
-  await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+  await expect(page.getByRole('button', {name: 'Save'})).toBeEnabled();
   await page.getByRole('link', {name: 'Customer records Shop Things'}).click();
   await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
   expect(new URL(page.url()).searchParams.get('preview')).toBe('true');
@@ -84,11 +84,12 @@ for (const development of [true, false]) {
         await BrowserWindow.getAllWindows()[0]!.loadURL(destination);
       }, url.href);
       await expect(page.getByText('Live mode', {exact: false})).toBeVisible();
-      await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
-      await page.reload();
       await expect(
-        page.getByRole('heading', {name: 'Customer Editing Unavailable'})
+        page.getByText('The database is unavailable.', {exact: true})
       ).toBeVisible();
+      await expect(page.getByRole('textbox', {name: 'First name'})).toHaveCount(0);
+      await page.reload();
+      await expect(page.getByRole('heading', {name: 'New Customer'})).toBeVisible();
       await page.evaluate(() => {
         window.open('https://example.com');
       });
@@ -108,7 +109,7 @@ for (const development of [true, false]) {
             'document.querySelector("h1").textContent'
           )
         )
-      ).toBe('Customer Editing Unavailable');
+      ).toBe('New Customer');
       const protectedStatus = await application.evaluate(({BrowserWindow}) =>
         BrowserWindow.getAllWindows()[0]!.webContents.executeJavaScript(
           'window.shopThings.database.status()'

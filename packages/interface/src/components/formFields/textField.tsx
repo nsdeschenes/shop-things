@@ -35,7 +35,7 @@ export default function TextField({label, inputMode, uppercase, style}: Props) {
       />
       {field.state.meta.errors.length > 0 && (
         <Field.Error match {...stylex.props(styles.error)}>
-          {field.state.meta.errors.map(error => error?.message).join(' ')}
+          {[...new Set(field.state.meta.errors.map(error => error?.message))].join(' ')}
         </Field.Error>
       )}
     </Field.Root>

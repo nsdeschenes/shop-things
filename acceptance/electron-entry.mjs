@@ -40,6 +40,23 @@ ipcMain.handle = (channel, listener) =>
       return null;
     }
 
+    if (
+      globalThis.acceptanceFault?.channel === channel &&
+      globalThis.acceptanceFault.before
+    ) {
+      const fault = globalThis.acceptanceFault;
+      globalThis.acceptanceFault = null;
+      const result = {status: 'error', error: fault.error};
+      if (fault.hold) {
+        globalThis.acceptanceHeldRead = {channel, result};
+        await new Promise(resolve => {
+          globalThis.acceptanceReleaseRead = resolve;
+        });
+      }
+
+      return result;
+    }
+
     const result = await listener(...args);
     if (globalThis.acceptanceFault?.channel === channel) {
       const fault = globalThis.acceptanceFault;
@@ -101,14 +118,12 @@ if (process.env.SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS) {
     balance: '-1.23',
     previousBalance: '10.00',
   });
-  await handle.db
-    .insert(schema.customers)
-    .values({
-      firstName: 'Unnumbered',
-      lastName: 'Three',
-      customerNumber: null,
-      donate: false,
-    });
+  await handle.db.insert(schema.customers).values({
+    firstName: 'Unnumbered',
+    lastName: 'Three',
+    customerNumber: null,
+    donate: false,
+  });
   handle.close();
   await writeFile(
     join(app.getPath('userData'), 'database.json'),

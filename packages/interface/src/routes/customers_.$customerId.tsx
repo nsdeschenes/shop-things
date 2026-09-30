@@ -1,6 +1,6 @@
 import * as stylex from '@stylexjs/stylex';
 import {isCancelledError, useQuery} from '@tanstack/react-query';
-import {createFileRoute, Link} from '@tanstack/react-router';
+import {createFileRoute, Link, useRouterState} from '@tanstack/react-router';
 import {useSyncExternalStore} from 'react';
 
 import {CustomerRequestError, customerDetailOptions} from '../application/customers';
@@ -53,6 +53,9 @@ const styles = stylex.create({
 });
 
 function RouteComponent() {
+  const notice = useRouterState({
+    select: value => (value.location.state as {customerNotice?: string}).customerNotice,
+  });
   const {application} = Route.useRouteContext();
   const state = useSyncExternalStore(application.subscribe, application.getState);
   const protection = useSyncExternalStore(
@@ -172,6 +175,7 @@ function RouteComponent() {
         </div>
       }
     >
+      {notice && <p role="status">{notice}</p>}
       <div {...stylex.props(styles.details)}>
         {sections.map(({heading, fields}) => (
           <section key={heading} {...stylex.props(styles.section)}>

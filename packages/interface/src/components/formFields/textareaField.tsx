@@ -4,9 +4,9 @@ import * as stylex from '@stylexjs/stylex';
 import formContexts from '../../forms/formContexts';
 import styles from './fieldStyles';
 
-type Props = {label: string; style?: stylex.StyleXStyles};
+type Props = {disabled?: boolean; label: string; style?: stylex.StyleXStyles};
 
-export default function TextareaField({label, style}: Props) {
+export default function TextareaField({label, style, disabled}: Props) {
   const field = formContexts.useFieldContext<string>();
   return (
     <Field.Root
@@ -19,6 +19,7 @@ export default function TextareaField({label, style}: Props) {
       <Field.Label {...stylex.props(styles.label)}>{label}</Field.Label>
       <Field.Control
         render={<textarea />}
+        disabled={disabled}
         name={field.name}
         value={field.state.value}
         onBlur={field.handleBlur}

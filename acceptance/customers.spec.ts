@@ -34,7 +34,7 @@ for (const development of [true, false]) {
         'Unnumbered Three',
         'Zed Two',
       ]);
-      await expect(page.getByRole('button', {name: 'Add customer'})).toBeDisabled();
+      await expect(page.getByRole('link', {name: 'Add customer'})).toBeVisible();
       const search = page.getByRole('textbox', {name: 'Search customers'});
       await search.fill('Alpha');
       await expect(page.getByText('1 result', {exact: true})).toBeVisible();
