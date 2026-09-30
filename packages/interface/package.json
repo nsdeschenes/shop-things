@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --experimental-strip-types ../../scripts/interface-dev.ts",
+    "typecheck": "node --experimental-strip-types ../../scripts/typecheck.ts interface",
     "build": "node --experimental-strip-types ../../scripts/interface-build.ts",
     "preview": "vite preview",
     "test": "node --experimental-strip-types ../../scripts/interface-test.ts",

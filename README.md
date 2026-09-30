@@ -17,6 +17,22 @@ system.
 
 ## Tests
 
+Run `pnpm typecheck` from the workspace root to check all packages and the root
+test tooling without running tests or building the desktop app. Checks include
+source, tests, TypeScript configuration files, and contract conformance in both
+Electron and the interface. All check results are collected before the command
+fails. Workspace imports resolve directly to source, so no generated declarations
+or prior build are required.
+
+Run `pnpm typecheck` inside any package, or select one from the root:
+
+```sh
+pnpm --filter @shop-things/contract typecheck
+pnpm --filter @shop-things/db typecheck
+pnpm --filter electron typecheck
+pnpm --filter @shop-things/interface typecheck
+```
+
 All test suites are written in TypeScript. Run `pnpm test` to type-check tests
 and run Vitest in all three packages, or `pnpm test:watch` to
 watch all suites. Run a single suite with `pnpm --filter <package-name> test`

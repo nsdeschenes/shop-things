@@ -1,0 +1,3 @@
+{
+  "extends": ["./tsconfig.contract.json", "../../tsconfig.typecheck.json"]
+}

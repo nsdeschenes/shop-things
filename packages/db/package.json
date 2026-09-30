@@ -12,6 +12,7 @@
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
+    "typecheck": "node --experimental-strip-types ../../scripts/typecheck.ts db",
     "test": "pnpm build && tsc -p tsconfig.test.json && vitest run",
     "migrations:generate": "drizzle-kit generate --config drizzle.config.ts",
     "migrations:check": "drizzle-kit check --config drizzle.config.ts",
