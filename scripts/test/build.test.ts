@@ -1,8 +1,7 @@
-/* oxlint-disable vitest-js/no-import-node-test -- Build gates execute the real prerequisite and consumer entrypoints. */
 import assert from "node:assert/strict";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { test } from "node:test";
+import { expect, test } from "vitest";
 import { inspectBrowserDependencies, pnpm, root } from "../tasks.mjs";
 
 const prohibitedDependency = /Prohibited contract dependency/;
@@ -14,7 +13,7 @@ test("direct Electron builds compile their contract and database prerequisites",
   }
 
   await pnpm(["--filter", "electron", "build:main"], { stdio: "ignore" });
-  await readFile(join(root, "packages/contract/dist/client.js"));
+  await expect(readFile(join(root, "packages/contract/dist/client.js"))).resolves.toBeDefined();
   await readFile(join(root, "packages/electron/dist/main.js"));
   await readFile(join(root, "packages/electron/dist/preload.cjs"));
   await readFile(join(root, "packages/db/dist/index.d.ts"));
@@ -43,7 +42,7 @@ test("dependency inspection rejects backend imports in the browser contract", as
   const manifestPath = join(root, "packages/contract/package.json");
   const manifestBytes = await readFile(manifestPath);
   try {
-    const manifest = JSON.parse(manifestBytes);
+    const manifest = JSON.parse(manifestBytes.toString("utf8"));
     manifest.dependencies["@shop-things/db"] = "workspace:*";
     await writeFile(manifestPath, JSON.stringify(manifest));
     await assert.rejects(inspectBrowserDependencies(), prohibitedDependency);

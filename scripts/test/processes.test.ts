@@ -1,14 +1,13 @@
-/* oxlint-disable vitest-js/no-import-node-test -- These checks exercise native child processes with Node's runner. */
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-import { test } from "node:test";
+import { test } from "vitest";
 import { requestOrderlyExit, RestartSupervisor, runCommand } from "../processes.mjs";
 
-async function childProcess(mode) {
+async function childProcess(mode: "accept" | "deny") {
   const child = spawn(
     process.execPath,
     [
@@ -43,7 +42,7 @@ test("failed builds prevent launches until a successful cycle", async () => {
   const launchPath = join(directory, "launched");
   await writeFile(versionPath, "1");
   let failing = true;
-  const failures = [];
+  const failures: unknown[] = [];
   const supervisor = new RestartSupervisor({
     version: () => readFile(versionPath, "utf8"),
     stop: async () => true,
@@ -58,7 +57,7 @@ test("failed builds prevent launches until a successful cycle", async () => {
         ["-e", "require('node:fs').appendFileSync(process.argv[1],'launched\\n')", launchPath],
         { stdio: "ignore" },
       ),
-    report: (error) => failures.push(error),
+    report: (error: unknown) => failures.push(error),
   });
   try {
     await supervisor.refresh();

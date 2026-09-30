@@ -299,17 +299,15 @@ export async function task(name) {
       await buildAll({ interfaceBuild: false });
       await testElectron();
       await testInterface();
-      return runCommand(
-        process.execPath,
-        [
-          "--test",
-          "--test-concurrency=1",
-          "scripts/test/processes.test.mjs",
-          "scripts/test/build.test.mjs",
-          "scripts/test/provenance.test.mjs",
-        ],
-        { cwd: root },
-      );
+      await pnpm(["exec", "tsc", "-p", "scripts/tsconfig.test.json"]);
+      return pnpm([
+        "exec",
+        "vitest",
+        "run",
+        "--config",
+        "scripts/vitest.config.ts",
+        ...testReportArguments("scripts-tests"),
+      ]);
     case "electron-watch":
     case "interface-watch":
       return task("test-watch");

@@ -24,7 +24,7 @@
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
-    "test": "pnpm build && node --test --test-concurrency=1 test/*.test.mjs && pnpm test:conformance",
+    "test": "pnpm build && tsc -p tsconfig.test.json && vitest run && pnpm test:conformance",
     "test:conformance": "pnpm --filter electron exec tsc -p tsconfig.contract.json && pnpm --filter @shop-things/interface exec tsc -p tsconfig.contract.json"
   },
   "dependencies": {
@@ -32,6 +32,7 @@
   },
   "devDependencies": {
     "tsdown": "^0.23.0",
-    "typescript": "^7"
+    "typescript": "^7",
+    "vitest": "^5.0.2"
   }
 }

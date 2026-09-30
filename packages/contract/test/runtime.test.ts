@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { afterEach, expect, test, vi } from "vitest";
+import type {
+  DatabaseState,
+  DraftProtection,
+  DraftResolution,
+  ShopThingsBridge,
+} from "../dist/index.js";
+
+afterEach(() => vi.unstubAllGlobals());
 import {
   actions,
   databaseStateSchema,
@@ -32,9 +40,9 @@ const values = {
 const reference = { session: "session", id: 1, revision: "revision" };
 const record = { customer: { ...values, id: 1, customerNumber: 1 }, reference };
 function makeBridge() {
-  const listeners = new Set();
-  let protection;
-  const bridge = {
+  const listeners = new Set<(state: DatabaseState) => void>();
+  let protection: DraftProtection | undefined;
+  const bridge: ShopThingsBridge = {
     customers: {
       list: async () => ({ status: "success", value: [record] }),
       get: async () => ({ status: "success", value: record }),
@@ -138,7 +146,10 @@ test("named calls preserve outcomes and contain rejected or malformed transport"
     value: [record],
   });
   assert.deepEqual(await client.database.open(), { status: "cancelled" });
-  const expected = { status: "error", error: { code: "STALE_SESSION", message: "Reload." } };
+  const expected = {
+    status: "error",
+    error: { code: "STALE_SESSION", message: "Reload." },
+  } as const;
   bridge.customers.get = async () => expected;
   assert.deepEqual(await client.customers.get({ session: "s", id: 1 }), expected);
   bridge.customers.get = async () => {
@@ -149,32 +160,35 @@ test("named calls preserve outcomes and contain rejected or malformed transport"
     status: "error",
     error: { code: "INTERNAL", message: "The application could not complete the request." },
   });
+  // @ts-expect-error Simulate a malformed transport response.
   bridge.customers.get = async () => ({ status: "success", value: "malformed" });
-  assert.equal((await client.customers.get({ session: "s", id: 1 })).error.code, "INTERNAL");
+  const malformed = await client.customers.get({ session: "s", id: 1 });
+  assert.equal(malformed.status, "error");
+  assert.equal(malformed.error.code, "INTERNAL");
   let calls = 0;
   bridge.customers.create = async () => {
     calls++;
     return { status: "success", value: record };
   };
 
-  assert.equal(
-    (await client.customers.create({ session: "s", values: { ...values, id: 2 } })).error.code,
-    "VALIDATION",
-  );
+  // @ts-expect-error Generated identity must be rejected at runtime too.
+  const invalid = await client.customers.create({ session: "s", values: { ...values, id: 2 } });
+  assert.equal(invalid.status, "error");
+  assert.equal(invalid.error.code, "VALIDATION");
   assert.equal(calls, 0);
   assert.throws(() => getClient(), unavailableBridge);
-  globalThis.window = { shopThings: {} };
+  vi.stubGlobal("window", { shopThings: {} });
   assert.throws(() => getClient(), unavailableBridge);
-  globalThis.window = { shopThings: bridge };
+  vi.stubGlobal("window", { shopThings: bridge });
   assert.equal((await getClient().database.status()).status, "success");
-  delete globalThis.window;
 });
 test("validated payload-only subscriptions unsubscribe and reject invalid drafts", async () => {
   const fixture = makeBridge();
   const client = createClient(fixture.bridge);
-  const delivered = [];
+  const delivered: DatabaseState[] = [];
   const unsubscribe = client.database.onStateChanged((value) => delivered.push(value));
   const listener = [...fixture.listeners][0];
+  assert.ok(listener);
   listener({ ...state, version: -1 });
   listener(state);
   assert.deepEqual(delivered, [state]);
@@ -184,7 +198,7 @@ test("validated payload-only subscriptions unsubscribe and reject invalid drafts
   assert.equal(fixture.listeners.size, 0);
   assert.equal(delivered.length, 1);
   let prepares = 0;
-  const resolutions = [];
+  const resolutions: DraftResolution[] = [];
   const stop = client.drafts.registerProtection({
     prepare: async (request) => {
       prepares++;
@@ -193,6 +207,8 @@ test("validated payload-only subscriptions unsubscribe and reject invalid drafts
     resolve: (payload) => resolutions.push(payload),
   });
   const handler = fixture.protection;
+  assert.ok(handler);
+  // @ts-expect-error Simulate an incomplete draft request.
   await assert.rejects(handler.prepare({ requestId: "r" }));
   assert.equal(prepares, 0);
   assert.deepEqual(await handler.prepare({ requestId: "r", documentId: "d" }), {
@@ -200,6 +216,7 @@ test("validated payload-only subscriptions unsubscribe and reject invalid drafts
     documentId: "d",
     hasUnsavedDraft: true,
   });
+  // @ts-expect-error Simulate an invalid draft resolution.
   handler.resolve({ requestId: "r", documentId: "d", outcome: "invalid" });
   assert.equal(resolutions.length, 0);
   handler.resolve({ requestId: "wrong", documentId: "d", outcome: "aborted" });
@@ -212,11 +229,12 @@ test("validated payload-only subscriptions unsubscribe and reject invalid drafts
   handler.resolve({ requestId: "r", documentId: "d", outcome: "committed" });
   assert.equal(resolutions.length, 1);
   await assert.rejects(handler.prepare({ requestId: "r", documentId: "d" }));
-  assert.equal(fixture.protection, undefined);
+  expect(fixture.protection).toBeUndefined();
   client.drafts.registerProtection({
     prepare: async () => ({ requestId: "wrong", documentId: "d", hasUnsavedDraft: false }),
     resolve() {},
   });
+  assert.ok(fixture.protection);
   await assert.rejects(
     fixture.protection.prepare({ requestId: "r", documentId: "d" }),
     mismatchedReply,

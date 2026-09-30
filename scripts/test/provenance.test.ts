@@ -1,15 +1,14 @@
-/* oxlint-disable vitest-js/no-import-node-test -- Provenance gates exercise real Git checkouts and entrypoints. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test } from "vitest";
 import { root } from "../tasks.mjs";
 
 const cleanCheckoutError = /Require clean committed sources/;
 
-function run(command, args, directory, env = {}) {
+function run(command: string, args: string[], directory: string, env: NodeJS.ProcessEnv = {}) {
   return spawnSync(command, args, {
     cwd: directory,
     encoding: "utf8",
@@ -18,7 +17,7 @@ function run(command, args, directory, env = {}) {
   });
 }
 
-function git(args, directory) {
+function git(args: string[], directory: string) {
   const result = run("git", args, directory);
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
