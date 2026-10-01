@@ -4,11 +4,7 @@ import {createFileRoute, redirect} from '@tanstack/react-router';
 import {useRef, useState, useSyncExternalStore} from 'react';
 import {z} from 'zod';
 
-import {
-  CustomerRequestError,
-  customerKeys,
-  customerListOptions,
-} from '../application/customers';
+import {CustomerRequestError, refreshSavedCustomers} from '../application/customers';
 import {admitCustomerRoute} from '../application/routing';
 import Button from '../components/button/button';
 import {
@@ -82,6 +78,8 @@ function ImportReview() {
   const [updating, setUpdating] = useState(false);
   const [saving, setSaving] = useState(false);
   const submitting = useRef(false);
+  const refreshingRequest = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [committed, setCommitted] = useState<{
     session: string;
     addedCount: number;
@@ -90,27 +88,26 @@ function ImportReview() {
   const [refreshError, setRefreshError] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   async function refresh(session: string, addedCount: number, skippedCount: number) {
+    if (refreshingRequest.current) {
+      return;
+    }
+
+    refreshingRequest.current = true;
+    setRefreshing(true);
+    setRefreshError(true);
     const captured = application.captureSession(session);
     try {
       if (!captured.isCurrent()) {
         return;
       }
 
-      await queryClient.invalidateQueries({
-        queryKey: customerKeys.session(session),
-        refetchType: 'none',
-      });
-      if (!captured.isCurrent()) {
-        return;
-      }
-
-      await queryClient.fetchQuery(customerListOptions(application, session, ''));
-      if (!captured.isCurrent()) {
+      if (!(await refreshSavedCustomers(application, session)) || !captured.isCurrent()) {
         return;
       }
 
       await navigate({to: '/customers'});
       if (captured.isCurrent()) {
+        setRefreshError(false);
         application.toasts.success({
           title: `${addedCount} customers added. ${skippedCount} skipped.`,
         });
@@ -119,6 +116,9 @@ function ImportReview() {
       if (captured.isCurrent()) {
         setRefreshError(true);
       }
+    } finally {
+      refreshingRequest.current = false;
+      setRefreshing(false);
     }
   }
 
@@ -144,6 +144,7 @@ function ImportReview() {
         } else {
           const actual = result.value;
           setCommitted(actual);
+          setSaving(false);
           await refresh(actual.session, actual.addedCount, actual.skippedCount);
         }
       } else if (result.status === 'error') {
@@ -188,6 +189,7 @@ function ImportReview() {
   const disabled =
     updating ||
     saving ||
+    refreshing ||
     Boolean(committed) ||
     Boolean(state.pendingFile) ||
     state.pendingTransition ||
@@ -199,7 +201,7 @@ function ImportReview() {
       title="Import Customers"
       actions={
         <Button
-          disabled={saving || Boolean(state.pendingFile)}
+          disabled={saving || refreshing || Boolean(state.pendingFile)}
           onClick={() => {
             void navigate({to: '/customers'});
           }}
@@ -211,15 +213,39 @@ function ImportReview() {
       <p>Selected file: {review.fileName}</p>
       {feedback && <p role="alert">{feedback}</p>}
       {saving && <p role="status">Backing up and adding customers...</p>}
+      {refreshing && <p role="status">Refreshing saved customers...</p>}
       {committed && (
         <p role="status">
           {committed.addedCount} customers added. {committed.skippedCount} skipped.
         </p>
       )}
-      {refreshError && (
-        <p role="alert">
-          Customers were added, but the customer list could not be refreshed.
-        </p>
+      {refreshError && !refreshing && (
+        <>
+          <p role="alert">
+            Customers were added, but the customer list could not be refreshed.
+          </p>
+          <Button
+            disabled={
+              refreshing ||
+              !state.database?.available ||
+              expired ||
+              Boolean(state.pendingFile) ||
+              state.pendingTransition ||
+              state.reconciling
+            }
+            onClick={() => {
+              if (committed) {
+                void refresh(
+                  committed.session,
+                  committed.addedCount,
+                  committed.skippedCount
+                );
+              }
+            }}
+          >
+            Retry refresh
+          </Button>
+        </>
       )}
       {expired ? (
         <p role="alert">This import expired. Choose the file again.</p>

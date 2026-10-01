@@ -1,9 +1,10 @@
-import type {ImportReview} from '@shop-things/contract';
+import type {DatabaseState, ImportReview} from '@shop-things/contract';
 import {act, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, test, vi} from 'vitest';
 
 import {createApplication} from '../../src/application/controller';
+import {customerKeys} from '../../src/application/customers';
 import createPreviewClient from '../../src/application/preview';
 import renderRoute from '../renderRoute';
 
@@ -296,16 +297,29 @@ test.each([
   expect(await screen.findByRole('button', {name: 'Add 0 customers'})).toBeDisabled();
 });
 
-test('keeps successful import totals separate from refresh failure and never restores Add', async () => {
+test('retries only saved-view refresh after repeated failures, blocks duplicates and uses actual totals', async () => {
   const f = fixture();
+  const successToast = vi.spyOn(f.application.toasts, 'success');
   f.client.imports.commit = vi.fn<typeof f.client.imports.commit>(async args => ({
     status: 'success',
     value: {kind: 'committed', session: args.session, addedCount: 1, skippedCount: 2},
   }));
-  f.client.customers.list = async () => ({
-    status: 'error',
-    error: {code: 'INTERNAL', message: 'Read failed'},
+  const failedRead = {
+    status: 'error' as const,
+    error: {code: 'INTERNAL' as const, message: 'Read failed'},
+  };
+  let finish!: () => void;
+  const held = new Promise<void>(resolve => {
+    finish = resolve;
   });
+  f.client.customers.list = vi
+    .fn<typeof f.client.customers.list>()
+    .mockResolvedValueOnce(failedRead)
+    .mockResolvedValueOnce(failedRead)
+    .mockImplementationOnce(async () => {
+      await held;
+      return {status: 'success', value: []};
+    });
   renderRoute('/customers/import?importId=chosen', f.application);
   await userEvent.click(await screen.findByRole('button', {name: 'Add 1 customers'}));
   expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -313,6 +327,85 @@ test('keeps successful import totals separate from refresh failure and never res
   );
   expect(screen.getByRole('status')).toHaveTextContent('1 customers added. 2 skipped.');
   expect(screen.queryByRole('button', {name: 'Add 1 customers'})).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', {name: 'Retry refresh'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('could not be refreshed');
+  expect(screen.getByRole('status')).toHaveTextContent('1 customers added. 2 skipped.');
+  await userEvent.dblClick(screen.getByRole('button', {name: 'Retry refresh'}));
+  expect(f.client.customers.list).toHaveBeenCalledTimes(3);
+  expect(screen.getByText('Refreshing saved customers...')).toBeVisible();
+  expect(screen.getByRole('button', {name: 'Cancel'})).toBeDisabled();
+  await act(async () => {
+    finish();
+  });
+  expect(await screen.findByRole('heading', {name: 'Customers'})).toBeVisible();
+  await waitFor(() =>
+    expect(successToast).toHaveBeenCalledWith({title: '1 customers added. 2 skipped.'})
+  );
+  expect(f.client.imports.commit).toHaveBeenCalledTimes(1);
+  expect(f.client.imports.prepare).not.toHaveBeenCalled();
+});
+
+test('ignores a successful refresh response from a replaced session', async () => {
+  const f = fixture();
+  const successToast = vi.spyOn(f.application.toasts, 'success');
+  const database = await f.client.database.status();
+  if (database.status !== 'success') {
+    throw new Error('Preview database failed');
+  }
+
+  const initial = await f.client.customers.create({
+    session: database.value.session!,
+    values: review.rows[0]!.values,
+  });
+  if (initial.status !== 'success') {
+    throw new Error('Preview create failed');
+  }
+
+  let notify!: (state: DatabaseState) => void;
+  f.client.database.onStateChanged = listener => {
+    notify = listener;
+    return () => {};
+  };
+
+  f.client.imports.commit = vi.fn<typeof f.client.imports.commit>(async args => ({
+    status: 'success',
+    value: {kind: 'committed', session: args.session, addedCount: 1, skippedCount: 0},
+  }));
+  let finish!: () => void;
+  const held = new Promise<void>(resolve => {
+    finish = resolve;
+  });
+  f.client.customers.list = vi
+    .fn<typeof f.client.customers.list>(async () => ({status: 'success', value: []}))
+    .mockResolvedValueOnce({
+      status: 'error',
+      error: {code: 'INTERNAL', message: 'Read failed'},
+    })
+    .mockImplementationOnce(async () => {
+      await held;
+      return {status: 'success', value: [initial.value]};
+    });
+  const {router} = renderRoute('/customers/import?importId=chosen', f.application);
+  await userEvent.click(await screen.findByRole('button', {name: 'Add 1 customers'}));
+  await userEvent.click(await screen.findByRole('button', {name: 'Retry refresh'}));
+  const oldSession = f.application.getState().database!.session!;
+  await act(async () => {
+    notify({available: true, selectedPath: null, session: 'replacement', version: 2});
+    finish();
+  });
+  await waitFor(() =>
+    expect(screen.queryByText('Refreshing saved customers...')).not.toBeInTheDocument()
+  );
+  expect(await screen.findByRole('heading', {name: 'Customers'})).toBeVisible();
+  expect(router.state.location.pathname).toBe('/customers');
+  expect(
+    f.application.queryClient.getQueryData(customerKeys.list('replacement', ''))
+  ).toEqual([]);
+  expect(successToast).not.toHaveBeenCalled();
+  expect(screen.queryByRole('link', {name: 'Anne Smith'})).not.toBeInTheDocument();
+  expect(
+    f.application.queryClient.getQueryData(customerKeys.list(oldSession, ''))
+  ).toBeUndefined();
   expect(f.client.imports.commit).toHaveBeenCalledTimes(1);
 });
 
@@ -343,4 +436,44 @@ test('retains review after backup cancellation and reports revised plans before 
     'Saved customers changed. Review the updated plan'
   );
   expect(screen.getByRole('status')).toHaveTextContent('1 customer numbers will change');
+});
+
+test('retains refresh retry after an interrupted read and same-session recovery', async () => {
+  const f = fixture();
+  let notify!: (state: DatabaseState) => void;
+  f.client.database.onStateChanged = listener => {
+    notify = listener;
+    return () => {};
+  };
+
+  f.client.imports.commit = vi.fn<typeof f.client.imports.commit>(async args => ({
+    status: 'success',
+    value: {kind: 'committed', session: args.session, addedCount: 1, skippedCount: 0},
+  }));
+  let finish!: () => void;
+  const held = new Promise<void>(resolve => {
+    finish = resolve;
+  });
+  f.client.customers.list = vi
+    .fn<typeof f.client.customers.list>(async () => ({status: 'success', value: []}))
+    .mockImplementationOnce(async () => {
+      await held;
+      return {status: 'success', value: []};
+    });
+  renderRoute('/customers/import?importId=chosen', f.application);
+  await userEvent.click(await screen.findByRole('button', {name: 'Add 1 customers'}));
+  await screen.findByText('Refreshing saved customers...');
+  const database = f.application.getState().database!;
+  await act(async () => {
+    notify({...database, available: false, version: database.version + 1});
+    finish();
+  });
+  expect(await screen.findByRole('button', {name: 'Retry refresh'})).toBeDisabled();
+  await act(async () => {
+    notify({...database, version: database.version + 2});
+  });
+  await userEvent.click(screen.getByRole('button', {name: 'Retry refresh'}));
+  expect(await screen.findByRole('heading', {name: 'Customers'})).toBeVisible();
+  expect(f.client.imports.commit).toHaveBeenCalledTimes(1);
+  expect(f.client.customers.list).toHaveBeenCalledTimes(2);
 });
