@@ -96,6 +96,71 @@ it('adds included rows with planned numbers, fresh IDs/revisions, and preserves 
   expect(await f.list()).toHaveLength(3);
 });
 
+it.each([
+  {amount: '0', saved: '0.00'},
+  {amount: '12', saved: '12.00'},
+  {amount: '12.3', saved: '12.30'},
+  {amount: '-12.3', saved: '-12.30'},
+])('imports decimal balances: $amount', async ({amount, saved}) => {
+  const f = await setup();
+  const review = await f.prepare([
+    {
+      customerNumber: 9,
+      ...values,
+      balance: amount,
+      previousBalance: amount,
+    },
+  ]);
+  expect(review.status).toBe('ready');
+  expect(review.diagnostics).toEqual([]);
+  expect(
+    success(
+      await f.service.handlers['imports.commit']({
+        session: f.session,
+        importId: review.importId,
+      })
+    )
+  ).toMatchObject({kind: 'committed', addedCount: 1});
+  expect((await f.list())[0]?.customer).toMatchObject({
+    balance: saved,
+    previousBalance: saved,
+  });
+});
+
+it('imports reordered CSV balances and numeric donate', async () => {
+  const f = await setup();
+  await writeFile(
+    f.choices.csv!,
+    '"customerNumber","firstName","lastName","address","city","province","postalCode","phone","email","donate","stock","previousBalance","balance","comments"\n' +
+      '"9","<firstName>","<lastName>","<address>","Exampleville","NS","<postalCode>","<phone>","<email>","0","0","25.83","25.93","Imported customer"'
+  );
+  const review = success(
+    await f.service.handlers['imports.prepare']({session: f.session})
+  );
+  expect(review.status).toBe('ready');
+  expect(review.diagnostics).toEqual([]);
+  expect(review.rows[0]).toMatchObject({
+    recordNumber: 1,
+    sourceCustomerNumber: 9,
+    values: {balance: '25.93', previousBalance: '25.83', donate: false},
+  });
+  expect(
+    success(
+      await f.service.handlers['imports.commit']({
+        session: f.session,
+        importId: review.importId,
+      })
+    )
+  ).toMatchObject({kind: 'committed', addedCount: 1});
+  expect((await f.list())[0]?.customer).toMatchObject({
+    customerNumber: 9,
+    balance: '25.93',
+    previousBalance: '25.83',
+    donate: false,
+    comments: 'Imported customer',
+  });
+});
+
 it('fails closed for unresolved reviews before opening backup', async () => {
   const f = await setup();
   const backup = vi.spyOn(f.options.dialogs, 'backupDatabase');
