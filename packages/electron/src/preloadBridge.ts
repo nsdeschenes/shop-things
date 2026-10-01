@@ -158,6 +158,7 @@ export function createPreloadBridge(
     imports: {
       prepare: call('imports.prepare', actions['imports.prepare']),
       review: call('imports.review', actions['imports.review']),
+      resolve: call('imports.resolve', actions['imports.resolve']),
     },
     exports: {csv: call('exports.csv', actions['exports.csv'])},
     drafts: {

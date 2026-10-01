@@ -96,6 +96,9 @@ export function createClient(bridge: ShopThingsBridge): Client {
       review: validatedCall(actions['imports.review'], args =>
         bridge.imports.review(args)
       ),
+      resolve: validatedCall(actions['imports.resolve'], args =>
+        bridge.imports.resolve(args)
+      ),
     },
     exports: {
       csv: validatedCall(actions['exports.csv'], args => bridge.exports.csv(args)),
@@ -182,7 +185,7 @@ function isBridge(value: unknown): value is ShopThingsBridge {
       'restore',
       'onStateChanged',
     ],
-    imports: ['prepare', 'review'],
+    imports: ['prepare', 'review', 'resolve'],
     exports: ['csv'],
     drafts: ['confirmDiscard', 'registerProtection'],
   };

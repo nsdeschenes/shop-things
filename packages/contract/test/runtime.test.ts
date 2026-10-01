@@ -64,6 +64,7 @@ function makeBridge() {
     imports: {
       prepare: async () => ({status: 'cancelled'}),
       review: async () => ({status: 'cancelled'}),
+      resolve: async () => ({status: 'cancelled'}),
     },
     exports: {csv: async () => ({status: 'success', value: {path: '/export'}})},
     drafts: {

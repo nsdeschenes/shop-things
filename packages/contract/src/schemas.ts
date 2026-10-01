@@ -105,6 +105,24 @@ export const importRowSchema = z.strictObject({
   recordNumber: positiveInteger,
   sourceCustomerNumber: positiveInteger.nullable(),
   values: createCustomerInputSchema,
+  matches: z.array(token),
+  choice: z.enum(['include', 'unresolved', 'add', 'skip']),
+});
+export const importMatchGroupSchema = z.strictObject({
+  id: token,
+  reason: z.enum(['name', 'email', 'phone']),
+  targets: z.array(
+    z.discriminatedUnion('kind', [
+      z.strictObject({kind: z.literal('csv'), recordNumber: positiveInteger}),
+      z.strictObject({
+        kind: z.literal('customer'),
+        id: positiveInteger,
+        customerNumber: positiveInteger.nullable(),
+        firstName: z.string(),
+        lastName: z.string(),
+      }),
+    ])
+  ),
 });
 export const importReviewSchema = z.strictObject({
   importId: token,
@@ -112,6 +130,7 @@ export const importReviewSchema = z.strictObject({
   fileName: z.string(),
   status: z.enum(['ready', 'rejected', 'empty']),
   rows: z.array(importRowSchema),
+  matchGroups: z.array(importMatchGroupSchema),
   diagnostics: z.array(
     z.strictObject({
       recordNumber: positiveInteger.nullable(),
@@ -119,6 +138,11 @@ export const importReviewSchema = z.strictObject({
       reason: z.string(),
     })
   ),
+  sourceRecordCount: nonnegativeInteger,
+  includedCount: nonnegativeInteger,
+  skippedCount: nonnegativeInteger,
+  unresolvedCount: nonnegativeInteger,
+  choicesResolved: z.boolean(),
   invalidRecordCount: nonnegativeInteger,
   omittedDiagnosticCount: nonnegativeInteger,
 });
@@ -127,6 +151,14 @@ export const actions = {
   'imports.prepare': action(sessionArguments, importReviewSchema),
   'imports.review': action(
     sessionArguments.extend({importId: token}),
+    importReviewSchema
+  ),
+  'imports.resolve': action(
+    sessionArguments.extend({
+      importId: token,
+      recordNumber: positiveInteger,
+      choice: z.enum(['add', 'skip']),
+    }),
     importReviewSchema
   ),
   'customers.list': action(
