@@ -581,6 +581,34 @@ export function createApplication(
           : undefined;
       return coordinatedRequest(session, operation, scope, admitted);
     },
+    async prepareImport() {
+      const session = state.database?.session;
+      if (
+        !session ||
+        state.pendingFile ||
+        protection.getState().frozen ||
+        protection.getState().saving
+      ) {
+        return busy;
+      }
+
+      const attempt = generation;
+      publish({...state, pendingFile: 'import'});
+      try {
+        return await serialize(async () => {
+          if (!client || !isCurrentSession(session)) {
+            return unavailable;
+          }
+
+          const result = await client.imports.prepare({session});
+          return attempt === generation && isCurrentSession(session) ? result : obsolete;
+        });
+      } finally {
+        if (attempt === generation) {
+          publish({...state, pendingFile: null});
+        }
+      }
+    },
     fileAction,
     reloadCustomer,
     transition,

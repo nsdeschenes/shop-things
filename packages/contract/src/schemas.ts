@@ -101,7 +101,34 @@ function action<A extends z.ZodType, R extends z.ZodType>(args: A, value: R) {
 
 const sessionArguments = z.strictObject({session: token});
 
+export const importRowSchema = z.strictObject({
+  recordNumber: positiveInteger,
+  sourceCustomerNumber: positiveInteger.nullable(),
+  values: createCustomerInputSchema,
+});
+export const importReviewSchema = z.strictObject({
+  importId: token,
+  session: token,
+  fileName: z.string(),
+  status: z.enum(['ready', 'rejected', 'empty']),
+  rows: z.array(importRowSchema),
+  diagnostics: z.array(
+    z.strictObject({
+      recordNumber: positiveInteger.nullable(),
+      column: z.string(),
+      reason: z.string(),
+    })
+  ),
+  invalidRecordCount: nonnegativeInteger,
+  omittedDiagnosticCount: nonnegativeInteger,
+});
+
 export const actions = {
+  'imports.prepare': action(sessionArguments, importReviewSchema),
+  'imports.review': action(
+    sessionArguments.extend({importId: token}),
+    importReviewSchema
+  ),
   'customers.list': action(
     sessionArguments.extend({query: z.string()}),
     z.array(customerRecordSchema)

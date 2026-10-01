@@ -89,6 +89,14 @@ export function createClient(bridge: ShopThingsBridge): Client {
         };
       },
     },
+    imports: {
+      prepare: validatedCall(actions['imports.prepare'], args =>
+        bridge.imports.prepare(args)
+      ),
+      review: validatedCall(actions['imports.review'], args =>
+        bridge.imports.review(args)
+      ),
+    },
     exports: {
       csv: validatedCall(actions['exports.csv'], args => bridge.exports.csv(args)),
     },
@@ -174,6 +182,7 @@ function isBridge(value: unknown): value is ShopThingsBridge {
       'restore',
       'onStateChanged',
     ],
+    imports: ['prepare', 'review'],
     exports: ['csv'],
     drafts: ['confirmDiscard', 'registerProtection'],
   };

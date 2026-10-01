@@ -171,6 +171,14 @@ export function registerIpc(options: IpcOptions): () => void {
   // Explicit wrappers preserve each schema's argument/result pairing without transport assertions.
   const handlers: ActionHandlers = service.handlers;
   const registrations: {[K in ActionName]: () => void} = {
+    'imports.prepare': () =>
+      registerAction('imports.prepare', actions['imports.prepare'], args =>
+        handlers['imports.prepare'](args)
+      ),
+    'imports.review': () =>
+      registerAction('imports.review', actions['imports.review'], args =>
+        handlers['imports.review'](args)
+      ),
     'customers.list': () =>
       registerAction('customers.list', actions['customers.list'], args =>
         handlers['customers.list'](args)

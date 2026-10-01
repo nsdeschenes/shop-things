@@ -212,6 +212,7 @@ export default function createPreviewClient(
       restore: unsupported,
       onStateChanged: () => () => {},
     },
+    imports: {prepare: unsupported, review: unsupported},
     exports: {csv: unsupported},
     drafts: {
       confirmDiscard: async () =>

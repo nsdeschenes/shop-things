@@ -5,6 +5,7 @@ import {copyFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 
 import type {
+  ImportReview,
   ActionHandlers,
   ActionResults,
   ContractError,
@@ -26,6 +27,7 @@ import {
 } from '@shop-things/db';
 import type {CustomerChanges, CustomerData, DatabaseHandle} from '@shop-things/db';
 
+import {readCustomerImport} from './customerImport.js';
 import type {DraftCoordinator, DraftLease} from './draftCoordinator.js';
 import {
   copyBackup,
@@ -38,6 +40,7 @@ import type {DatabaseSettings} from './settings.js';
 export interface BackendDialogs {
   createDatabase(): Promise<string | null>;
   openDatabase(): Promise<string | null>;
+  importCsv(): Promise<string | null>;
   exportCsv(): Promise<string | null>;
   backupDatabase(): Promise<string | null>;
   restoreSource(): Promise<string | null>;
@@ -106,6 +109,7 @@ export interface ActionServiceOptions {
 export class ActionService {
   readonly handlers: ActionHandlers;
   private readonly database: DatabaseOperations;
+  private readonly imports = new Map<string, ImportReview>();
   private active: DatabaseHandle | null = null;
   private state: DatabaseState = {
     available: false,
@@ -123,6 +127,32 @@ export class ActionService {
   constructor(private readonly options: ActionServiceOptions) {
     this.database = options.database ?? databaseOperations;
     this.handlers = {
+      'imports.prepare': args =>
+        this.admit(async () => {
+          this.requireSession(args.session);
+          const path = await this.options.dialogs.importCsv();
+          if (path === null) {
+            return null;
+          }
+
+          this.requireSession(args.session);
+          const review = await readCustomerImport(path, args.session);
+          this.imports.set(review.importId, review);
+          return structuredClone(review);
+        }),
+      'imports.review': args =>
+        this.admit(async () => {
+          this.requireSession(args.session);
+          const review = this.imports.get(args.importId);
+          if (!review || review.session !== args.session) {
+            throw new ActionError(
+              'STALE_SESSION',
+              'This import expired. Choose the file again.'
+            );
+          }
+
+          return structuredClone(review);
+        }),
       'database.status': async () => ({status: 'success', value: this.status()}),
       'database.retry': () =>
         this.admit(() => this.transition(lease => this.retry(lease))),
@@ -643,6 +673,7 @@ export class ActionService {
 
     const superseded = this.active;
     this.active = candidate;
+    this.imports.clear();
     this.publish({available: true, selectedPath: path, session: randomUUID()});
     try {
       superseded?.close();
