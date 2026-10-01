@@ -79,6 +79,8 @@ test('shows a selected file and inspectable rows; cancel returns without a disca
   expect(screen.getByText('Source customer number: 42')).toBeVisible();
   expect(screen.getByText('Assigned customer number: 42')).toBeVisible();
   expect(screen.getByRole('status')).toHaveTextContent('0 customer numbers will change');
+  expect(screen.getByText(numberingExplanation)).not.toBeVisible();
+  await userEvent.click(screen.getByText('How customer numbers are assigned'));
   expect(screen.getByText(numberingExplanation)).toBeVisible();
   await userEvent.click(screen.getByRole('button', {name: 'Cancel'}));
   expect(await screen.findByRole('heading', {name: 'Customers'})).toBeVisible();

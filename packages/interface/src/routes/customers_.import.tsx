@@ -1,4 +1,5 @@
 /* oxlint-disable @tanstack/query/exhaustive-deps -- Navigation scope controls admission, not review identity. */
+import * as stylex from '@stylexjs/stylex';
 import {queryOptions, useQuery} from '@tanstack/react-query';
 import {createFileRoute, redirect} from '@tanstack/react-router';
 import {useRef, useState, useSyncExternalStore} from 'react';
@@ -13,6 +14,178 @@ import {
   CustomerRoutePending,
 } from '../components/customerRouteFeedback/customerRouteFeedback';
 import PageShell from '../components/pageShell/pageShell';
+import {colors} from '../styles/colors.stylex';
+import {radii} from '../styles/radii.stylex';
+import {typography} from '../styles/typography.stylex';
+
+const styles = stylex.create({
+  fileBar: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 16,
+    padding: 20,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: colors.border,
+    borderRadius: radii.large,
+    marginBottom: 20,
+  },
+  fileName: {
+    margin: 0,
+    fontWeight: typography.fontWeightSemibold,
+    overflowWrap: 'anywhere',
+  },
+  fileHint: {
+    marginTop: 6,
+    marginBottom: 0,
+    color: colors.textMuted,
+    fontSize: typography.fontSizeSmall,
+  },
+  actions: {display: 'flex', flexWrap: 'wrap', gap: 8},
+  stats: {
+    display: 'grid',
+    gridTemplateColumns: {
+      default: 'repeat(4, minmax(0, 1fr))',
+      '@media (max-width: 650px)': 'repeat(2, minmax(0, 1fr))',
+    },
+    gap: 12,
+    marginBottom: 12,
+  },
+  stat: {
+    padding: 18,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: colors.border,
+    borderRadius: radii.large,
+  },
+  statValue: {
+    display: 'block',
+    fontSize: 30,
+    fontWeight: typography.fontWeightBold,
+    lineHeight: 1.15,
+    fontVariantNumeric: 'tabular-nums',
+    marginBottom: 6,
+  },
+  statLabel: {color: colors.textMuted, fontSize: typography.fontSizeSmall},
+  positive: {backgroundColor: colors.successBackground, color: colors.successText},
+  attention: {borderColor: colors.warningText, color: colors.warningText},
+  status: {
+    fontSize: typography.fontSizeSmall,
+    lineHeight: 1.6,
+    color: colors.textMuted,
+    marginBottom: 16,
+  },
+  policy: {
+    fontSize: typography.fontSizeSmall,
+    lineHeight: 1.6,
+    color: colors.textMuted,
+    marginBottom: 24,
+  },
+  policySummary: {
+    cursor: 'pointer',
+    color: colors.secondaryText,
+    fontWeight: typography.fontWeightSemibold,
+  },
+  sectionHeading: {fontSize: typography.fontSizeLarge, marginTop: 24, marginBottom: 12},
+  row: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: colors.border,
+    borderRadius: radii.large,
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  summary: {
+    padding: 16,
+    cursor: 'pointer',
+    backgroundColor: {default: colors.surface, ':hover': colors.rowHover},
+    outlineColor: colors.focusRing,
+  },
+  summaryContent: {
+    display: 'inline-flex',
+    width: 'calc(100% - 24px)',
+    verticalAlign: 'middle',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  name: {fontWeight: typography.fontWeightSemibold},
+  rowMeta: {display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12},
+  number: {
+    fontSize: typography.fontSizeSmall,
+    color: colors.textMuted,
+    fontVariantNumeric: 'tabular-nums',
+  },
+  badge: {
+    fontSize: 12,
+    fontWeight: typography.fontWeightSemibold,
+    paddingBlock: 4,
+    paddingInline: 8,
+    borderRadius: radii.button,
+    backgroundColor: colors.disabledBackground,
+    color: colors.textMuted,
+  },
+  body: {
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopStyle: 'solid',
+    borderTopColor: colors.border,
+    fontSize: typography.fontSizeSmall,
+  },
+  matches: {
+    padding: 16,
+    marginBlock: 16,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: colors.border,
+    borderRadius: radii.panel,
+    lineHeight: 1.6,
+  },
+  choice: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    marginRight: 20,
+    fontWeight: typography.fontWeightSemibold,
+    cursor: 'pointer',
+  },
+  fields: {
+    display: 'grid',
+    gridTemplateColumns: {
+      default: 'repeat(3, minmax(0, 1fr))',
+      '@media (max-width: 650px)': 'repeat(2, minmax(0, 1fr))',
+    },
+    gap: 16,
+    marginTop: 20,
+    marginBottom: 0,
+  },
+  fieldName: {color: colors.textMuted, fontSize: 12, marginBottom: 4},
+  fieldValue: {margin: 0},
+  fieldText: {
+    margin: 0,
+    fontFamily: typography.fontFamily,
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
+  },
+  errors: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: colors.errorText,
+    borderRadius: radii.large,
+    padding: 20,
+    color: colors.errorText,
+    marginBottom: 20,
+    fontSize: typography.fontSizeSmall,
+    lineHeight: 1.6,
+  },
+});
 
 function importReviewOptions(
   application: Application,
@@ -214,7 +387,44 @@ function ImportReview() {
         </Button>
       }
     >
-      <p>Selected file: {review.fileName}</p>
+      <section {...stylex.props(styles.fileBar)} aria-label="Selected CSV file">
+        <div>
+          <p {...stylex.props(styles.fileName)}>Selected file: {review.fileName}</p>
+          <p {...stylex.props(styles.fileHint)}>
+            Review your customers before adding them.
+          </p>
+        </div>
+        <div {...stylex.props(styles.actions)}>
+          <Button
+            disabled={disabled}
+            onClick={() => {
+              void application.prepareImport().then(result => {
+                if (result.status === 'success') {
+                  void navigate({
+                    search: {importId: result.value.importId},
+                    replace: true,
+                  });
+                } else if (result.status === 'error') {
+                  application.toasts.error({title: result.error.message});
+                }
+              });
+            }}
+          >
+            Choose another file
+          </Button>
+          {review.status === 'ready' && !committed && (
+            <Button
+              variant="primary"
+              disabled={disabled || !review.choicesResolved || review.includedCount === 0}
+              onClick={() => {
+                void commit();
+              }}
+            >
+              Add {review.includedCount} customers
+            </Button>
+          )}
+        </div>
+      </section>
       {feedback && <p role="alert">{feedback}</p>}
       {saving && <p role="status">Backing up and adding customers...</p>}
       {refreshing && <p role="status">Refreshing saved customers...</p>}
@@ -258,7 +468,7 @@ function ImportReview() {
       ) : null}
       {review.status === 'empty' && <p role="status">No customers to import</p>}
       {review.status === 'rejected' && (
-        <section role="alert">
+        <section role="alert" {...stylex.props(styles.errors)}>
           <p>
             The file cannot be imported.{' '}
             {review.invalidRecordCount > 0 &&
@@ -280,45 +490,57 @@ function ImportReview() {
           )}
         </section>
       )}
-      <Button
-        disabled={disabled}
-        onClick={() => {
-          void application.prepareImport().then(result => {
-            if (result.status === 'success') {
-              void navigate({search: {importId: result.value.importId}, replace: true});
-            } else if (result.status === 'error') {
-              application.toasts.error({title: result.error.message});
-            }
-          });
-        }}
-      >
-        Choose another file
-      </Button>
       {review.status === 'ready' && !committed && (
         <>
-          <Button
-            disabled={disabled || !review.choicesResolved || review.includedCount === 0}
-            onClick={() => {
-              void commit();
-            }}
-          >
-            Add {review.includedCount} customers
-          </Button>
-          <p role="status">
+          <div {...stylex.props(styles.stats)}>
+            {[
+              {label: 'Source records', count: review.sourceRecordCount},
+              {label: 'Customers to add', count: review.includedCount, positive: true},
+              {
+                label: 'Need review',
+                count: review.unresolvedCount,
+                attention: review.unresolvedCount > 0,
+              },
+              {label: 'Skipped', count: review.skippedCount},
+            ].map(stat => (
+              <div
+                key={stat.label}
+                {...stylex.props(
+                  styles.stat,
+                  stat.positive && styles.positive,
+                  stat.attention && styles.attention
+                )}
+              >
+                <strong {...stylex.props(styles.statValue)}>{stat.count}</strong>
+                <span {...stylex.props(styles.statLabel)}>{stat.label}</span>
+              </div>
+            ))}
+          </div>
+          <p role="status" {...stylex.props(styles.status)}>
             {review.sourceRecordCount} source records. {review.includedCount} customers to
             add. {review.skippedCount} skipped. {review.unresolvedCount} unresolved
             possible matches. {review.numberChangeCount} customer numbers will change. No
             customers have been added.
           </p>
-          <p>
-            Unused source customer numbers are reserved first. When rows request the same
-            unused number, the first included row keeps it. Blank or conflicting numbers
-            receive the smallest available positive number in file order. Skipped rows use
-            no numbers. Saved customers keep their numbers.
-          </p>
+          <details {...stylex.props(styles.policy)}>
+            <summary {...stylex.props(styles.policySummary)}>
+              How customer numbers are assigned
+            </summary>
+            <p>
+              Unused source customer numbers are reserved first. When rows request the
+              same unused number, the first included row keeps it. Blank or conflicting
+              numbers receive the smallest available positive number in file order.
+              Skipped rows use no numbers. Saved customers keep their numbers.
+            </p>
+          </details>
+          <h2 {...stylex.props(styles.sectionHeading)}>Customer review</h2>
           {review.rows.map(row => (
             <details
               key={row.recordNumber}
+              {...stylex.props(
+                styles.row,
+                row.choice === 'unresolved' && styles.attention
+              )}
               onToggle={event => {
                 const open = event.currentTarget.open;
                 setOpenRecords(previous => {
@@ -333,24 +555,43 @@ function ImportReview() {
                 });
               }}
             >
-              <summary>
-                <span>
-                  Record {row.recordNumber}: {row.values.firstName} {row.values.lastName}
-                </span>{' '}
-                <span>
-                  Source to assigned number: {row.sourceCustomerNumber ?? 'Blank'} →{' '}
-                  {row.assignedCustomerNumber ?? 'Not included'}
+              <summary {...stylex.props(styles.summary)}>
+                <span {...stylex.props(styles.summaryContent)}>
+                  <span {...stylex.props(styles.name)}>
+                    Record {row.recordNumber}: {row.values.firstName}{' '}
+                    {row.values.lastName}
+                  </span>
+                  <span {...stylex.props(styles.rowMeta)}>
+                    <span {...stylex.props(styles.number)}>
+                      Source to assigned number: {row.sourceCustomerNumber ?? 'Blank'} →{' '}
+                      {row.assignedCustomerNumber ?? 'Not included'}
+                    </span>
+                    <span
+                      {...stylex.props(
+                        styles.badge,
+                        row.choice === 'unresolved' && styles.attention,
+                        (row.choice === 'include' || row.choice === 'add') &&
+                          styles.positive
+                      )}
+                    >
+                      {row.choice === 'unresolved'
+                        ? 'Needs review'
+                        : row.choice === 'skip'
+                          ? 'Skipped'
+                          : 'Ready to add'}
+                    </span>
+                  </span>
                 </span>
               </summary>
               {openRecords.has(row.recordNumber) && (
-                <>
+                <div {...stylex.props(styles.body)}>
                   <p>Source customer number: {row.sourceCustomerNumber ?? 'Blank'}</p>
                   <p>
                     Assigned customer number:{' '}
                     {row.assignedCustomerNumber ?? 'Not included'}
                   </p>
                   {row.matches.length > 0 ? (
-                    <fieldset disabled={disabled}>
+                    <fieldset disabled={disabled} {...stylex.props(styles.matches)}>
                       <legend>Possible matches for record {row.recordNumber}</legend>
                       <p>
                         Matching details are signals. Add anyway creates a separate
@@ -387,7 +628,7 @@ function ImportReview() {
                           );
                         })}
                       </ul>
-                      <label>
+                      <label {...stylex.props(styles.choice)}>
                         <input
                           type="radio"
                           name={`choice-${row.recordNumber}`}
@@ -398,7 +639,7 @@ function ImportReview() {
                         />
                         Add anyway
                       </label>
-                      <label>
+                      <label {...stylex.props(styles.choice)}>
                         <input
                           type="radio"
                           name={`choice-${row.recordNumber}`}
@@ -413,17 +654,19 @@ function ImportReview() {
                   ) : (
                     <p>Included automatically</p>
                   )}
-                  <dl>
+                  <dl {...stylex.props(styles.fields)}>
                     {Object.entries(row.values).map(([field, value]) => (
                       <div key={field}>
-                        <dt>{field}</dt>
-                        <dd>
-                          <pre>{String(value)}</pre>
+                        <dt {...stylex.props(styles.fieldName)}>{field}</dt>
+                        <dd {...stylex.props(styles.fieldValue)}>
+                          <pre {...stylex.props(styles.fieldText)}>
+                            {String(value) || '—'}
+                          </pre>
                         </dd>
                       </div>
                     ))}
                   </dl>
-                </>
+                </div>
               )}
             </details>
           ))}
