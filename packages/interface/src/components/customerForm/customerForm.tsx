@@ -16,6 +16,7 @@ import type {Application} from '../../application/controller';
 import {
   createCustomerOptions,
   customerListOptions,
+  customerDetailOptions,
   updateCustomerOptions,
   customerKeys,
   CustomerRequestError,
@@ -168,6 +169,7 @@ export default function CustomerForm({
     onSubmit: async ({value}) => {
       if (
         blocked ||
+        application.getState().refreshingCustomers ||
         draftRef.current.submitting ||
         application.protection.getState().frozen
       ) {
@@ -312,6 +314,7 @@ export default function CustomerForm({
   const pending = create.isPending || update.isPending || protection.saving;
   const disabled =
     pending ||
+    state.refreshingCustomers ||
     !registered ||
     protection.frozen ||
     unavailable ||
@@ -323,45 +326,66 @@ export default function CustomerForm({
     }
   }, [error, disabled]);
 
-  async function reloadSavedCustomer() {
-    const reference = draftRef.current.saved?.reference;
-    if (!reference || disabled || blocked === 'deleted') {
-      return;
-    }
-
-    setError(null);
-    try {
-      await application.reloadCustomer(reference, record => {
-        const baseline = customerFormOptions(record.customer).defaultValues;
-        draftRef.current.saved = record;
-        setSavedRecord(record);
-        draftRef.current.baseline = baseline;
-        setDefaults(baseline);
-        form.reset(baseline);
-        setBlocked(null);
-        queryClient.setQueryData(
-          customerKeys.detail(session, record.customer.id),
-          record
-        );
-        application.protection.changed();
-      });
-    } catch (failure) {
-      if (!isCancelledError(failure)) {
-        if (
-          failure instanceof CustomerRequestError &&
-          failure.error.code === 'CUSTOMER_DELETED'
-        ) {
-          setBlocked('deleted');
+  useEffect(
+    () =>
+      application.onCustomersRefreshed(async () => {
+        const reference = draftRef.current.saved?.reference;
+        if (!reference || application.protection.isDirty()) {
+          return;
         }
 
-        setError(
-          failure instanceof Error
-            ? failure.message
-            : 'Could not reload the customer. Try again.'
-        );
-      }
-    }
-  }
+        const captured = application.captureSession(session);
+        try {
+          const refreshed = queryClient.getQueryState<CustomerRecord>(
+            customerKeys.detail(session, reference.id)
+          );
+          if (
+            refreshed?.status === 'error' &&
+            queryClient
+              .getQueryCache()
+              .find({queryKey: customerKeys.detail(session, reference.id), exact: true})
+              ?.isActive()
+          ) {
+            throw refreshed.error;
+          }
+
+          const record = await queryClient.fetchQuery(
+            customerDetailOptions(application, session, reference.id)
+          );
+          if (!captured.isCurrent() || application.protection.isDirty()) {
+            return;
+          }
+
+          const baseline = customerFormOptions(record.customer).defaultValues;
+          draftRef.current.saved = record;
+          draftRef.current.baseline = baseline;
+          setSavedRecord(record);
+          setDefaults(baseline);
+          form.reset(baseline);
+          setBlocked(null);
+          setError(null);
+          application.protection.changed();
+        } catch (failure) {
+          if (captured.isCurrent() && !isCancelledError(failure)) {
+            if (
+              failure instanceof CustomerRequestError &&
+              failure.error.code === 'CUSTOMER_DELETED'
+            ) {
+              setBlocked('deleted');
+            }
+
+            setError(
+              failure instanceof Error
+                ? failure.message
+                : 'Could not refresh the customer. Try again.'
+            );
+          }
+
+          throw failure;
+        }
+      }),
+    [application, form, queryClient, session]
+  );
 
   return (
     <PageShell
@@ -419,24 +443,12 @@ export default function CustomerForm({
       {error && <p role="alert">{error}</p>}
       {blocked === 'stale' && (
         <p>
-          The saved customer changed. Reload before saving again. Your edits are retained.
+          The saved customer changed. Discard your edits, then refresh before saving
+          again.
         </p>
       )}
       {blocked === 'deleted' && (
         <p>This customer no longer exists. Your edits are retained for copying.</p>
-      )}
-      {savedRecord && blocked !== 'deleted' && (
-        <section>
-          <p>Reload saved customer replaces your draft with the saved values.</p>
-          <Button
-            disabled={disabled}
-            onClick={() => {
-              void reloadSavedCustomer();
-            }}
-          >
-            Reload customer
-          </Button>
-        </section>
       )}
       {unavailable && (
         <section role="alert">

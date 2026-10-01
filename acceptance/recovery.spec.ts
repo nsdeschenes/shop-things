@@ -6,7 +6,7 @@ import {expect, test} from '@playwright/test';
 
 import launchElectron from './launchElectron';
 
-test('real IPC stale reload cancels, fails, freezes, then adopts a fresh reference; deleted drafts remain copyable', async () => {
+test('real IPC header refresh rejects dirty drafts, fails, freezes, then adopts a fresh reference; deleted drafts remain copyable', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-recovery-'));
   const application = await launchElectron(directory, {
     SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
@@ -33,12 +33,14 @@ test('real IPC stale reload cancels, fails, freezes, then adopts a fresh referen
     await page.getByRole('button', {name: 'Save'}).click();
     await expect(
       page.getByText(
-        'The saved customer changed. Reload before saving again. Your edits are retained.'
+        'The saved customer changed. Discard your edits, then refresh before saving again.'
       )
     ).toBeVisible();
-    const reload = page.getByRole('button', {name: 'Reload customer'});
-    await reload.click();
+    const reload = page.getByRole('button', {name: 'Refresh customers'});
+    await expect(reload).toBeDisabled();
     await expect(name).toHaveValue('Retained draft');
+    await name.fill('Alpha');
+    await expect(reload).toBeEnabled();
     await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
     await application.evaluate(() => {
       Reflect.set(globalThis, 'acceptanceDiscard', true);
@@ -49,8 +51,13 @@ test('real IPC stale reload cancels, fails, freezes, then adopts a fresh referen
       });
     });
     await reload.click();
-    await expect(page.getByText('Reload read failed', {exact: true})).toBeVisible();
-    await expect(name).toHaveValue('Retained draft');
+    await expect(page.getByRole('button', {name: 'Retry refresh'})).toBeVisible();
+    await expect(
+      page
+        .locator('[role="alertdialog"][data-type="error"]')
+        .filter({hasText: 'Could not refresh customers'})
+    ).toContainText('Reload read failed');
+    await expect(name).toHaveValue('Alpha');
     await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
     await application.evaluate(() =>
       Reflect.set(globalThis, 'acceptanceFault', {
@@ -164,7 +171,7 @@ test('unavailable real database retains mounted draft across cancelled and faile
   }
 });
 
-test('Chromium preview reload guards draft replacement and preserves canonical saved text', async ({
+test('Chromium preview header refresh disables dirty drafts and preserves canonical saved text', async ({
   page,
 }) => {
   await page.goto('/?preview=true#/customers/new');
@@ -174,18 +181,12 @@ test('Chromium preview reload guards draft replacement and preserves canonical s
   await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
   const name = page.getByRole('textbox', {name: 'First name'});
   await name.fill('Preview draft');
-  const reload = page.getByRole('button', {name: 'Reload customer'});
-  await reload.click();
-  await page
-    .getByRole('dialog', {name: 'Discard Unsaved Changes?', exact: true})
-    .getByRole('button', {name: 'Stay'})
-    .click();
+  const reload = page.getByRole('button', {name: 'Refresh customers'});
+  await expect(reload).toBeDisabled();
   await expect(name).toHaveValue('Preview draft');
+  await name.fill('Saved preview');
+  await expect(reload).toBeEnabled();
   await reload.click();
-  await page
-    .getByRole('dialog', {name: 'Discard Unsaved Changes?', exact: true})
-    .getByRole('button', {name: 'Discard'})
-    .click();
   await expect(name).toHaveValue('Saved preview');
   await page.getByRole('link', {name: 'Back to customers', exact: true}).click();
   await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
@@ -222,13 +223,13 @@ test('real IPC stale Delete stays blocked until fresh reload and deleted selecti
       .click();
     await expect(
       page.getByText(
-        'The saved customer changed. Reload before saving again. Your edits are retained.'
+        'The saved customer changed. Discard your edits, then refresh before saving again.'
       )
     ).toBeVisible();
     await expect(
       page.getByRole('button', {name: 'Delete customer', exact: true})
     ).toBeDisabled();
-    await page.getByRole('button', {name: 'Reload customer'}).click();
+    await page.getByRole('button', {name: 'Refresh customers'}).click();
     await expect(
       page.getByRole('heading', {name: 'External One', exact: true})
     ).toBeVisible();

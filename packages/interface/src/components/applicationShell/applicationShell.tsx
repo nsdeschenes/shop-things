@@ -1,4 +1,5 @@
 import {Dialog} from '@base-ui/react/dialog';
+import {ArrowPathIcon} from '@heroicons/react/24/outline';
 import * as stylex from '@stylexjs/stylex';
 import {Link, useBlocker, useRouter} from '@tanstack/react-router';
 import {useEffect, useRef, useSyncExternalStore, type ReactNode} from 'react';
@@ -50,6 +51,8 @@ const styles = stylex.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
   },
+  headerActions: {gap: spacing.space12, alignItems: 'center', display: 'flex'},
+  refreshIcon: {height: 20, width: 20},
   brand: {textDecoration: 'none', color: 'inherit'},
   eyebrow: {
     fontSize: typography.fontSizeSmall,
@@ -79,12 +82,27 @@ export default function ApplicationShell({application, children}: ApplicationShe
     application.protection.subscribe,
     application.protection.getState
   );
+  const refreshDisabled =
+    state.phase !== 'ready' ||
+    !state.database?.available ||
+    Boolean(state.pendingFile) ||
+    state.pendingTransition ||
+    state.reconciling ||
+    state.recoveryRequired ||
+    state.refreshingCustomers ||
+    protection.dirty ||
+    protection.frozen ||
+    protection.saving;
   const router = useRouter();
   const committedNavigation = useRef(false);
 
   useBlocker({
     shouldBlockFn: async ({next}) => {
-      if (application.getState().pendingFile && !committedNavigation.current) {
+      if (
+        (application.getState().pendingFile ||
+          application.getState().refreshingCustomers) &&
+        !committedNavigation.current
+      ) {
         return true;
       }
 
@@ -172,7 +190,7 @@ export default function ApplicationShell({application, children}: ApplicationShe
       </Dialog.Root>
       <header {...stylex.props(styles.header)}>
         <Link
-          inert={Boolean(state.pendingFile)}
+          inert={Boolean(state.pendingFile || state.refreshingCustomers)}
           to="/customers"
           {...stylex.props(styles.brand)}
         >
@@ -180,7 +198,23 @@ export default function ApplicationShell({application, children}: ApplicationShe
           <p {...stylex.props(styles.title)}>Shop Things</p>
         </Link>
         {state.phase === 'ready' && state.database?.available && (
-          <DatabaseActions application={application} />
+          <div {...stylex.props(styles.headerActions)}>
+            <Button
+              aria-label="Refresh customers"
+              title={
+                protection.dirty
+                  ? 'Save or discard your edits before refreshing'
+                  : 'Refresh customers'
+              }
+              disabled={refreshDisabled}
+              onClick={() => {
+                void application.refreshCustomers();
+              }}
+            >
+              <ArrowPathIcon aria-hidden="true" {...stylex.props(styles.refreshIcon)} />
+            </Button>
+            <DatabaseActions application={application} />
+          </div>
         )}
       </header>
       {state.mode !== 'live' && (
@@ -192,6 +226,19 @@ export default function ApplicationShell({application, children}: ApplicationShe
       )}
       {state.phase === 'ready' && !state.database?.available && (
         <DatabaseActions application={application} />
+      )}
+      {state.refreshError && (
+        <section role="alert">
+          <p>{state.refreshError}</p>
+          <Button
+            disabled={refreshDisabled}
+            onClick={() => {
+              void application.refreshCustomers();
+            }}
+          >
+            Retry refresh
+          </Button>
+        </section>
       )}
       {protection.error && <p role="alert">{protection.error}</p>}
       {state.mode === 'unavailable' ? (
@@ -211,13 +258,22 @@ export default function ApplicationShell({application, children}: ApplicationShe
           </Button>
         </section>
       ) : (
-        <div inert={Boolean(state.pendingFile)} aria-busy={Boolean(state.pendingFile)}>
+        <div
+          inert={Boolean(state.pendingFile || state.refreshingCustomers)}
+          aria-busy={Boolean(state.pendingFile || state.refreshingCustomers)}
+        >
           {children}
         </div>
       )}
-      {(state.phase === 'loading' || state.pendingFile) && (
+      {(state.phase === 'loading' || state.pendingFile || state.refreshingCustomers) && (
         <LoadingOverlay
-          label={state.pendingFile ? 'Loading database' : 'Loading application'}
+          label={
+            state.refreshingCustomers
+              ? 'Refreshing customers'
+              : state.pendingFile
+                ? 'Loading database'
+                : 'Loading application'
+          }
         />
       )}
     </div>
