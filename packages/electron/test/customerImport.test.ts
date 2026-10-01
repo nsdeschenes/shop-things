@@ -172,13 +172,25 @@ it.each([
   ['previousBalance', '1,000'],
   ['donate', ''],
   ['donate', 'TRUE'],
-  ['donate', '1'],
+  ['donate', '2'],
 ])('rejects invalid %s value %j', async (column, value) => {
   const f = await setup();
   const review = await f.prepare(csv([{...source, [column]: value}]));
   expect(review.status).toBe('rejected');
   expect(review.invalidRecordCount).toBe(1);
   expect(review.diagnostics.some(detail => detail.column === column)).toBe(true);
+});
+
+it.each([
+  {text: 'true', value: true},
+  {text: 'false', value: false},
+  {text: '1', value: true},
+  {text: '0', value: false},
+])('imports donate $text as $value', async ({text, value}) => {
+  const f = await setup();
+  const review = await f.prepare(csv([{...source, donate: text}]));
+  expect(review.status).toBe('ready');
+  expect(review.rows[0]?.values.donate).toBe(value);
 });
 
 it('accepts numeric boundaries and valid lexical alternatives', async () => {

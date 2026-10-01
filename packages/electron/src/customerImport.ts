@@ -262,8 +262,8 @@ export async function readCustomerImport(
     const stock = integer('stock') ?? 0;
     const balance = money('balance');
     const previousBalance = money('previousBalance');
-    if (source.donate !== 'true' && source.donate !== 'false') {
-      diagnostic('donate', 'Use exactly true or false.');
+    if (!['true', 'false', '1', '0'].includes(source.donate ?? '')) {
+      diagnostic('donate', 'Use exactly true, false, 1, or 0.');
     }
 
     const values: ImportRow['values'] = {
@@ -279,7 +279,7 @@ export async function readCustomerImport(
       stock,
       balance,
       previousBalance,
-      donate: source.donate === 'true',
+      donate: source.donate === 'true' || source.donate === '1',
     };
     if (invalid) {
       review.invalidRecordCount++;
