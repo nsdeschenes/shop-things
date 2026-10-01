@@ -1,14 +1,21 @@
+import {Field} from '@base-ui/react/field';
 import {Form} from '@base-ui/react/form';
 import type {CustomerRecord} from '@shop-things/contract';
 import {createCustomerInputSchema} from '@shop-things/contract/schemas';
 import * as stylex from '@stylexjs/stylex';
-import {isCancelledError, useMutation, useQueryClient} from '@tanstack/react-query';
+import {
+  isCancelledError,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import {Link, useNavigate} from '@tanstack/react-router';
 import {useEffect, useId, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 
 import type {Application} from '../../application/controller';
 import {
   createCustomerOptions,
+  customerListOptions,
   updateCustomerOptions,
   customerKeys,
   CustomerRequestError,
@@ -25,6 +32,8 @@ import {typography} from '../../styles/typography.stylex';
 import Button from '../button/button';
 import buttonStyles from '../button/buttonStyles';
 import DeleteCustomer from '../deleteCustomer/deleteCustomer';
+import fieldStyles from '../formFields/fieldStyles';
+import Input from '../input/input';
 import PageShell from '../pageShell/pageShell';
 
 const identityFields = [
@@ -89,6 +98,7 @@ const styles = stylex.create({
     fontSize: typography.fontSizeSmall,
     marginTop: spacing.space14,
   },
+  fieldHelp: {marginTop: 0},
   actions: {gap: spacing.space10, display: 'flex'},
   saveStatus: {
     overflow: 'hidden',
@@ -279,6 +289,26 @@ export default function CustomerForm({
     !state.database?.available ||
     state.database.session !== session ||
     state.recoveryRequired;
+  const customerList = useQuery({
+    ...customerListOptions(application, session, ''),
+    staleTime: 0,
+    enabled: !initialRecord && !unavailable,
+  });
+  const nextCustomerNumber = useMemo(() => {
+    if (!customerList.data) {
+      return '';
+    }
+
+    const usedNumbers = new Set(
+      customerList.data.map(record => record.customer.customerNumber)
+    );
+    let number = 1;
+    while (usedNumbers.has(number)) {
+      number++;
+    }
+
+    return String(number);
+  }, [customerList.data]);
   const pending = create.isPending || update.isPending || protection.saving;
   const disabled =
     pending ||
@@ -434,11 +464,6 @@ export default function CustomerForm({
           </Button>
         </section>
       )}
-      {!initialRecord && (
-        <p>
-          Customer number: {savedRecord?.customer.customerNumber ?? 'Assigned when saved'}
-        </p>
-      )}
       <Form
         id={formId}
         aria-label="Customer details"
@@ -459,7 +484,7 @@ export default function CustomerForm({
             >
               <legend {...stylex.props(styles.legend)}>Identity and Contact</legend>
               <div {...stylex.props(styles.grid)}>
-                {initialRecord && (
+                {initialRecord ? (
                   <form.AppField name="customerNumber">
                     {field => (
                       <field.TextField
@@ -470,6 +495,23 @@ export default function CustomerForm({
                       />
                     )}
                   </form.AppField>
+                ) : (
+                  <Field.Root disabled {...stylex.props(fieldStyles.field, styles.wide)}>
+                    <Field.Label {...stylex.props(fieldStyles.label)}>
+                      Customer number
+                    </Field.Label>
+                    <Input
+                      disabled
+                      value={
+                        savedRecord?.customer.customerNumber !== undefined
+                          ? String(savedRecord.customer.customerNumber ?? '')
+                          : nextCustomerNumber
+                      }
+                    />
+                    <Field.Description {...stylex.props(styles.help, styles.fieldHelp)}>
+                      Automatically assigned when you save.
+                    </Field.Description>
+                  </Field.Root>
                 )}
                 {identityFields.map(config => (
                   <form.AppField key={config.name} name={config.name}>
