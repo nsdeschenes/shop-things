@@ -56,13 +56,17 @@ test('Backup and CSV include every saved row while searched editor draft, route,
       .fill('Alpha');
     await expect(page.getByText('1 result', {exact: true})).toBeVisible();
     await page.getByRole('link', {name: 'Alpha One', exact: true}).click();
-    await page.getByRole('button', {name: 'Edit customer', exact: true}).click();
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     await page.getByRole('textbox', {name: 'Comments', exact: true}).fill(savedComments);
     await page.getByRole('button', {name: 'Save', exact: true}).click();
     await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
+    await page.getByRole('link', {name: 'Alpha One', exact: true}).click();
+    await expect(
       page.getByRole('heading', {name: 'Alpha One', exact: true})
     ).toBeVisible();
-    await page.getByRole('button', {name: 'Edit customer', exact: true}).click();
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     await page.getByRole('textbox', {name: 'First name', exact: true}).fill('UNSAVED');
     await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
     const route = page.url();
@@ -157,7 +161,7 @@ test('saved-file cancellation, existing destinations, unwritable folders, and BU
   try {
     const page = await application.firstWindow();
     await page.getByRole('link', {name: 'Alpha One', exact: true}).click();
-    await page.getByRole('button', {name: 'Edit customer', exact: true}).click();
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
     const route = page.url();
     for (const name of ['Back up database', 'Export all customers']) {

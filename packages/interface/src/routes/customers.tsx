@@ -158,7 +158,7 @@ function RouteComponent() {
       <label htmlFor="search-customers" {...stylex.props(styles.searchLabel)}>
         Search customers
       </label>
-      {typeof notice === 'string' && <p role="status">{notice}</p>}
+      {notice === 'Customer deleted.' && <p role="status">{notice}</p>}
       <div {...stylex.props(styles.search)}>
         <Input
           id="search-customers"

@@ -145,7 +145,7 @@ test('Restore directly protects dirty drafts and both picker cancellations prese
     await page.getByRole('textbox', {name: 'Search customers'}).fill('Alpha');
     await page.getByRole('textbox', {name: 'Search customers'}).press('Enter');
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('button', {name: 'Edit customer'}).click();
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     const balance = page.getByRole('textbox', {name: 'Balance ($)', exact: true});
     await balance.fill('-');
     const before = await stateAndRecord(page);
@@ -202,7 +202,7 @@ test('Restore failures preserve source, working database, route and draft; held 
     await backup(application, page, source);
     const sourceBytes = await readFile(source);
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('button', {name: 'Edit customer'}).click();
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     const name = page.getByRole('textbox', {name: 'First name'});
     await name.fill('Retained restore draft');
     const before = await stateAndRecord(page);
@@ -313,7 +313,7 @@ test('Restore migrates only a separate read-only backup copy, cleans failed migr
     await page.getByRole('textbox', {name: 'Search customers'}).fill('Alpha');
     await page.getByRole('textbox', {name: 'Search customers'}).press('Enter');
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('button', {name: 'Edit customer'}).click();
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     await page
       .getByRole('textbox', {name: 'First name'})
       .fill('Retained migration draft');

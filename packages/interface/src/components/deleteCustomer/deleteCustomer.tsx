@@ -34,20 +34,24 @@ interface Props {
   application: Application;
   record: CustomerRecord;
   disabled: boolean;
+  busy?: boolean;
   onDeleted(this: void): void;
   onMissing?(this: void): void;
   onStale?(this: void): void;
   onReloaded?(this: void): void;
+  showReload?: boolean;
 }
 
 export default function DeleteCustomer({
   application,
   record,
   disabled,
+  busy = false,
   onDeleted,
   onMissing,
   onStale,
   onReloaded,
+  showReload = true,
 }: Props) {
   const [selected, setSelected] = useState<CustomerRecord | null>(null);
   const mounted = useRef(false);
@@ -60,8 +64,9 @@ export default function DeleteCustomer({
       mounted.current = false;
     };
   }, []);
-  const error =
-    mutation.error instanceof CustomerRequestError ? mutation.error.error : null;
+  const failure =
+    mutation.variables?.revision === record.reference.revision ? mutation.error : null;
+  const error = failure instanceof CustomerRequestError ? failure.error : null;
   const blocked =
     error !== null &&
     [
@@ -148,15 +153,15 @@ export default function DeleteCustomer({
   return (
     <>
       <Button
+        variant="danger"
+        busy={busy}
         disabled={disabled || reloading || mutation.isPending || blocked}
         onClick={() => setSelected(record)}
       >
         {mutation.isPending ? 'Deleting customer…' : 'Delete customer'}
       </Button>
-      {mutation.isError && !isCancelledError(mutation.error) && (
-        <p role="alert">{mutation.error.message}</p>
-      )}
-      {error?.code === 'STALE_REVISION' && (
+      {failure && !isCancelledError(failure) && <p role="alert">{failure.message}</p>}
+      {error?.code === 'STALE_REVISION' && showReload && (
         <section>
           <p>The saved customer changed. Reload before deleting again.</p>
           <Button
@@ -202,6 +207,7 @@ export default function DeleteCustomer({
                 Cancel
               </Button>
               <Button
+                variant="danger"
                 disabled={disabled || reloading || mutation.isPending || blocked}
                 onClick={() => {
                   void confirmDelete();

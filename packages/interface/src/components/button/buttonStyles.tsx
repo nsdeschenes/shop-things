@@ -31,13 +31,34 @@ const buttonStyles = stylex.create({
     minHeight: 36,
   },
   primary: {
-    borderColor: {default: colors.primary, ':disabled': colors.controlBorder},
+    borderColor: {
+      default: colors.primary,
+      ':disabled:not([aria-busy="true"])': colors.controlBorder,
+    },
     backgroundColor: {
       default: colors.primary,
-      ':hover:not(:disabled)': colors.primaryHover,
-      ':disabled': colors.disabledBackground,
+      ':disabled:not([aria-busy="true"])': colors.disabledBackground,
+      ':hover:is(:not(:disabled), [aria-busy="true"])': colors.primaryHover,
     },
-    color: {default: colors.onPrimary, ':disabled': colors.textMuted},
+    color: {
+      default: colors.onPrimary,
+      ':disabled:not([aria-busy="true"])': colors.textMuted,
+    },
+  },
+  danger: {
+    borderColor: {
+      default: colors.danger,
+      ':disabled:not([aria-busy="true"])': colors.controlBorder,
+    },
+    backgroundColor: {
+      default: colors.danger,
+      ':disabled:not([aria-busy="true"])': colors.disabledBackground,
+      ':hover:is(:not(:disabled), [aria-busy="true"])': colors.dangerHover,
+    },
+    color: {
+      default: colors.onPrimary,
+      ':disabled:not([aria-busy="true"])': colors.textMuted,
+    },
   },
 });
 

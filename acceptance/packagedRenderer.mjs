@@ -380,18 +380,25 @@ try {
     .getByRole('textbox', {name: 'Comments', exact: true})
     .fill('Saved, "quoted"\nsecond line');
   await page.getByRole('button', {name: 'Save', exact: true}).click();
+  await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
+  await page.getByRole('link', {name: 'Packaged Saved', exact: true}).click();
   await expect(
     page.getByRole('heading', {name: 'Packaged Saved', exact: true})
   ).toBeVisible();
-  await page.getByRole('button', {name: 'Edit customer', exact: true}).click();
+  await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
   await page.getByRole('textbox', {name: 'City', exact: true}).fill('Saved city');
   await page.getByRole('button', {name: 'Save', exact: true}).click();
-  await expect(page.getByText('Saved city', {exact: true})).toBeVisible();
+  await page.getByRole('link', {name: 'Packaged Saved', exact: true}).click();
+  await expect(page.getByRole('textbox', {name: 'City', exact: true})).toHaveValue(
+    'Saved city'
+  );
   await page.getByRole('link', {name: 'Back to customers', exact: true}).click();
   await page.getByRole('link', {name: 'Add customer', exact: true}).click();
   await page.getByRole('textbox', {name: 'First name', exact: true}).fill('Other');
   await page.getByRole('textbox', {name: 'Last name', exact: true}).fill('Saved');
   await page.getByRole('button', {name: 'Save', exact: true}).click();
+  await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
+  await page.getByRole('link', {name: 'Other Saved', exact: true}).click();
   await expect(
     page.getByRole('heading', {name: 'Other Saved', exact: true})
   ).toBeVisible();
@@ -403,7 +410,7 @@ try {
   await page.getByRole('link', {name: 'Packaged Saved', exact: true}).click();
   assert.equal(new URL(page.url()).hash, '#/customers/1?q=Packaged');
   await passed(expectedCases[1]);
-  await page.getByRole('button', {name: 'Edit customer', exact: true}).click();
+  await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
   await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
   const route = page.url();
   const before = await status();
@@ -476,9 +483,7 @@ try {
     page.getByRole('heading', {name: 'Packaged Saved', exact: true})
   ).toBeVisible();
   assert.equal(page.url(), route);
-  await expect(
-    page.getByRole('button', {name: 'Edit customer', exact: true})
-  ).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Save', exact: true})).toBeVisible();
   assert.deepEqual(
     await status(),
     before,
@@ -494,7 +499,9 @@ try {
   assert.equal(reopened.value.selectedPath, working);
   assert.notEqual(reopened.value.session, before.value.session);
   await page.getByRole('link', {name: 'Packaged Saved', exact: true}).click();
-  await expect(page.getByText('Saved city', {exact: true})).toBeVisible();
+  await expect(page.getByRole('textbox', {name: 'City', exact: true})).toHaveValue(
+    'Saved city'
+  );
   await page.getByRole('button', {name: 'Delete customer', exact: true}).click();
   const deletion = page.getByRole('dialog', {name: 'Delete Customer?', exact: true});
   await expect(deletion.getByRole('button', {name: 'Cancel', exact: true})).toBeFocused();

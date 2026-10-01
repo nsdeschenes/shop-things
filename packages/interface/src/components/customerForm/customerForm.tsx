@@ -24,6 +24,7 @@ import {spacing} from '../../styles/spacing.stylex';
 import {typography} from '../../styles/typography.stylex';
 import Button from '../button/button';
 import buttonStyles from '../button/buttonStyles';
+import DeleteCustomer from '../deleteCustomer/deleteCustomer';
 import PageShell from '../pageShell/pageShell';
 
 const identityFields = [
@@ -89,6 +90,14 @@ const styles = stylex.create({
     marginTop: spacing.space14,
   },
   actions: {gap: spacing.space10, display: 'flex'},
+  saveStatus: {
+    overflow: 'hidden',
+    clipPath: 'inset(50%)',
+    position: 'absolute',
+    whiteSpace: 'nowrap',
+    height: 1,
+    width: 1,
+  },
 });
 
 function focusInvalidField() {
@@ -139,7 +148,13 @@ export default function CustomerForm({
   const form = useAppForm({
     ...customerFormOptions(initialRecord?.customer),
     defaultValues: defaults,
-    onSubmitInvalid: focusInvalidField,
+    onSubmitInvalid: () => {
+      application.toasts.error({
+        title: 'Could not save customer',
+        description: 'Check the highlighted fields and try again.',
+      });
+      focusInvalidField();
+    },
     onSubmit: async ({value}) => {
       if (
         blocked ||
@@ -188,6 +203,10 @@ export default function CustomerForm({
                 setBlocked(
                   failure.error.code === 'CUSTOMER_DELETED' ? 'deleted' : 'stale'
                 );
+                void queryClient.invalidateQueries({
+                  queryKey: customerKeys.session(session),
+                  refetchType: 'none',
+                });
               }
 
               const fields =
@@ -203,11 +222,15 @@ export default function CustomerForm({
                 }
               }
 
-              setError(
+              const message =
                 failure instanceof Error
                   ? failure.message
-                  : 'Could not save the customer. Try again.'
-              );
+                  : 'Could not save the customer. Try again.';
+              setError(message);
+              application.toasts.error({
+                title: 'Could not save customer',
+                description: message,
+              });
             }
 
             throw failure;
@@ -221,14 +244,10 @@ export default function CustomerForm({
           !navigationState.recoveryRequired &&
           captured.isCurrent()
         ) {
-          const result: CustomerRecord = completed;
           application.protection.navigateAfterSave(() => {
             onSaved?.();
-            void navigate({
-              to: '/customers/$customerId',
-              params: {customerId: String(result.customer.id)},
-              state: previous => ({...previous, customerNotice: 'Customer saved.'}),
-            });
+            application.toasts.success({title: 'Customer saved'});
+            void navigate({to: '/customers'});
           });
         }
       } catch {
@@ -320,7 +339,7 @@ export default function CustomerForm({
         blocked === 'deleted'
           ? 'Customer Not Found'
           : initialRecord
-            ? 'Edit Customer'
+            ? `${savedRecord?.customer.firstName ?? ''} ${savedRecord?.customer.lastName ?? ''}`.trim()
             : 'New Customer'
       }
       stickyHeader
@@ -328,6 +347,7 @@ export default function CustomerForm({
         <div {...stylex.props(styles.actions)}>
           <Button
             variant="primary"
+            busy={pending}
             disabled={disabled || blocked !== null}
             type="submit"
             form={formId}
@@ -336,12 +356,36 @@ export default function CustomerForm({
           </Button>
 
           <Link to="/customers" {...stylex.props(buttonStyles.base)}>
-            Cancel
+            {initialRecord ? 'Back to customers' : 'Cancel'}
           </Link>
+          {initialRecord && savedRecord && blocked !== 'deleted' && (
+            <DeleteCustomer
+              key={`${savedRecord.reference.session}:${savedRecord.reference.id}`}
+              application={application}
+              record={savedRecord}
+              disabled={disabled}
+              busy={pending}
+              onStale={() => setBlocked('stale')}
+              onMissing={() => setBlocked('deleted')}
+              showReload={false}
+              onDeleted={() => {
+                form.reset(draftRef.current.baseline);
+                application.protection.changed();
+                void navigate({
+                  to: '/customers',
+                  state: previous => ({...previous, customerNotice: 'Customer deleted.'}),
+                });
+              }}
+            />
+          )}
         </div>
       }
     >
-      {pending && <p role="status">Saving customer…</p>}
+      {pending && (
+        <p role="status" {...stylex.props(styles.saveStatus)}>
+          Saving customer…
+        </p>
+      )}
       {error && <p role="alert">{error}</p>}
       {blocked === 'stale' && (
         <p>

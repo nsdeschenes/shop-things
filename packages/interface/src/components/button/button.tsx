@@ -4,14 +4,21 @@ import * as stylex from '@stylexjs/stylex';
 import buttonStyles from './buttonStyles';
 
 type Props = Omit<BaseButton.Props, 'className' | 'style'> & {
-  variant?: 'primary' | 'secondary';
+  variant?: 'primary' | 'secondary' | 'danger';
+  busy?: boolean;
 };
 
-export default function Button({variant = 'secondary', ...props}: Props) {
+export default function Button({variant = 'secondary', busy = false, ...props}: Props) {
   return (
     <BaseButton
       {...props}
-      {...stylex.props(buttonStyles.base, variant === 'primary' && buttonStyles.primary)}
+      disabled={busy || props.disabled}
+      aria-busy={busy || undefined}
+      {...stylex.props(
+        buttonStyles.base,
+        variant === 'primary' && buttonStyles.primary,
+        variant === 'danger' && buttonStyles.danger
+      )}
     />
   );
 }

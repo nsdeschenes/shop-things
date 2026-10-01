@@ -182,9 +182,9 @@ test('one application subscription and participant span route/editor mounts and 
     const first = await currentDocument(application);
     for (let cycle = 0; cycle < 3; cycle++) {
       await page.getByRole('link', {name: 'Alpha One'}).click();
-      await page.getByRole('button', {name: 'Edit customer'}).click();
+      await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
       await expect(page.getByRole('textbox', {name: 'First name'})).toHaveValue('Alpha');
-      await page.getByRole('link', {name: 'Cancel', exact: true}).click();
+      await page.getByRole('link', {name: 'Back to customers', exact: true}).click();
       await page.getByRole('link', {name: 'Add customer'}).click();
       await page.getByRole('link', {name: 'Cancel', exact: true}).click();
     }

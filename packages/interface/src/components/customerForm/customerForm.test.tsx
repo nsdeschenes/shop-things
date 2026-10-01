@@ -1,5 +1,5 @@
 import {QueryObserver} from '@tanstack/react-query';
-import {act, fireEvent, screen, waitFor} from '@testing-library/react';
+import {act, fireEvent, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, test, vi} from 'vitest';
 
@@ -11,6 +11,7 @@ import createPreviewClient from '../../application/preview';
 test('empty defaults validate on Save and preserve arbitrary contacts and exact balances', async () => {
   const user = userEvent.setup();
   const {application} = renderRoute('/customers/new');
+  const notify = vi.spyOn(application.toasts, 'error');
   const name = await screen.findByRole('textbox', {name: 'First name'});
   expect(screen.getByRole('textbox', {name: 'Province'})).toHaveValue('');
   expect(
@@ -21,6 +22,10 @@ test('empty defaults validate on Save and preserve arbitrary contacts and exact 
     await screen.findByText('Enter a first name, a last name, or both.')
   ).toBeVisible();
   await waitFor(() => expect(name).toHaveFocus());
+  expect(notify).toHaveBeenCalledExactlyOnceWith({
+    title: 'Could not save customer',
+    description: 'Check the highlighted fields and try again.',
+  });
   await user.type(name, 'Ada');
   await user.type(screen.getByRole('textbox', {name: 'Province'}), 'somewhere');
   await user.type(screen.getByRole('textbox', {name: 'Postal code'}), 'ab cd');
@@ -30,7 +35,7 @@ test('empty defaults validate on Save and preserve arbitrary contacts and exact 
   await user.clear(balance);
   await user.type(balance, '-1.23');
   await user.click(screen.getByRole('button', {name: 'Save'}));
-  expect(await screen.findByRole('heading', {name: 'Ada'})).toBeVisible();
+  expect(await screen.findByRole('link', {name: 'Ada'})).toBeVisible();
   const session = application.getState().database!.session!;
   const record = await application.request(session, client =>
     client.customers.get({session, id: 1})
@@ -117,7 +122,7 @@ test('Edit retains exact loaded strings and original revision across background 
     to: '/customers/$customerId',
     params: {customerId: String(created.value.customer.id)},
   });
-  await user.click(await screen.findByRole('button', {name: 'Edit customer'}));
+  await screen.findByRole('textbox', {name: 'First name'});
   const number = screen.getByRole('textbox', {name: 'Customer number'});
   expect(screen.getByRole('textbox', {name: 'Province'})).toHaveValue('custom province');
   expect(screen.getByRole('textbox', {name: 'Postal code'})).toHaveValue('aB cd');
@@ -156,8 +161,7 @@ test('Edit retains exact loaded strings and original revision across background 
   expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
 });
 
-test('changing immutable route ID remounts the editing capture and history returns to detail', async () => {
-  const user = userEvent.setup();
+test('changing immutable route ID remounts the editable customer and history restores inputs', async () => {
   const {application, router} = renderRoute('/customers');
   await screen.findByRole('link', {name: 'Add customer'});
   const session = application.getState().database!.session!;
@@ -183,14 +187,14 @@ test('changing immutable route ID remounts the editing capture and history retur
     client.customers.create({session, values: {...values, firstName: 'Second'}})
   );
   await router.navigate({to: '/customers/$customerId', params: {customerId: '1'}});
-  await user.click(await screen.findByRole('button', {name: 'Edit customer'}));
+  await screen.findByRole('textbox', {name: 'First name'});
   expect(screen.getByRole('textbox', {name: 'First name'})).toHaveValue('First');
   await router.navigate({to: '/customers/$customerId', params: {customerId: '2'}});
-  await user.click(await screen.findByRole('button', {name: 'Edit customer'}));
+  await screen.findByRole('textbox', {name: 'First name'});
   expect(screen.getByRole('textbox', {name: 'First name'})).toHaveValue('Second');
   router.history.back();
   expect(await screen.findByRole('heading', {name: 'First'})).toBeVisible();
-  expect(screen.queryByRole('textbox', {name: 'First name'})).not.toBeInTheDocument();
+  expect(screen.getByRole('textbox', {name: 'First name'})).toHaveValue('First');
 });
 
 test('a queued file transition suppresses clean Save navigation even before native preparation', async () => {
@@ -260,12 +264,12 @@ test('a queued file transition suppresses clean Save navigation even before nati
   await user.clear(screen.getByRole('textbox', {name: 'First name'}));
   await user.type(screen.getByRole('textbox', {name: 'First name'}), 'Saved again');
   await user.click(screen.getByRole('button', {name: 'Save'}));
-  expect(await screen.findByRole('heading', {name: 'Saved again'})).toBeVisible();
-  expect(router.state.location.pathname).toBe('/customers/1');
+  expect(await screen.findByRole('link', {name: 'Saved again'})).toBeVisible();
+  expect(router.state.location.pathname).toBe('/customers');
 });
 
 test.each(['create', 'update'] as const)(
-  '%s freezes every control and prevents duplicate keyboard and button submissions until detail opens',
+  '%s freezes every control and prevents duplicate keyboard and button submissions until the customer list opens',
   async operation => {
     const user = userEvent.setup();
     const client = createPreviewClient();
@@ -274,7 +278,8 @@ test.each(['create', 'update'] as const)(
     await user.type(await screen.findByRole('textbox', {name: 'First name'}), 'Saved');
     if (operation === 'update') {
       await user.click(screen.getByRole('button', {name: 'Save'}));
-      await user.click(await screen.findByRole('button', {name: 'Edit customer'}));
+      await user.click(await screen.findByRole('link', {name: 'Saved'}));
+      await screen.findByRole('textbox', {name: 'First name'});
       await user.type(screen.getByRole('textbox', {name: 'First name'}), ' edit');
     }
 
@@ -294,6 +299,7 @@ test.each(['create', 'update'] as const)(
             await held;
             return originalUpdate(args);
           });
+    const notify = vi.spyOn(application.toasts, 'success');
     const name = screen.getByRole('textbox', {name: 'First name'});
     const comments = screen.getByRole('textbox', {name: 'Comments'});
     await user.type(comments, 'Retained comments');
@@ -317,12 +323,14 @@ test.each(['create', 'update'] as const)(
     expect(donate).not.toBeChecked();
     expect(write).toHaveBeenCalledTimes(1);
     release();
+    await waitFor(() =>
+      expect(notify).toHaveBeenCalledExactlyOnceWith({title: 'Customer saved'})
+    );
     expect(
-      await screen.findByRole('heading', {
+      await screen.findByRole('link', {
         name: operation === 'create' ? 'Saved' : 'Saved edit',
       })
     ).toBeVisible();
-    expect(screen.getByText('Customer saved.')).toBeVisible();
     expect(application.protection.getState().saving).toBe(false);
     expect(application.protection.isDirty()).toBe(false);
   }
@@ -347,6 +355,7 @@ test('a recoverable Save failure retains the draft and allows correction and ret
     };
   });
   const application = createApplication('http://localhost', true, {client});
+  const notify = vi.spyOn(application.toasts, 'error');
   renderRoute('/customers/new', application);
   const name = await screen.findByRole('textbox', {name: 'First name'});
   await user.type(name, 'Retained');
@@ -356,6 +365,10 @@ test('a recoverable Save failure retains the draft and allows correction and ret
   await screen.findByText('Saving customer…');
   release();
   expect(await screen.findByText('Correct the name.')).toBeVisible();
+  expect(notify).toHaveBeenCalledExactlyOnceWith({
+    title: 'Could not save customer',
+    description: 'Correct the name.',
+  });
   expect(name).toBeEnabled();
   expect(name).toHaveValue('Retained');
   expect(screen.getByRole('textbox', {name: 'Comments'})).toHaveValue('My comments');
@@ -363,7 +376,7 @@ test('a recoverable Save failure retains the draft and allows correction and ret
   expect(application.protection.isDirty()).toBe(true);
   await user.type(name, ' correction');
   await user.click(screen.getByRole('button', {name: 'Save'}));
-  expect(await screen.findByRole('heading', {name: 'Retained correction'})).toBeVisible();
+  expect(await screen.findByRole('link', {name: 'Retained correction'})).toBeVisible();
 });
 
 test('inputs remain frozen after the write while protected list refresh finishes', async () => {
@@ -393,9 +406,9 @@ test('inputs remain frozen after the write while protected list refresh finishes
     ).toBeDefined();
     expect(name).toBeDisabled();
     expect(screen.getByRole('textbox', {name: 'Comments'})).toBeDisabled();
-    expect(screen.getByText('Saving customer…')).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent('Saving customer…');
     release();
-    expect(await screen.findByRole('heading', {name: 'Protected refresh'})).toBeVisible();
+    expect(await screen.findByRole('link', {name: 'Protected refresh'})).toBeVisible();
   } finally {
     release();
     unsubscribe();
@@ -424,6 +437,7 @@ test('obsolete Save completion cannot navigate into a replacement database sessi
   };
 
   const application = createApplication('http://localhost', true, {client});
+  const notify = vi.spyOn(application.toasts, 'success');
   const {router} = renderRoute('/customers/new', application);
   await user.type(await screen.findByRole('textbox', {name: 'First name'}), 'Obsolete');
   await user.click(screen.getByRole('button', {name: 'Save'}));
@@ -440,7 +454,7 @@ test('obsolete Save completion cannot navigate into a replacement database sessi
   await waitFor(() => expect(router.state.location.pathname).toBe('/customers'));
   expect(application.getState().database?.session).toBe('replacement');
   expect(router.state.location.pathname).toBe('/customers');
-  expect(screen.queryByText('Customer saved.')).not.toBeInTheDocument();
+  expect(notify).not.toHaveBeenCalled();
   expect(
     application.queryClient.getQueryData(customerKeys.detail('replacement', 1))
   ).toBeUndefined();
@@ -455,23 +469,60 @@ test('create and edit refresh previously visited lists and searches through hist
   await user.click(screen.getByRole('link', {name: 'Add customer'}));
   await user.type(await screen.findByRole('textbox', {name: 'First name'}), 'Ada');
   await user.click(screen.getByRole('button', {name: 'Save'}));
-  await screen.findByRole('heading', {name: 'Ada'});
-  await user.click(screen.getByRole('link', {name: 'Back to customers'}));
+  await screen.findByRole('heading', {name: 'Customers'});
   expect(await screen.findByRole('link', {name: 'Ada'})).toBeVisible();
   expect(screen.getByRole('textbox', {name: 'Search customers'})).toHaveValue('');
   expect(screen.getByRole('button', {name: 'Clear'})).toBeDisabled();
   await user.click(screen.getByRole('link', {name: 'Ada'}));
-  await user.click(await screen.findByRole('button', {name: 'Edit customer'}));
+  await screen.findByRole('textbox', {name: 'First name'});
   const name = screen.getByRole('textbox', {name: 'First name'});
   await user.clear(name);
   await user.type(name, 'Grace');
   await user.click(screen.getByRole('button', {name: 'Save'}));
-  await screen.findByRole('heading', {name: 'Grace'});
-  router.history.go(-2);
+  await screen.findByRole('link', {name: 'Grace'});
+  router.history.back();
+  await screen.findByRole('textbox', {name: 'First name'});
+  await user.click(screen.getByRole('link', {name: 'Back to customers'}));
   expect(await screen.findByRole('link', {name: 'Grace'})).toBeVisible();
   expect(screen.queryByRole('link', {name: 'Ada'})).not.toBeInTheDocument();
   await user.type(screen.getByRole('textbox', {name: 'Search customers'}), 'Ada');
   expect(
     await screen.findByRole('heading', {name: 'No Matching Customers'})
   ).toBeVisible();
+});
+
+test('customers can be reopened after repeated saves and deleted with a draft', async () => {
+  const user = userEvent.setup();
+  const {application} = renderRoute('/customers/new');
+  await user.type(await screen.findByRole('textbox', {name: 'First name'}), 'Original');
+  await user.click(screen.getByRole('button', {name: 'Save'}));
+  await user.click(await screen.findByRole('link', {name: 'Original'}));
+  await screen.findByRole('textbox', {name: 'Customer number'});
+  for (const value of ['First edit', 'Second edit']) {
+    const name = screen.getByRole('textbox', {name: 'First name'});
+    await user.clear(name);
+    await user.type(name, value);
+    await user.click(screen.getByRole('button', {name: 'Save'}));
+    await screen.findByRole('link', {name: value});
+    expect(application.protection.isDirty()).toBe(false);
+    const session = application.getState().database!.session!;
+    const saved = await application.request(session, client =>
+      client.customers.get({session, id: 1})
+    );
+    expect(saved).toMatchObject({
+      status: 'success',
+      value: {customer: {firstName: value}},
+    });
+    await user.click(screen.getByRole('link', {name: value}));
+    await screen.findByRole('textbox', {name: 'Customer number'});
+    expect(screen.getByRole('textbox', {name: 'First name'})).toHaveValue(value);
+  }
+
+  await user.type(screen.getByRole('textbox', {name: 'First name'}), ' unsaved');
+  await user.click(screen.getByRole('button', {name: 'Delete customer'}));
+  const dialog = await screen.findByRole('dialog');
+  await user.click(within(dialog).getByRole('button', {name: 'Delete customer'}));
+  expect(await screen.findByRole('heading', {name: 'Customers'})).toBeVisible();
+  expect(screen.getByText('Customer deleted.')).toBeVisible();
+  expect(application.protection.isDirty()).toBe(false);
 });

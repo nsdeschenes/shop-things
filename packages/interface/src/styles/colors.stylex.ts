@@ -3,7 +3,7 @@ import * as stylex from '@stylexjs/stylex';
 export const colors = stylex.defineVars({
   pageBackground: '#f4f6f3',
   surface: '#ffffff',
-  surfaceHover: '#f4f7f5',
+  surfaceHover: '#d0e2d8',
   headerBackground: '#183f3b',
   text: '#293a39',
   textMuted: '#627671',
@@ -15,6 +15,8 @@ export const colors = stylex.defineVars({
   secondaryText: '#254c46',
   primary: '#23665b',
   primaryHover: '#1b5349',
+  danger: '#a12622',
+  dangerHover: '#811e1b',
   focusRing: '#24675b',
   border: '#d9e1dc',
   controlBorder: '#cbd6d3',

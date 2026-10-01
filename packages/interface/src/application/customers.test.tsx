@@ -122,7 +122,7 @@ test('a failed edit preserves the draft and existing list after discarding', asy
 
   const {router} = renderRoute('/customers', application);
   await user.click(await screen.findByRole('link', {name: 'Original'}));
-  await user.click(await screen.findByRole('button', {name: 'Edit customer'}));
+  await screen.findByRole('textbox', {name: 'First name'});
   const name = screen.getByRole('textbox', {name: 'First name'});
   await user.clear(name);
   await user.type(name, 'Unsaved');
@@ -130,7 +130,7 @@ test('a failed edit preserves the draft and existing list after discarding', asy
   expect(await screen.findByText('Save failed')).toBeVisible();
   expect(name).toHaveValue('Unsaved');
   expect(router.state.location.pathname).toBe('/customers/1');
-  await user.click(screen.getByRole('link', {name: 'Cancel'}));
+  await user.click(screen.getByRole('link', {name: 'Back to customers'}));
   await user.click(await screen.findByRole('button', {name: 'Discard'}));
   expect(await screen.findByRole('link', {name: 'Original'})).toBeVisible();
   expect(screen.queryByRole('link', {name: 'Unsaved'})).not.toBeInTheDocument();

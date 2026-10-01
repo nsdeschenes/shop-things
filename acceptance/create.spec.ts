@@ -32,18 +32,28 @@ test('Create persists exact contacts and decimal balances across guarded reload 
     await page.getByRole('textbox', {name: 'Email address'}).fill('contact text');
     await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-1.23');
     await page.getByRole('button', {name: 'Save'}).click();
+    await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
+    await page.getByRole('link', {name: 'Ada', exact: true}).click();
     await expect(page.getByRole('heading', {name: 'Ada', exact: true})).toBeVisible();
-    await expect(page.getByText('Customer saved.', {exact: true})).toBeVisible();
-    await expect(page.getByText('aB cd', {exact: true})).toBeVisible();
-    await expect(page.getByText('contact text', {exact: true})).toBeVisible();
-    await expect(page.getByText('$-1.23', {exact: true})).toBeVisible();
+    await expect(page.getByText('Customer saved', {exact: true})).toBeVisible();
+    await expect(page.getByRole('textbox', {name: 'Postal code'})).toHaveValue('aB cd');
+    await expect(page.getByRole('textbox', {name: 'Email address'})).toHaveValue(
+      'contact text'
+    );
+    await expect(
+      page.getByRole('textbox', {name: 'Balance ($)', exact: true})
+    ).toHaveValue('-1.23');
     expect(new URL(page.url()).hash).toBe('#/customers/4');
     await page.getByRole('link', {name: 'Back to customers'}).click();
     await expect(page.getByRole('link', {name: 'Ada', exact: true})).toBeVisible();
     await expect(page.getByText('4 results', {exact: true})).toBeVisible();
     await page.getByRole('link', {name: 'Ada', exact: true}).click();
     await page.reload();
-    await expect(page.getByText('$-1.23', {exact: true})).toBeVisible();
+    await expect(
+      page.getByRole('textbox', {name: 'Balance ($)', exact: true})
+    ).toHaveValue('-1.23');
     await application.evaluate(
       ({dialog}, path) => {
         dialog.showOpenDialog = async () => ({canceled: false, filePaths: [path]});
@@ -56,8 +66,10 @@ test('Create persists exact contacts and decimal balances across guarded reload 
     ).toBe('success');
     await expect(page.getByText('4 results', {exact: true})).toBeVisible();
     await page.getByRole('link', {name: 'Ada', exact: true}).click();
-    await expect(page.getByText('somewhere', {exact: true})).toBeVisible();
-    await expect(page.getByText('$-1.23', {exact: true})).toBeVisible();
+    await expect(page.getByRole('textbox', {name: 'Province'})).toHaveValue('somewhere');
+    await expect(
+      page.getByRole('textbox', {name: 'Balance ($)', exact: true})
+    ).toHaveValue('-1.23');
   } finally {
     await application.evaluate(() => Reflect.set(globalThis, 'acceptanceDiscard', true));
     await application.close();
@@ -103,6 +115,10 @@ test('actual Save freezes edits, prevents duplicates and protects failure versus
       Reflect.set(globalThis, 'acceptanceHeldRead', null);
     });
     await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
+    await page.getByRole('link', {name: 'Submitted', exact: true}).click();
+    await expect(
       page.getByRole('heading', {name: 'Submitted', exact: true})
     ).toBeVisible();
     expect(
@@ -147,7 +163,7 @@ test('actual Save freezes edits, prevents duplicates and protects failure versus
     expect((await opening).status).toBe('success');
     await expect(page.getByText('5 results', {exact: true})).toBeVisible();
     await expect(page.getByRole('link', {name: 'Saved before transition'})).toBeVisible();
-    await expect(page.getByText('Customer saved.', {exact: true})).toHaveCount(0);
+    await expect(page.getByText('Customer saved', {exact: true})).toHaveCount(0);
     await page.getByRole('link', {name: 'Add customer'}).click();
     await name.fill('Retained failure');
     await application.evaluate(() =>
@@ -176,7 +192,9 @@ test('actual Save freezes edits, prevents duplicates and protects failure versus
     });
     await expect(name).toBeEnabled();
     await expect(name).toHaveValue('Retained failure');
-    await expect(page.getByText('Supplied save failure', {exact: true})).toBeVisible();
+    await expect(
+      page.getByRole('main').getByText('Supplied save failure', {exact: true})
+    ).toBeVisible();
     await expect(page.getByText('Supplied name feedback', {exact: true})).toBeVisible();
     await application.evaluate(() => Reflect.set(globalThis, 'acceptanceDiscard', true));
     await page.getByRole('link', {name: 'Cancel'}).click();
@@ -210,8 +228,12 @@ test('Chromium preview Create shares validation and safe draft guards with tempo
   );
   await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-2.34');
   await page.getByRole('button', {name: 'Save'}).click();
+  await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
+  await page.getByRole('link', {name: 'Temporary', exact: true}).click();
   await expect(page.getByRole('heading', {name: 'Temporary', exact: true})).toBeVisible();
-  await expect(page.getByText('$-2.34', {exact: true})).toBeVisible();
+  await expect(page.getByRole('textbox', {name: 'Balance ($)', exact: true})).toHaveValue(
+    '-2.34'
+  );
   await page.getByRole('link', {name: 'Back to customers'}).click();
   await expect(page.getByRole('link', {name: 'Temporary', exact: true})).toBeVisible();
   await page.reload();
