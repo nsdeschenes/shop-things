@@ -62,6 +62,7 @@ function makeBridge() {
       },
     },
     imports: {
+      commit: async () => ({status: 'cancelled'}),
       prepare: async () => ({status: 'cancelled'}),
       review: async () => ({status: 'cancelled'}),
       resolve: async () => ({status: 'cancelled'}),

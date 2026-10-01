@@ -150,6 +150,18 @@ export const importReviewSchema = z.strictObject({
 });
 
 export const actions = {
+  'imports.commit': action(
+    sessionArguments.extend({importId: token}),
+    z.discriminatedUnion('kind', [
+      z.strictObject({
+        kind: z.literal('committed'),
+        session: token,
+        addedCount: nonnegativeInteger,
+        skippedCount: nonnegativeInteger,
+      }),
+      z.strictObject({kind: z.literal('changed'), review: importReviewSchema}),
+    ])
+  ),
   'imports.prepare': action(sessionArguments, importReviewSchema),
   'imports.review': action(
     sessionArguments.extend({importId: token}),

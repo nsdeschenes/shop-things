@@ -217,7 +217,13 @@ export default function ApplicationShell({application, children}: ApplicationShe
       )}
       {(state.phase === 'loading' || state.pendingFile) && (
         <LoadingOverlay
-          label={state.pendingFile ? 'Loading database' : 'Loading application'}
+          label={
+            state.pendingFile === 'importSaving'
+              ? 'Backing up and adding customers'
+              : state.pendingFile
+                ? 'Loading database'
+                : 'Loading application'
+          }
         />
       )}
     </div>

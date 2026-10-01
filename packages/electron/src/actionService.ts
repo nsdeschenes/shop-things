@@ -20,6 +20,7 @@ import {
   listCustomers,
   getCustomer,
   createCustomer,
+  importCustomerBatch,
   updateCustomer,
   deleteCustomer,
   DatabaseError,
@@ -56,6 +57,7 @@ export const databaseOperations = {
   listCustomers,
   getCustomer,
   createCustomer,
+  importCustomerBatch,
   updateCustomer,
   deleteCustomer,
   backupDatabase,
@@ -129,6 +131,75 @@ export class ActionService {
   constructor(private readonly options: ActionServiceOptions) {
     this.database = options.database ?? databaseOperations;
     this.handlers = {
+      'imports.commit': args =>
+        this.admit(async () => {
+          const handle = this.requireSession(args.session);
+          const review = this.imports.get(args.importId);
+          if (!review || review.session !== args.session) {
+            throw new ActionError(
+              'STALE_SESSION',
+              'This import expired. Choose the file again.'
+            );
+          }
+
+          if (
+            review.status !== 'ready' ||
+            !review.choicesResolved ||
+            review.includedCount === 0
+          ) {
+            throw new ActionError(
+              'VALIDATION',
+              'Resolve every possible match before adding customers.'
+            );
+          }
+
+          let revised = this.recheckImport(
+            review,
+            await this.database.listCustomers(handle.db)
+          );
+          if (JSON.stringify(revised) !== JSON.stringify(review)) {
+            this.imports.set(review.importId, revised);
+            return {kind: 'changed' as const, review: structuredClone(revised)};
+          }
+
+          if ((await this.backup(args.session)) === null) {
+            return null;
+          }
+
+          this.requireSession(args.session);
+          const added = await this.database.importCustomerBatch(handle.db, saved => {
+            revised = this.recheckImport(review, saved);
+            if (JSON.stringify(revised) !== JSON.stringify(review)) {
+              return null;
+            }
+
+            return revised.rows
+              .filter(row => row.choice === 'include' || row.choice === 'add')
+              .map(row => {
+                if (row.assignedCustomerNumber === null) {
+                  throw new ActionError(
+                    'VALIDATION',
+                    'Every included customer needs a number.'
+                  );
+                }
+
+                return {...row.values, customerNumber: row.assignedCustomerNumber};
+              });
+          });
+          if (added === null) {
+            this.imports.set(review.importId, revised);
+            return {kind: 'changed' as const, review: structuredClone(revised)};
+          }
+
+          // Consume before publishing success, including when a renderer loses its reply.
+          this.imports.delete(review.importId);
+          return {
+            kind: 'committed' as const,
+            session: args.session,
+            addedCount: added.length,
+            skippedCount: review.skippedCount,
+          };
+        }),
       'imports.prepare': args =>
         this.admit(async () => {
           this.requireSession(args.session);
@@ -453,6 +524,31 @@ export class ActionService {
     const path = resolve(selected);
     await writeCustomerCsv(path, await this.database.listCustomers(handle.db));
     return {path};
+  }
+
+  private recheckImport(review: ImportReview, saved: CustomerData[]): ImportReview {
+    const matched = matchCustomerImportRows(review.rows, saved);
+    const unchangedMatches =
+      JSON.stringify(matched.matchGroups) === JSON.stringify(review.matchGroups);
+    const updated = summarizeCustomerImport({
+      ...review,
+      ...matched,
+      rows: matched.rows.map((row, index) =>
+        unchangedMatches ? {...row, choice: review.rows[index]!.choice} : row
+      ),
+    });
+    return {
+      ...updated,
+      ...numberCustomerImportRows(
+        updated.rows,
+        saved.map(customer => customer.customerNumber),
+        new Set(
+          updated.rows
+            .filter(row => row.choice === 'include' || row.choice === 'add')
+            .map(row => row.recordNumber)
+        )
+      ),
+    };
   }
 
   private async backup(session: string): Promise<{path: string} | null> {

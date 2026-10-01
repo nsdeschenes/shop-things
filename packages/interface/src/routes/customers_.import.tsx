@@ -1,10 +1,14 @@
 /* oxlint-disable @tanstack/query/exhaustive-deps -- Navigation scope controls admission, not review identity. */
 import {queryOptions, useQuery} from '@tanstack/react-query';
 import {createFileRoute, redirect} from '@tanstack/react-router';
-import {useState, useSyncExternalStore} from 'react';
+import {useRef, useState, useSyncExternalStore} from 'react';
 import {z} from 'zod';
 
-import {CustomerRequestError} from '../application/customers';
+import {
+  CustomerRequestError,
+  customerKeys,
+  customerListOptions,
+} from '../application/customers';
 import {admitCustomerRoute} from '../application/routing';
 import Button from '../components/button/button';
 import {
@@ -76,6 +80,83 @@ function ImportReview() {
   );
   const [openRecords, setOpenRecords] = useState<ReadonlySet<number>>(new Set());
   const [updating, setUpdating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const submitting = useRef(false);
+  const [committed, setCommitted] = useState<{
+    session: string;
+    addedCount: number;
+    skippedCount: number;
+  } | null>(null);
+  const [refreshError, setRefreshError] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  async function refresh(session: string, addedCount: number, skippedCount: number) {
+    const captured = application.captureSession(session);
+    try {
+      if (!captured.isCurrent()) {
+        return;
+      }
+
+      await queryClient.invalidateQueries({
+        queryKey: customerKeys.session(session),
+        refetchType: 'none',
+      });
+      if (!captured.isCurrent()) {
+        return;
+      }
+
+      await queryClient.fetchQuery(customerListOptions(application, session, ''));
+      if (!captured.isCurrent()) {
+        return;
+      }
+
+      await navigate({to: '/customers'});
+      if (captured.isCurrent()) {
+        application.toasts.success({
+          title: `${addedCount} customers added. ${skippedCount} skipped.`,
+        });
+      }
+    } catch {
+      if (captured.isCurrent()) {
+        setRefreshError(true);
+      }
+    }
+  }
+
+  async function commit() {
+    if (submitting.current || committed) {
+      return;
+    }
+
+    submitting.current = true;
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const result = await application.commitImport(review.session, review.importId);
+      if (result.status === 'success') {
+        if (result.value.kind === 'changed') {
+          queryClient.setQueryData(
+            ['imports', review.session, review.importId],
+            result.value.review
+          );
+          setFeedback(
+            'Saved customers changed. Review the updated plan before adding customers.'
+          );
+        } else {
+          const actual = result.value;
+          setCommitted(actual);
+          await refresh(actual.session, actual.addedCount, actual.skippedCount);
+        }
+      } else if (result.status === 'error') {
+        setFeedback(result.error.message);
+      } else if (result.status === 'cancelled') {
+        setFeedback('Backup cancelled. No customers were added.');
+      }
+    } finally {
+      submitting.current = false;
+      setSaving(false);
+    }
+  }
+
   async function resolve(recordNumber: number, choice: 'add' | 'skip') {
     setUpdating(true);
     try {
@@ -106,6 +187,8 @@ function ImportReview() {
     state.database?.available === true && state.database.session !== review.session;
   const disabled =
     updating ||
+    saving ||
+    Boolean(committed) ||
     Boolean(state.pendingFile) ||
     state.pendingTransition ||
     state.reconciling ||
@@ -116,7 +199,7 @@ function ImportReview() {
       title="Import Customers"
       actions={
         <Button
-          disabled={Boolean(state.pendingFile)}
+          disabled={saving || Boolean(state.pendingFile)}
           onClick={() => {
             void navigate({to: '/customers'});
           }}
@@ -126,6 +209,18 @@ function ImportReview() {
       }
     >
       <p>Selected file: {review.fileName}</p>
+      {feedback && <p role="alert">{feedback}</p>}
+      {saving && <p role="status">Backing up and adding customers...</p>}
+      {committed && (
+        <p role="status">
+          {committed.addedCount} customers added. {committed.skippedCount} skipped.
+        </p>
+      )}
+      {refreshError && (
+        <p role="alert">
+          Customers were added, but the customer list could not be refreshed.
+        </p>
+      )}
       {expired ? (
         <p role="alert">This import expired. Choose the file again.</p>
       ) : !state.database?.available ? (
@@ -169,8 +264,16 @@ function ImportReview() {
       >
         Choose another file
       </Button>
-      {review.status === 'ready' && (
+      {review.status === 'ready' && !committed && (
         <>
+          <Button
+            disabled={disabled || !review.choicesResolved || review.includedCount === 0}
+            onClick={() => {
+              void commit();
+            }}
+          >
+            Add {review.includedCount} customers
+          </Button>
           <p role="status">
             {review.sourceRecordCount} source records. {review.includedCount} customers to
             add. {review.skippedCount} skipped. {review.unresolvedCount} unresolved

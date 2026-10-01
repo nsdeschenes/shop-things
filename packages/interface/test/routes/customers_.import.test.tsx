@@ -260,3 +260,87 @@ test('shows all match reasons and targets with fresh explicit choices and backen
   await waitFor(() => expect(add).toBeChecked());
   expect(screen.getByRole('status')).toHaveTextContent('1 customers to add');
 });
+
+test('gates Add on choices and included totals; prevents duplicate clicks and cancellation during commit', async () => {
+  const f = fixture();
+  let finish!: () => void;
+  const held = new Promise<void>(resolve => {
+    finish = resolve;
+  });
+  f.client.imports.commit = vi.fn<typeof f.client.imports.commit>(async args => {
+    await held;
+    return {
+      status: 'success',
+      value: {kind: 'committed', session: args.session, addedCount: 1, skippedCount: 0},
+    };
+  });
+  renderRoute('/customers/import?importId=chosen', f.application);
+  const add = await screen.findByRole('button', {name: 'Add 1 customers'});
+  await userEvent.dblClick(add);
+  expect(f.client.imports.commit).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('button', {name: 'Cancel'})).toBeDisabled();
+  expect(screen.getByRole('button', {name: 'Choose another file'})).toBeDisabled();
+  expect(add).toBeDisabled();
+  await act(async () => {
+    finish();
+  });
+  expect(await screen.findByRole('heading', {name: 'Customers'})).toBeVisible();
+});
+
+test.each([
+  {includedCount: 0, unresolvedCount: 1, choicesResolved: false},
+  {includedCount: 0, unresolvedCount: 0, choicesResolved: true},
+])('disables Add without a resolved nonempty batch: %j', async counts => {
+  const f = fixture({...review, ...counts});
+  renderRoute('/customers/import?importId=chosen', f.application);
+  expect(await screen.findByRole('button', {name: 'Add 0 customers'})).toBeDisabled();
+});
+
+test('keeps successful import totals separate from refresh failure and never restores Add', async () => {
+  const f = fixture();
+  f.client.imports.commit = vi.fn<typeof f.client.imports.commit>(async args => ({
+    status: 'success',
+    value: {kind: 'committed', session: args.session, addedCount: 1, skippedCount: 2},
+  }));
+  f.client.customers.list = async () => ({
+    status: 'error',
+    error: {code: 'INTERNAL', message: 'Read failed'},
+  });
+  renderRoute('/customers/import?importId=chosen', f.application);
+  await userEvent.click(await screen.findByRole('button', {name: 'Add 1 customers'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Customers were added, but the customer list could not be refreshed.'
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('1 customers added. 2 skipped.');
+  expect(screen.queryByRole('button', {name: 'Add 1 customers'})).not.toBeInTheDocument();
+  expect(f.client.imports.commit).toHaveBeenCalledTimes(1);
+});
+
+test('retains review after backup cancellation and reports revised plans before another Add', async () => {
+  const f = fixture();
+  f.client.imports.commit = vi
+    .fn<typeof f.client.imports.commit>()
+    .mockResolvedValueOnce({status: 'cancelled'})
+    .mockImplementationOnce(async args => ({
+      status: 'success',
+      value: {
+        kind: 'changed',
+        review: {
+          ...review,
+          session: args.session,
+          numberChangeCount: 1,
+          rows: [{...review.rows[0]!, assignedCustomerNumber: 2}],
+        },
+      },
+    }));
+  renderRoute('/customers/import?importId=chosen', f.application);
+  await userEvent.click(await screen.findByRole('button', {name: 'Add 1 customers'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Backup cancelled. No customers were added.'
+  );
+  await userEvent.click(screen.getByRole('button', {name: 'Add 1 customers'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Saved customers changed. Review the updated plan'
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('1 customer numbers will change');
+});

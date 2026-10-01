@@ -278,6 +278,76 @@ export async function createCustomer(
   }
 }
 
+// The callback plans from the same locked snapshot used by every insertion.
+// Native dialogs must finish before entering this transaction.
+export async function importCustomerBatch(
+  db: AppDatabase,
+  plan: (saved: CustomerData[]) => CustomerChanges[] | null
+): Promise<CustomerData[] | null> {
+  let began = false;
+  try {
+    // The installed Drizzle adapter ignores transaction behavior configuration.
+    await db.run('BEGIN IMMEDIATE');
+    began = true;
+    const values = plan(await listCustomers(db));
+    if (values === null) {
+      await db.run('ROLLBACK');
+      began = false;
+      return null;
+    }
+
+    const added: CustomerData[] = [];
+    for (const value of values) {
+      const parsed = validate(value, false);
+      requireName(value);
+      if (value.customerNumber === undefined) {
+        throw new DatabaseError('VALIDATION', 'An import customer number is required');
+      }
+
+      const [row] = await db
+        .insert(customers)
+        .values({
+          firstName: '',
+          lastName: '',
+          address: '',
+          city: '',
+          province: '',
+          postalCode: '',
+          phone: '',
+          email: '',
+          comments: '',
+          stock: 0,
+          balance: 0,
+          previousBalance: 0,
+          donate: false,
+          ...parsed,
+        })
+        .returning();
+      if (!row) {
+        throw new Error('Customer import returned no row');
+      }
+
+      const [stored] = await db.select().from(customers).where(eq(customers.id, row.id));
+      if (!stored) {
+        throw new Error('Imported customer was not persisted');
+      }
+
+      verifyMoney(stored, value);
+      added.push(normalize(stored));
+    }
+
+    await db.run('COMMIT');
+    began = false;
+    return added;
+  } catch (error) {
+    if (began) {
+      await db.run('ROLLBACK');
+    }
+
+    return translateError(error);
+  }
+}
+
 export async function updateCustomer(
   db: AppDatabase,
   reference: CustomerRevision,

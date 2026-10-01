@@ -125,6 +125,7 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
         onStateChanged: callback => target.onStateChanged(callback),
       },
       imports: {
+        commit: target.handlers['imports.commit'],
         prepare: target.handlers['imports.prepare'],
         review: target.handlers['imports.review'],
         resolve: target.handlers['imports.resolve'],
