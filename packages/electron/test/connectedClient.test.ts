@@ -197,7 +197,7 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
       city: '',
       province: '',
       postalCode: '',
-      homePhone: '',
+      phone: '+1 (902) 555-1234',
       email: '',
       stock: 0,
       balance: '12.34',
@@ -213,10 +213,15 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
     const updated = success(
       await client.customers.update({
         reference: created.reference,
-        changes: {stock: 3, balance: '23.45'},
+        changes: {stock: 3, balance: '23.45', phone: '+1 (902) 555-5678'},
       })
     );
-    expect(updated.customer).toEqual({...created.customer, stock: 3, balance: '23.45'});
+    expect(updated.customer).toEqual({
+      ...created.customer,
+      stock: 3,
+      balance: '23.45',
+      phone: '+1 (902) 555-5678',
+    });
     expect(updated.reference.revision).not.toBe(created.reference.revision);
     expect(await client.customers.delete({reference: created.reference})).toMatchObject({
       status: 'error',
@@ -234,6 +239,9 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
     const csv = success(await client.exports.csv({session}));
     expect(csv.path).toBe(csvPath);
     const content = await readFile(csvPath, 'utf8');
+    expect(content.split('\n')[0]?.split(',')).toContain('"phone"');
+    expect(content).not.toContain('homePhone');
+    expect(content).toContain('"+1 (902) 555-5678"');
     expect(content).toContain('"Ada"');
     expect(content).toContain('"Grace"');
     expect(content).toContain('"23.45"');

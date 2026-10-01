@@ -79,7 +79,7 @@ await createCustomer(db.db, {
   city: '',
   province: '',
   postalCode: '',
-  homePhone: '',
+  phone: '',
   email: '',
   stock: 0,
   balance: '0.00',

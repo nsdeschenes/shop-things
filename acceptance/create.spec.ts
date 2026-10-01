@@ -33,7 +33,7 @@ test('Create persists exact contacts and decimal balances across guarded reload 
     await page.getByRole('textbox', {name: 'First name'}).fill('Ada');
     await page.getByRole('textbox', {name: 'Province'}).fill('somewhere');
     await page.getByRole('textbox', {name: 'Postal code'}).fill('aB cd');
-    await page.getByRole('textbox', {name: 'Home phone'}).fill('+1 (902) 555-1234');
+    await page.getByRole('textbox', {name: 'Phone'}).fill('+1 (902) 555-1234');
     await page.getByRole('textbox', {name: 'Email address'}).fill('contact text');
     await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-1.23');
     await page.getByRole('button', {name: 'Save'}).click();

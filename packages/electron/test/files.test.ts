@@ -123,7 +123,7 @@ test('pending migration restore migrates only the separate writable copy of a re
     try {
       await runMigrations(handle.db, {migrationsFolder: initialMigrations});
       await handle.db.run(
-        "insert into customers (customerNumber,firstName,balance) values(7,'Pending',4.56)"
+        "insert into customers (customerNumber,firstName,balance,homePhone) values(7,'Pending',4.56,'+1 (902) 555-1234')"
       );
     } finally {
       handle.close();
@@ -141,6 +141,7 @@ test('pending migration restore migrates only the separate writable copy of a re
       firstName: 'Pending',
       customerNumber: 7,
       balance: '4.56',
+      phone: '+1 (902) 555-1234',
     });
     const migrated = await openExistingDatabase(restored.selectedPath!, {
       migrationsFolder,
@@ -148,7 +149,7 @@ test('pending migration restore migrates only the separate writable copy of a re
     try {
       expect(
         await migrated.db.all('select name from __drizzle_migrations order by id')
-      ).toHaveLength(2);
+      ).toHaveLength(3);
     } finally {
       migrated.close();
     }

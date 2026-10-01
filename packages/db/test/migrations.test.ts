@@ -1,11 +1,11 @@
 import {spawnSync} from 'node:child_process';
-import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {cp, mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 import type {AppDatabase, DatabaseHandle} from '@shop-things/db';
-import {openDatabase, runMigrations} from '@shop-things/db';
+import {openDatabase, openExistingDatabase, runMigrations} from '@shop-things/db';
 import {expect, test} from 'vitest';
 
 const fixtureFolder = fileURLToPath(new URL('./fixtures', import.meta.url));
@@ -18,6 +18,75 @@ const invalidFolderError = /ENOTDIR/;
 const absolutePathError = /absolute path/;
 const failedMigrationError = /missing_table/;
 const databaseArgumentError = /--database <absolute database file path>/;
+
+test.each([1, 2])(
+  'opening a database with %i migrations preserves phone values through the rename',
+  async migrationCount => {
+    const directory = await mkdtemp(join(tmpdir(), 'shop-things-phone-migration-'));
+    const databaseFilePath = join(directory, 'app.db');
+    const legacyFolder = join(directory, 'legacy');
+    const legacyMigrations = [
+      '20260929093112_wealthy_hemingway',
+      '20260929120000_customer_integrity',
+    ];
+    try {
+      await mkdir(legacyFolder);
+      for (const name of legacyMigrations.slice(0, migrationCount)) {
+        await cp(join(checkedInFolder, name), join(legacyFolder, name), {
+          recursive: true,
+        });
+      }
+
+      const legacy = openDatabase(databaseFilePath);
+      try {
+        await runMigrations(legacy.db, {migrationsFolder: legacyFolder});
+        await legacy.db.run(
+          "insert into customers (customerNumber,firstName,homePhone) values (1,'Number',' +1 (902) 555-1234 ext. 5 '),(2,'Empty',''),(3,'Null',NULL)"
+        );
+      } finally {
+        legacy.close();
+      }
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const migrated = await openExistingDatabase(databaseFilePath, {
+          migrationsFolder: checkedInFolder,
+        });
+        try {
+          expect(
+            await migrated.db.all(
+              'select id,customerNumber,firstName,phone,revision from customers order by id'
+            )
+          ).toStrictEqual([
+            {
+              id: 1,
+              customerNumber: 1,
+              firstName: 'Number',
+              phone: ' +1 (902) 555-1234 ext. 5 ',
+              revision: 1,
+            },
+            {id: 2, customerNumber: 2, firstName: 'Empty', phone: '', revision: 1},
+            {id: 3, customerNumber: 3, firstName: 'Null', phone: null, revision: 1},
+          ]);
+          const columns = await migrated.db.all<{name: string}>(
+            'pragma table_info(customers)'
+          );
+          expect(columns.map(column => column.name)).toContain('phone');
+          expect(columns.map(column => column.name)).not.toContain('homePhone');
+          expect(
+            await migrated.db.all('select name from __drizzle_migrations order by id')
+          ).toStrictEqual([
+            ...legacyMigrations.map(name => ({name})),
+            {name: '20261001005150_rename_home_phone'},
+          ]);
+        } finally {
+          migrated.close();
+        }
+      }
+    } finally {
+      await rm(directory, {recursive: true, force: true});
+    }
+  }
+);
 
 async function withDatabase(
   callback: (context: {

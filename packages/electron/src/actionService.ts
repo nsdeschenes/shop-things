@@ -79,7 +79,7 @@ function definedChanges(changes: UpdateCustomerInput): CustomerChanges {
     ...(changes.city !== undefined ? {city: changes.city} : {}),
     ...(changes.province !== undefined ? {province: changes.province} : {}),
     ...(changes.postalCode !== undefined ? {postalCode: changes.postalCode} : {}),
-    ...(changes.homePhone !== undefined ? {homePhone: changes.homePhone} : {}),
+    ...(changes.phone !== undefined ? {phone: changes.phone} : {}),
     ...(changes.email !== undefined ? {email: changes.email} : {}),
     ...(changes.stock !== undefined ? {stock: changes.stock} : {}),
     ...(changes.balance !== undefined ? {balance: changes.balance} : {}),

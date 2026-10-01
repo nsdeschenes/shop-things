@@ -12,7 +12,7 @@ const editableFields = {
   city: z.string(),
   province: z.string(),
   postalCode: z.string(),
-  homePhone: z.string(),
+  phone: z.string(),
   email: z.string(),
   stock: nonnegativeInteger,
   balance: moneyInput,
