@@ -12,8 +12,8 @@ const fixture = join(root, 'scripts/test/fixtures/acceptance-command.mjs');
 const commands = [
   'install',
   'electron-runtime',
-  'chromium-runtime',
   'source-tests',
+  'chromium-runtime',
   'typecheck',
   'build',
   'lint',
@@ -24,7 +24,15 @@ const commands = [
   'development-watcher',
 ];
 
-for (const scenario of ['passed', 'child failure', 'missing revision']) {
+for (const scenario of [
+  'passed',
+  'child failure',
+  'missing revision',
+  'reused checks',
+  'stale source checks',
+  'missing source checks',
+  'skipped source test',
+]) {
   test(`acceptance command reports ${scenario} with current-run diagnostics`, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'shop-things-acceptance-command-'));
     const reports = join(directory, 'acceptance-reports');
@@ -83,12 +91,39 @@ for (const scenario of ['passed', 'child failure', 'missing revision']) {
         ]);
       }
 
+      const reuseSourceChecks = [
+        'reused checks',
+        'stale source checks',
+        'missing source checks',
+        'skipped source test',
+      ].includes(scenario);
+      if (reuseSourceChecks && scenario !== 'missing source checks') {
+        const source = spawnSync(process.execPath, [fixture, 'test'], {
+          encoding: 'utf8',
+          env: {...process.env, ACCEPTANCE_REPORT_DIR: reports},
+        });
+        expect(source.status).toBe(0);
+        await writeFile(
+          join(reports, 'source-checks.commit'),
+          scenario === 'stale source checks'
+            ? 'another-commit'
+            : git(['rev-parse', 'HEAD'])
+        );
+        if (scenario === 'skipped source test') {
+          const path = join(reports, 'contract-tests.json');
+          const sourceReport = JSON.parse(await readFile(path, 'utf8'));
+          sourceReport.numPendingTests = 1;
+          await writeFile(path, JSON.stringify(sourceReport));
+        }
+      }
+
       const result = spawnSync(
         process.execPath,
         [
           '--experimental-strip-types',
           'scripts/acceptance.ts',
           ...(process.platform === 'darwin' ? ['--supporting-macos'] : []),
+          ...(reuseSourceChecks ? ['--reuse-source-checks'] : []),
         ],
         {
           cwd: directory,
@@ -116,12 +151,34 @@ for (const scenario of ['passed', 'child failure', 'missing revision']) {
       expect(report.finishedAt).toBeTruthy();
       expect(report).not.toHaveProperty('deferred');
       expect(report).not.toHaveProperty('acceptance');
-      if (scenario === 'passed') {
+      if (scenario === 'passed' || scenario === 'reused checks') {
         expect(result.status).toBe(0);
         expect(report.status).toBe('passed');
         expect(report.commit).toBe(git(['rev-parse', 'HEAD']));
         expect(report.cleanBefore && report.cleanAfter).toBe(true);
-        expect(report.steps.map((step: {name: string}) => step.name)).toEqual(commands);
+        const expectedCommands = reuseSourceChecks
+          ? commands.filter(
+              name =>
+                ![
+                  'install',
+                  'electron-runtime',
+                  'source-tests',
+                  'typecheck',
+                  'lint',
+                ].includes(name)
+            )
+          : commands;
+        expect(report.steps.map((step: {name: string}) => step.name)).toEqual(
+          expectedCommands
+        );
+        if (reuseSourceChecks) {
+          expect(report.sourceChecks).toMatchObject({
+            origin: 'prior-workflow-steps',
+            commit: git(['rev-parse', 'HEAD']),
+          });
+          expect(report.sourceTests.contract).toEqual({passed: 1, total: 1, skipped: 0});
+        }
+
         for (const step of report.steps) {
           expect(step.status).toBe('passed');
           expect(step.exitCode).toBe(0);
@@ -153,7 +210,15 @@ for (const scenario of ['passed', 'child failure', 'missing revision']) {
           );
         } else {
           expect(report.steps).toEqual([]);
-          expect(report.error.message).toContain('HEAD');
+          const expectedMessage =
+            scenario === 'stale source checks'
+              ? 'Source checks must use this commit'
+              : scenario === 'missing source checks'
+                ? 'source-checks.commit'
+                : scenario === 'skipped source test'
+                  ? '1 !== 0'
+                  : 'HEAD';
+          expect(report.error.message).toContain(expectedMessage);
         }
       }
     } finally {
