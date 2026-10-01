@@ -9,6 +9,7 @@ import {customerKeys} from '../application/customers';
 import createPreviewClient from '../application/preview';
 
 const numberingExplanation = /Unused source customer numbers are reserved first/;
+const recordLabelPattern = /^Record \d+: Anne Smith$/;
 
 const review: ImportReview = {
   importId: 'chosen',
@@ -179,6 +180,33 @@ test('shows blank and conflicting source numbers beside their planned replacemen
   expect(screen.getByText('Assigned customer number: 2')).toBeVisible();
   await userEvent.click(screen.getByText('Record 3: Anne Smith'));
   expect(screen.getByText('Assigned customer number: 3')).toBeVisible();
+});
+
+test('puts unresolved records first while preserving record numbers and order within each group', async () => {
+  const flagged: ImportReview = {
+    ...review,
+    sourceRecordCount: 4,
+    includedCount: 1,
+    skippedCount: 1,
+    unresolvedCount: 2,
+    choicesResolved: false,
+    rows: [
+      {...review.rows[0]!, recordNumber: 1, choice: 'include'},
+      {...review.rows[0]!, recordNumber: 2, choice: 'unresolved'},
+      {...review.rows[0]!, recordNumber: 3, choice: 'skip'},
+      {...review.rows[0]!, recordNumber: 4, choice: 'unresolved'},
+    ],
+  };
+  const f = fixture(flagged);
+  renderRoute('/customers/import?importId=chosen', f.application);
+  await screen.findByText('Selected file: customers.csv');
+  expect(screen.getAllByText(recordLabelPattern).map(row => row.textContent)).toEqual([
+    'Record 2: Anne Smith',
+    'Record 4: Anne Smith',
+    'Record 1: Anne Smith',
+    'Record 3: Anne Smith',
+  ]);
+  expect(screen.getAllByText('Needs review')).toHaveLength(2);
 });
 
 test('shows all match reasons and targets with fresh explicit choices and backend counts', async () => {

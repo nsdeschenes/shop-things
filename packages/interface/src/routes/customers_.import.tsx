@@ -73,6 +73,11 @@ const styles = stylex.create({
   statLabel: {color: colors.textMuted, fontSize: typography.fontSizeSmall},
   positive: {backgroundColor: colors.successBackground, color: colors.successText},
   attention: {borderColor: colors.warningText, color: colors.warningText},
+  reviewRow: {borderLeftWidth: 4},
+  reviewSummary: {
+    backgroundColor: {default: '#fff8e6', ':hover': '#fff1cc'},
+  },
+  reviewBadge: {backgroundColor: '#fff1cc', color: colors.warningText},
   status: {
     fontSize: typography.fontSizeSmall,
     lineHeight: 1.6,
@@ -373,6 +378,9 @@ function ImportReview() {
     state.reconciling ||
     !state.database?.available ||
     expired;
+  const orderedRows = review.rows.toSorted(
+    (a, b) => Number(b.choice === 'unresolved') - Number(a.choice === 'unresolved')
+  );
   return (
     <PageShell
       title="Import Customers"
@@ -534,12 +542,12 @@ function ImportReview() {
             </p>
           </details>
           <h2 {...stylex.props(styles.sectionHeading)}>Customer review</h2>
-          {review.rows.map(row => (
+          {orderedRows.map(row => (
             <details
               key={row.recordNumber}
               {...stylex.props(
                 styles.row,
-                row.choice === 'unresolved' && styles.attention
+                row.choice === 'unresolved' && [styles.attention, styles.reviewRow]
               )}
               onToggle={event => {
                 const open = event.currentTarget.open;
@@ -555,7 +563,12 @@ function ImportReview() {
                 });
               }}
             >
-              <summary {...stylex.props(styles.summary)}>
+              <summary
+                {...stylex.props(
+                  styles.summary,
+                  row.choice === 'unresolved' && styles.reviewSummary
+                )}
+              >
                 <span {...stylex.props(styles.summaryContent)}>
                   <span {...stylex.props(styles.name)}>
                     Record {row.recordNumber}: {row.values.firstName}{' '}
@@ -569,7 +582,7 @@ function ImportReview() {
                     <span
                       {...stylex.props(
                         styles.badge,
-                        row.choice === 'unresolved' && styles.attention,
+                        row.choice === 'unresolved' && styles.reviewBadge,
                         (row.choice === 'include' || row.choice === 'add') &&
                           styles.positive
                       )}
