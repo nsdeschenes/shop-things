@@ -528,14 +528,36 @@ export class ActionService {
 
   private recheckImport(review: ImportReview, saved: CustomerData[]): ImportReview {
     const matched = matchCustomerImportRows(review.rows, saved);
-    const unchangedMatches =
-      JSON.stringify(matched.matchGroups) === JSON.stringify(review.matchGroups);
+    function signatures(groups: ImportReview['matchGroups']) {
+      return new Map(
+        groups.map(group => [
+          group.id,
+          JSON.stringify([
+            group.reason,
+            group.targets
+              .map(target =>
+                target.kind === 'csv'
+                  ? `csv:${target.recordNumber}`
+                  : `customer:${target.id}`
+              )
+              .sort(),
+          ]),
+        ])
+      );
+    }
+
+    const previousMatches = signatures(review.matchGroups);
+    const currentMatches = signatures(matched.matchGroups);
     const updated = summarizeCustomerImport({
       ...review,
       ...matched,
-      rows: matched.rows.map((row, index) =>
-        unchangedMatches ? {...row, choice: review.rows[index]!.choice} : row
-      ),
+      rows: matched.rows.map((row, index) => {
+        const previous = review.rows[index]!;
+        const unchanged =
+          row.matches.length === previous.matches.length &&
+          row.matches.every(id => previousMatches.get(id) === currentMatches.get(id));
+        return unchanged ? {...row, choice: previous.choice} : row;
+      }),
     });
     return {
       ...updated,

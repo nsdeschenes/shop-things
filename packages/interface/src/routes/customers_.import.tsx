@@ -127,11 +127,16 @@ function ImportReview() {
       return;
     }
 
+    const captured = application.captureSession(review.session);
     submitting.current = true;
     setSaving(true);
     setFeedback(null);
     try {
       const result = await application.commitImport(review.session, review.importId);
+      if (!captured.isCurrent()) {
+        return;
+      }
+
       if (result.status === 'success') {
         if (result.value.kind === 'changed') {
           queryClient.setQueryData(
@@ -159,6 +164,7 @@ function ImportReview() {
   }
 
   async function resolve(recordNumber: number, choice: 'add' | 'skip') {
+    const captured = application.captureSession(review.session);
     setUpdating(true);
     try {
       const result = await application.request(review.session, client =>
@@ -169,6 +175,10 @@ function ImportReview() {
           choice,
         })
       );
+      if (!captured.isCurrent()) {
+        return;
+      }
+
       if (result.status === 'success') {
         queryClient.setQueryData(
           ['imports', review.session, review.importId],
@@ -330,7 +340,13 @@ function ImportReview() {
               }}
             >
               <summary>
-                Record {row.recordNumber}: {row.values.firstName} {row.values.lastName}
+                <span>
+                  Record {row.recordNumber}: {row.values.firstName} {row.values.lastName}
+                </span>{' '}
+                <span>
+                  Source to assigned number: {row.sourceCustomerNumber ?? 'Blank'} →{' '}
+                  {row.assignedCustomerNumber ?? 'Not included'}
+                </span>
               </summary>
               {openRecords.has(row.recordNumber) && (
                 <>
