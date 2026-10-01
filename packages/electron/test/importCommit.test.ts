@@ -19,9 +19,9 @@ async function setup(overrides: Partial<ActionServiceOptions> = {}) {
     ...f,
     session,
     async prepare(
-      rows: ({id: number; customerNumber: number | string} & typeof values)[] = [
-        {id: 1000, customerNumber: 9, ...values, firstName: 'First'},
-        {id: 1001, customerNumber: 9, ...values, firstName: 'Second'},
+      rows: ({customerNumber: number | string} & typeof values)[] = [
+        {customerNumber: 9, ...values, firstName: 'First'},
+        {customerNumber: 9, ...values, firstName: 'Second'},
       ]
     ) {
       const header = Object.keys(rows[0]!);
@@ -51,9 +51,9 @@ it('adds included rows with planned numbers, fresh IDs/revisions, and preserves 
   );
   const initial = await f.prepare(
     [
-      {id: 1000, customerNumber: 2, ...values},
-      {id: 1001, customerNumber: 2, ...values, firstName: 'New'},
-      {id: 1002, customerNumber: 0, ...values, firstName: 'Another'},
+      {customerNumber: 2, ...values},
+      {customerNumber: 2, ...values, firstName: 'New'},
+      {customerNumber: 0, ...values, firstName: 'Another'},
     ].map(row => ({...row, customerNumber: row.customerNumber || ''}))
   );
   const args = {session: f.session, importId: initial.importId};
@@ -78,7 +78,9 @@ it('adds included rows with planned numbers, fresh IDs/revisions, and preserves 
     2, 3,
   ]);
   expect(
-    added.every(row => row.reference.revision === '1' && row.customer.id < 1000)
+    added.every(
+      row => row.reference.revision === '1' && row.customer.id > existing.customer.id
+    )
   ).toBe(true);
   const backup = openDatabase(f.choices.backup!);
   try {
@@ -98,8 +100,8 @@ it('fails closed for unresolved reviews before opening backup', async () => {
   const f = await setup();
   const backup = vi.spyOn(f.options.dialogs, 'backupDatabase');
   const review = await f.prepare([
-    {id: 1000, customerNumber: 9, ...values},
-    {id: 1001, customerNumber: 9, ...values},
+    {customerNumber: 9, ...values},
+    {customerNumber: 9, ...values},
   ]);
   expect(
     await f.service.handlers['imports.commit']({
@@ -138,8 +140,8 @@ it('rejects concurrent submissions with BUSY and retains choices for a checked r
   const f = await setup();
   success(await f.service.handlers['customers.create']({session: f.session, values}));
   const initial = await f.prepare([
-    {id: 1000, customerNumber: 9, ...values},
-    {id: 1001, customerNumber: 10, ...values, firstName: 'Second'},
+    {customerNumber: 9, ...values},
+    {customerNumber: 10, ...values, firstName: 'Second'},
   ]);
   const args = {session: f.session, importId: initial.importId};
   const review = success(
@@ -301,8 +303,8 @@ it.each([false, true])(
       })
     );
     const initial = await f.prepare([
-      {id: 1000, customerNumber: 9, ...values},
-      {id: 1001, customerNumber: 10, ...values, firstName: 'Other'},
+      {customerNumber: 9, ...values},
+      {customerNumber: 10, ...values, firstName: 'Other'},
     ]);
     const args = {session: f.session, importId: initial.importId};
     success(
@@ -386,7 +388,7 @@ it('retains choices through temporary destination unavailability and retries in 
     },
   });
   success(await f.service.handlers['customers.create']({session: f.session, values}));
-  const initial = await f.prepare([{id: 1000, customerNumber: 9, ...values}]);
+  const initial = await f.prepare([{customerNumber: 9, ...values}]);
   const args = {session: f.session, importId: initial.importId};
   const review = success(
     await f.service.handlers['imports.resolve']({...args, recordNumber: 1, choice: 'add'})
@@ -410,7 +412,7 @@ it('retains choices through temporary destination unavailability and retries in 
 it('keeps choices when match target identities remain unchanged while display details and numbering change', async () => {
   const f = await setup();
   success(await f.service.handlers['customers.create']({session: f.session, values}));
-  const initial = await f.prepare([{id: 1000, customerNumber: 9, ...values}]);
+  const initial = await f.prepare([{customerNumber: 9, ...values}]);
   const args = {session: f.session, importId: initial.importId};
   success(
     await f.service.handlers['imports.resolve']({...args, recordNumber: 1, choice: 'add'})

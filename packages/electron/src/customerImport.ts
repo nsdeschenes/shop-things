@@ -6,7 +6,6 @@ import {basename} from 'node:path';
 import type {ImportReview, ImportRow} from '@shop-things/contract';
 
 const fields = [
-  'id',
   'customerNumber',
   'firstName',
   'lastName',
@@ -179,7 +178,7 @@ export async function readCustomerImport(
     fields.some(field => !header.includes(field))
   ) {
     return reject(
-      'Use each of the 15 exported column names exactly once, without changing case or adding spaces.',
+      'Use each of the 14 exported column names exactly once, without changing case or adding spaces.',
       null,
       'header'
     );
@@ -192,7 +191,7 @@ export async function readCustomerImport(
   review.sourceRecordCount = records.length;
   const malformed = records.findIndex(record => record.length !== fields.length);
   if (malformed !== -1) {
-    return reject('Each customer record must contain exactly 15 cells.', malformed + 1);
+    return reject('Each customer record must contain exactly 14 cells.', malformed + 1);
   }
 
   let detailCount = 0;

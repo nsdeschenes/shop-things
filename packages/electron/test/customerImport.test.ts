@@ -1,4 +1,4 @@
-import {writeFile} from 'node:fs/promises';
+import {readFile, writeFile} from 'node:fs/promises';
 
 import {afterEach, expect, it} from 'vitest';
 
@@ -6,7 +6,6 @@ import {DraftCoordinator} from '../src/draftCoordinator.js';
 import {fixture, success, values} from './backendFixture.js';
 
 const header = [
-  'id',
   'customerNumber',
   'firstName',
   'lastName',
@@ -26,7 +25,7 @@ function cell(value: unknown) {
   return `"${String(value).replaceAll('"', '""')}"`;
 }
 
-const source = {id: 'ignored', customerNumber: '', ...values};
+const source = {customerNumber: '', ...values};
 function csv(rows: object[], columns = header) {
   return [
     columns.map(cell).join(','),
@@ -94,12 +93,14 @@ it('preserves reordered exported text, BOM, quoted commas, quotes and embedded n
   ).toEqual(review);
 });
 
-it('round trips the public export and ignores source identity', async () => {
+it('round trips the public 14-column export without database IDs', async () => {
   const f = await setup();
   const saved = success(
     await f.service.handlers['customers.create']({session: f.session, values})
   );
   success(await f.service.handlers['exports.csv']({session: f.session}));
+  const exported = await readFile(f.choices.csv!, 'utf8');
+  expect(exported.split('\r\n')[0]).toBe(header.map(cell).join(','));
   const review = success(
     await f.service.handlers['imports.prepare']({session: f.session})
   );
@@ -122,9 +123,10 @@ it.each([
   Buffer.from([0xff]),
   'wrong,header',
   csv([], [...header.slice(0, -1), 'firstName']),
+  csv([], ['id', ...header]),
   csv(
     [],
-    header.map(column => (column === 'id' ? ' id' : column))
+    header.map(column => (column === 'customerNumber' ? ' customerNumber' : column))
   ),
   csv([source]) + '\n"unclosed',
   csv([]) + '\nshort,row',
@@ -218,7 +220,7 @@ it('rejects the whole file and truncates details while counting invalid records 
   expect(review.diagnostics).toHaveLength(100);
   expect(review.omittedDiagnosticCount).toBe(50);
   expect(review.diagnostics[0]?.recordNumber).toBe(2);
-  expect((await f.prepare(csv([]) + '\n' + ','.repeat(14))).invalidRecordCount).toBe(1);
+  expect((await f.prepare(csv([]) + '\n' + ','.repeat(13))).invalidRecordCount).toBe(1);
 });
 
 it('cancels the picker and releases admission during review; reopening expires preparation', async () => {
@@ -386,7 +388,7 @@ it('groups normalized CSV matches by signal and requires an explicit choice for 
   ).toEqual([]);
 });
 
-it('identifies saved matches without treating blank contacts, IDs or numbers as matching and resets choices on repeated imports', async () => {
+it('identifies saved matches without treating blank contacts or numbers as matching and resets choices on repeated imports', async () => {
   const f = await setup();
   const saved = success(
     await f.service.handlers['customers.create']({
@@ -399,7 +401,6 @@ it('identifies saved matches without treating blank contacts, IDs or numbers as 
     csv([
       {
         ...source,
-        id: saved.customer.id,
         customerNumber: saved.customer.customerNumber,
         firstName: 'anne',
         lastName: ' smith ',
@@ -408,7 +409,6 @@ it('identifies saved matches without treating blank contacts, IDs or numbers as 
       },
       {
         ...source,
-        id: saved.customer.id,
         customerNumber: saved.customer.customerNumber,
         firstName: 'Anne',
         lastName: 'Different',
