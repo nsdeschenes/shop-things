@@ -39,6 +39,15 @@ const buttonStyles = stylex.create({
     },
     color: {default: colors.onPrimary, ':disabled': colors.textMuted},
   },
+  danger: {
+    borderColor: {default: colors.danger, ':disabled': colors.controlBorder},
+    backgroundColor: {
+      default: colors.danger,
+      ':hover:not(:disabled)': colors.dangerHover,
+      ':disabled': colors.disabledBackground,
+    },
+    color: {default: colors.onPrimary, ':disabled': colors.textMuted},
+  },
 });
 
 export default buttonStyles;

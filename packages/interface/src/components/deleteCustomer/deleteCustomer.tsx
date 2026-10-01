@@ -148,6 +148,7 @@ export default function DeleteCustomer({
   return (
     <>
       <Button
+        variant="danger"
         disabled={disabled || reloading || mutation.isPending || blocked}
         onClick={() => setSelected(record)}
       >
@@ -202,6 +203,7 @@ export default function DeleteCustomer({
                 Cancel
               </Button>
               <Button
+                variant="danger"
                 disabled={disabled || reloading || mutation.isPending || blocked}
                 onClick={() => {
                   void confirmDelete();

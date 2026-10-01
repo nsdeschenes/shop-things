@@ -4,14 +4,18 @@ import * as stylex from '@stylexjs/stylex';
 import buttonStyles from './buttonStyles';
 
 type Props = Omit<BaseButton.Props, 'className' | 'style'> & {
-  variant?: 'primary' | 'secondary';
+  variant?: 'primary' | 'secondary' | 'danger';
 };
 
 export default function Button({variant = 'secondary', ...props}: Props) {
   return (
     <BaseButton
       {...props}
-      {...stylex.props(buttonStyles.base, variant === 'primary' && buttonStyles.primary)}
+      {...stylex.props(
+        buttonStyles.base,
+        variant === 'primary' && buttonStyles.primary,
+        variant === 'danger' && buttonStyles.danger
+      )}
     />
   );
 }
