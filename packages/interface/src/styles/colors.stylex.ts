@@ -3,7 +3,7 @@ import * as stylex from '@stylexjs/stylex';
 export const colors = stylex.defineVars({
   pageBackground: '#f4f6f3',
   surface: '#ffffff',
-  surfaceHover: '#f4f7f5',
+  surfaceHover: '#d0e2d8',
   headerBackground: '#183f3b',
   text: '#293a39',
   textMuted: '#627671',
