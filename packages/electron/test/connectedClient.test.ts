@@ -127,6 +127,7 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
       imports: {
         prepare: target.handlers['imports.prepare'],
         review: target.handlers['imports.review'],
+        resolve: target.handlers['imports.resolve'],
       },
       exports: {csv: target.handlers['exports.csv']},
       drafts: {

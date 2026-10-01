@@ -36,6 +36,7 @@ import {
   temporaryPath,
   writeCustomerCsv,
 } from './files.js';
+import {matchCustomerImportRows, summarizeCustomerImport} from './importMatches.js';
 import type {DatabaseSettings} from './settings.js';
 
 export interface BackendDialogs {
@@ -137,20 +138,27 @@ export class ActionService {
           }
 
           this.requireSession(args.session);
-          const review = await readCustomerImport(path, args.session);
-          if (review.status === 'ready') {
-            const savedCustomers = await this.database.listCustomers(
-              this.requireSession(args.session).db
-            );
-            Object.assign(
-              review,
-              numberCustomerImportRows(
-                review.rows,
-                savedCustomers.map(customer => customer.customerNumber)
+          const parsed = await readCustomerImport(path, args.session);
+          const saved =
+            parsed.status === 'ready'
+              ? await this.database.listCustomers(this.requireSession(args.session).db)
+              : [];
+          const review = summarizeCustomerImport({
+            ...parsed,
+            ...matchCustomerImportRows(parsed.rows, saved),
+          });
+          Object.assign(
+            review,
+            numberCustomerImportRows(
+              review.rows,
+              saved.map(customer => customer.customerNumber),
+              new Set(
+                review.rows
+                  .filter(row => row.choice === 'include' || row.choice === 'add')
+                  .map(row => row.recordNumber)
               )
-            );
-          }
-
+            )
+          );
           this.imports.set(review.importId, review);
           return structuredClone(review);
         }),
@@ -166,6 +174,49 @@ export class ActionService {
           }
 
           return structuredClone(review);
+        }),
+      'imports.resolve': args =>
+        this.admit(async () => {
+          this.requireSession(args.session);
+          const review = this.imports.get(args.importId);
+          if (!review || review.session !== args.session) {
+            throw new ActionError(
+              'STALE_SESSION',
+              'This import expired. Choose the file again.'
+            );
+          }
+
+          const row = review.rows.find(item => item.recordNumber === args.recordNumber);
+          if (review.status !== 'ready' || !row || !row.matches.length) {
+            throw new ActionError(
+              'VALIDATION',
+              'Choose Add anyway or Skip only for a flagged record.'
+            );
+          }
+
+          const updated = summarizeCustomerImport({
+            ...review,
+            rows: review.rows.map(item =>
+              item === row ? {...item, choice: args.choice} : item
+            ),
+          });
+          const saved = await this.database.listCustomers(
+            this.requireSession(args.session).db
+          );
+          Object.assign(
+            updated,
+            numberCustomerImportRows(
+              updated.rows,
+              saved.map(customer => customer.customerNumber),
+              new Set(
+                updated.rows
+                  .filter(row => row.choice === 'include' || row.choice === 'add')
+                  .map(row => row.recordNumber)
+              )
+            )
+          );
+          this.imports.set(review.importId, updated);
+          return structuredClone(updated);
         }),
       'database.status': async () => ({status: 'success', value: this.status()}),
       'database.retry': () =>

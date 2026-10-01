@@ -109,7 +109,13 @@ export async function readCustomerImport(
     fileName: basename(path),
     status: 'empty',
     rows: [],
+    matchGroups: [],
     diagnostics: [],
+    sourceRecordCount: 0,
+    includedCount: 0,
+    skippedCount: 0,
+    unresolvedCount: 0,
+    choicesResolved: true,
     invalidRecordCount: 0,
     omittedDiagnosticCount: 0,
     numberChangeCount: 0,
@@ -183,6 +189,7 @@ export async function readCustomerImport(
     return reject('Files must contain at most 10,000 customer records.');
   }
 
+  review.sourceRecordCount = records.length;
   const malformed = records.findIndex(record => record.length !== fields.length);
   if (malformed !== -1) {
     return reject('Each customer record must contain exactly 15 cells.', malformed + 1);
@@ -283,6 +290,8 @@ export async function readCustomerImport(
         sourceCustomerNumber,
         assignedCustomerNumber: null,
         values,
+        matches: [],
+        choice: 'include',
       });
     }
   });

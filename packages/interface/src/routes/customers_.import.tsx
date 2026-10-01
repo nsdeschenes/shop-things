@@ -1,6 +1,7 @@
 /* oxlint-disable @tanstack/query/exhaustive-deps -- Navigation scope controls admission, not review identity. */
+import {queryOptions, useQuery} from '@tanstack/react-query';
 import {createFileRoute, redirect} from '@tanstack/react-router';
-import {useSyncExternalStore} from 'react';
+import {useState, useSyncExternalStore} from 'react';
 import {z} from 'zod';
 
 import {CustomerRequestError} from '../application/customers';
@@ -50,13 +51,61 @@ export const Route = createFileRoute('/customers_/import')({
 });
 
 function ImportReview() {
-  const review = Route.useLoaderData();
-  const {application} = Route.useRouteContext();
+  const loaded = Route.useLoaderData();
+  const {application, queryClient} = Route.useRouteContext();
+  const {data: review} = useQuery(
+    queryOptions({
+      queryKey: ['imports', loaded.session, loaded.importId],
+      queryFn: async () => {
+        const result = await application.read(loaded.session, client =>
+          client.imports.review({session: loaded.session, importId: loaded.importId})
+        );
+        if (result.status === 'error') {
+          throw new CustomerRequestError(result.error);
+        }
+
+        if (result.status !== 'success') {
+          throw new Error('Could not load the import. Try again.');
+        }
+
+        return result.value;
+      },
+      initialData: loaded,
+      staleTime: Infinity,
+    })
+  );
+  const [openRecords, setOpenRecords] = useState<ReadonlySet<number>>(new Set());
+  const [updating, setUpdating] = useState(false);
+  async function resolve(recordNumber: number, choice: 'add' | 'skip') {
+    setUpdating(true);
+    try {
+      const result = await application.request(review.session, client =>
+        client.imports.resolve({
+          session: review.session,
+          importId: review.importId,
+          recordNumber,
+          choice,
+        })
+      );
+      if (result.status === 'success') {
+        queryClient.setQueryData(
+          ['imports', review.session, review.importId],
+          result.value
+        );
+      } else if (result.status === 'error') {
+        application.toasts.error({title: result.error.message});
+      }
+    } finally {
+      setUpdating(false);
+    }
+  }
+
   const state = useSyncExternalStore(application.subscribe, application.getState);
   const navigate = Route.useNavigate();
   const expired =
     state.database?.available === true && state.database.session !== review.session;
   const disabled =
+    updating ||
     Boolean(state.pendingFile) ||
     state.pendingTransition ||
     state.reconciling ||
@@ -123,8 +172,10 @@ function ImportReview() {
       {review.status === 'ready' && (
         <>
           <p role="status">
-            {review.rows.length} source records. {review.numberChangeCount} customer
-            numbers will change. No customers have been added.
+            {review.sourceRecordCount} source records. {review.includedCount} customers to
+            add. {review.skippedCount} skipped. {review.unresolvedCount} unresolved
+            possible matches. {review.numberChangeCount} customer numbers will change. No
+            customers have been added.
           </p>
           <p>
             Unused source customer numbers are reserved first. When rows request the same
@@ -133,24 +184,108 @@ function ImportReview() {
             no numbers. Saved customers keep their numbers.
           </p>
           {review.rows.map(row => (
-            <details key={row.recordNumber}>
+            <details
+              key={row.recordNumber}
+              onToggle={event => {
+                const open = event.currentTarget.open;
+                setOpenRecords(previous => {
+                  const next = new Set(previous);
+                  if (open) {
+                    next.add(row.recordNumber);
+                  } else {
+                    next.delete(row.recordNumber);
+                  }
+
+                  return next;
+                });
+              }}
+            >
               <summary>
                 Record {row.recordNumber}: {row.values.firstName} {row.values.lastName}
               </summary>
-              <p>Source customer number: {row.sourceCustomerNumber ?? 'Blank'}</p>
-              <p>
-                Assigned customer number: {row.assignedCustomerNumber ?? 'Not included'}
-              </p>
-              <dl>
-                {Object.entries(row.values).map(([field, value]) => (
-                  <div key={field}>
-                    <dt>{field}</dt>
-                    <dd>
-                      <pre>{String(value)}</pre>
-                    </dd>
-                  </div>
-                ))}
-              </dl>
+              {openRecords.has(row.recordNumber) && (
+                <>
+                  <p>Source customer number: {row.sourceCustomerNumber ?? 'Blank'}</p>
+                  <p>
+                    Assigned customer number:{' '}
+                    {row.assignedCustomerNumber ?? 'Not included'}
+                  </p>
+                  {row.matches.length > 0 ? (
+                    <fieldset disabled={disabled}>
+                      <legend>Possible matches for record {row.recordNumber}</legend>
+                      <p>
+                        Matching details are signals. Add anyway creates a separate
+                        customer.
+                      </p>
+                      <ul>
+                        {row.matches.map(id => {
+                          const group = review.matchGroups.find(item => item.id === id)!;
+                          return (
+                            <li key={id}>
+                              Matching {group.reason}:
+                              <ul>
+                                {group.targets
+                                  .filter(
+                                    target =>
+                                      target.kind !== 'csv' ||
+                                      target.recordNumber !== row.recordNumber
+                                  )
+                                  .map(target => (
+                                    <li
+                                      key={
+                                        target.kind === 'csv'
+                                          ? `csv:${target.recordNumber}`
+                                          : `customer:${target.id}`
+                                      }
+                                    >
+                                      {target.kind === 'csv'
+                                        ? `CSV record ${target.recordNumber}`
+                                        : `Saved customer ${target.customerNumber ?? '(no number)'}: ${target.firstName} ${target.lastName} (ID ${target.id})`}
+                                    </li>
+                                  ))}
+                              </ul>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <label>
+                        <input
+                          type="radio"
+                          name={`choice-${row.recordNumber}`}
+                          checked={row.choice === 'add'}
+                          onChange={() => {
+                            void resolve(row.recordNumber, 'add');
+                          }}
+                        />
+                        Add anyway
+                      </label>
+                      <label>
+                        <input
+                          type="radio"
+                          name={`choice-${row.recordNumber}`}
+                          checked={row.choice === 'skip'}
+                          onChange={() => {
+                            void resolve(row.recordNumber, 'skip');
+                          }}
+                        />
+                        Skip
+                      </label>
+                    </fieldset>
+                  ) : (
+                    <p>Included automatically</p>
+                  )}
+                  <dl>
+                    {Object.entries(row.values).map(([field, value]) => (
+                      <div key={field}>
+                        <dt>{field}</dt>
+                        <dd>
+                          <pre>{String(value)}</pre>
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </>
+              )}
             </details>
           ))}
         </>

@@ -175,6 +175,10 @@ export function registerIpc(options: IpcOptions): () => void {
       registerAction('imports.prepare', actions['imports.prepare'], args =>
         handlers['imports.prepare'](args)
       ),
+    'imports.resolve': () =>
+      registerAction('imports.resolve', actions['imports.resolve'], args =>
+        handlers['imports.resolve'](args)
+      ),
     'imports.review': () =>
       registerAction('imports.review', actions['imports.review'], args =>
         handlers['imports.review'](args)
