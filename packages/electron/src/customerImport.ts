@@ -235,6 +235,10 @@ export async function readCustomerImport(
 
     function money(column: 'balance' | 'previousBalance') {
       const value = source[column] ?? '';
+      if (value === '') {
+        return '0.00';
+      }
+
       if (!moneyPattern.test(value)) {
         diagnostic(column, 'Enter decimal money with at most two decimal places.');
       } else {

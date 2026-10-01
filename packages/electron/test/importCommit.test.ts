@@ -97,6 +97,7 @@ it('adds included rows with planned numbers, fresh IDs/revisions, and preserves 
 });
 
 it.each([
+  {amount: '', saved: '0.00'},
   {amount: '0', saved: '0.00'},
   {amount: '0.1', saved: '0.10'},
   {amount: '12', saved: '12.00'},

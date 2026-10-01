@@ -164,7 +164,6 @@ it.each([
   ['stock', '-1'],
   ['stock', '1e2'],
   ['stock', '+1'],
-  ['balance', ''],
   ['balance', '1.001'],
   ['balance', '1000000000000.01'],
   ['balance', ' 1'],
@@ -219,8 +218,8 @@ it('rejects the whole file and truncates details while counting invalid records 
     firstName: ' \n',
     lastName: '',
     stock: '',
-    balance: '',
-    previousBalance: '',
+    balance: 'invalid',
+    previousBalance: 'invalid',
     donate: '',
   };
   const review = await f.prepare(
