@@ -40,7 +40,7 @@ async function fixture(remove: Client['customers']['delete'], number: number | n
       city: '',
       province: '',
       postalCode: '',
-      homePhone: '',
+      phone: '',
       email: '',
       stock: 0,
       balance: '0.00',

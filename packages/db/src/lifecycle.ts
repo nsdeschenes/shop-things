@@ -9,7 +9,9 @@ import {openDatabase, runMigrations} from './index.js';
 import type {AppDatabase, DatabaseHandle} from './index.js';
 
 const initialMigration = '20260929093112_wealthy_hemingway';
-const currentMigration = '20260929120000_customer_integrity';
+const integrityMigration = '20260929120000_customer_integrity';
+const phoneMigration = '20261001005150_rename_home_phone';
+const supportedMigrations = [initialMigration, integrityMigration, phoneMigration];
 const expectedColumns = [
   'id',
   'customerNumber',
@@ -19,7 +21,7 @@ const expectedColumns = [
   'city',
   'province',
   'postalCode',
-  'homePhone',
+  'phone',
   'email',
   'stock',
   'balance',
@@ -37,9 +39,8 @@ export async function recognizeDatabase(db: AppDatabase): Promise<void> {
 
     if (
       !names.length ||
-      names[0] !== initialMigration ||
-      names.length > 2 ||
-      (names.length === 2 && names[1] !== currentMigration)
+      names.length > supportedMigrations.length ||
+      names.some((name, index) => name !== supportedMigrations[index])
     ) {
       throw new Error('Unsupported migration history');
     }
@@ -51,8 +52,10 @@ export async function recognizeDatabase(db: AppDatabase): Promise<void> {
       notnull: number;
     }>('pragma table_info(customers)');
     const expected = [
-      ...expectedColumns,
-      ...(names.includes(currentMigration) ? ['revision'] : []),
+      ...expectedColumns.map(name =>
+        name === 'phone' && !names.includes(phoneMigration) ? 'homePhone' : name
+      ),
+      ...(names.includes(integrityMigration) ? ['revision'] : []),
     ];
 
     if (
@@ -80,7 +83,7 @@ export async function recognizeDatabase(db: AppDatabase): Promise<void> {
       }
     }
 
-    if (names.includes(currentMigration)) {
+    if (names.includes(integrityMigration)) {
       if (columns.find(column => column.name === 'revision')?.notnull !== 1) {
         throw new Error('Missing revision constraint');
       }

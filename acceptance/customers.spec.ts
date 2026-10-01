@@ -40,9 +40,9 @@ test('saved customer list/search/detail through actual bundled hash renderer IPC
     await expect(
       page.getByRole('textbox', {name: 'Balance ($)', exact: true})
     ).toHaveValue('-1.23');
-    await expect(
-      page.getByRole('textbox', {name: 'Home phone', exact: true})
-    ).toHaveValue('+1 (902) 555-1234');
+    await expect(page.getByRole('textbox', {name: 'Phone', exact: true})).toHaveValue(
+      '+1 (902) 555-1234'
+    );
     await expect(page.getByRole('button', {name: 'Save'})).toBeEnabled();
     await expect(page.getByRole('button', {name: 'Delete customer'})).toBeEnabled();
     await page.reload();

@@ -126,7 +126,7 @@ if (process.env.SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS) {
     city: '',
     province: '',
     postalCode: '',
-    homePhone: '',
+    phone: '',
     email: '',
     stock: 0,
     balance: '0.00',
@@ -139,7 +139,7 @@ if (process.env.SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS) {
     ...values,
     firstName: 'Alpha',
     lastName: 'One',
-    homePhone: '+1 (902) 555-1234',
+    phone: '+1 (902) 555-1234',
     balance: '-1.23',
     previousBalance: '10.00',
   });

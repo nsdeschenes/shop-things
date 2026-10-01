@@ -15,7 +15,7 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
     const page = await application.firstWindow();
     await page.getByRole('link', {name: 'Alpha One'}).click();
     await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
-    await expect(page.getByRole('textbox', {name: 'Home phone'})).toHaveValue(
+    await expect(page.getByRole('textbox', {name: 'Phone'})).toHaveValue(
       '+1 (902) 555-1234'
     );
     await expect(page.getByRole('textbox', {name: 'Province'})).toHaveValue('');

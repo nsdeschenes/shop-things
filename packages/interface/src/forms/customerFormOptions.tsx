@@ -20,7 +20,7 @@ export default function customerFormOptions(customer?: Customer) {
       city: customer?.city ?? '',
       province: customer?.province ?? '',
       postalCode: customer?.postalCode ?? '',
-      homePhone: customer?.homePhone ?? '',
+      phone: customer?.phone ?? '',
       email: customer?.email ?? '',
       stock: String(customer?.stock ?? 0),
       previousBalance: customer?.previousBalance ?? '0.00',

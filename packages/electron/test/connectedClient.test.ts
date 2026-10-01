@@ -197,7 +197,7 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
       city: '',
       province: '',
       postalCode: '',
-      homePhone: '',
+      phone: '',
       email: '',
       stock: 0,
       balance: '12.34',

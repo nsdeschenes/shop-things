@@ -12,7 +12,7 @@ export const customers = sqliteTable(
     city: text(),
     province: text(),
     postalCode: text(),
-    homePhone: text(),
+    phone: text(),
     email: text(),
     stock: integer().default(0),
     balance: real().default(0),

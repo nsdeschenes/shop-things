@@ -43,7 +43,7 @@ const identityFields = [
   {name: 'city', label: 'City', inputMode: 'text'},
   {name: 'province', label: 'Province', inputMode: 'text'},
   {name: 'postalCode', label: 'Postal code', inputMode: 'text'},
-  {name: 'homePhone', label: 'Home phone', inputMode: 'tel'},
+  {name: 'phone', label: 'Phone', inputMode: 'tel'},
   {name: 'email', label: 'Email address', inputMode: 'email'},
 ] as const;
 

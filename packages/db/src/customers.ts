@@ -19,7 +19,7 @@ const textFields = [
   'city',
   'province',
   'postalCode',
-  'homePhone',
+  'phone',
   'email',
   'comments',
 ] as const;
@@ -31,7 +31,7 @@ export interface CustomerValues {
   city?: string;
   province?: string;
   postalCode?: string;
-  homePhone?: string;
+  phone?: string;
   email?: string;
   comments?: string;
   stock?: number;
@@ -103,7 +103,7 @@ function normalize(row: Row): CustomerData {
     city: row.city ?? '',
     province: row.province ?? '',
     postalCode: row.postalCode ?? '',
-    homePhone: row.homePhone ?? '',
+    phone: row.phone ?? '',
     email: row.email ?? '',
     comments: row.comments ?? '',
     stock: row.stock ?? 0,
@@ -250,7 +250,7 @@ export async function createCustomer(
           city: '',
           province: '',
           postalCode: '',
-          homePhone: '',
+          phone: '',
           email: '',
           comments: '',
           stock: 0,

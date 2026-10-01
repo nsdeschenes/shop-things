@@ -148,7 +148,7 @@ test('pending migration restore migrates only the separate writable copy of a re
     try {
       expect(
         await migrated.db.all('select name from __drizzle_migrations order by id')
-      ).toHaveLength(2);
+      ).toHaveLength(3);
     } finally {
       migrated.close();
     }

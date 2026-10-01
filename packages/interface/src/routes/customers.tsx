@@ -229,7 +229,7 @@ function RouteComponent() {
                   <Table.Row>
                     <Table.HeaderCell>#</Table.HeaderCell>
                     <Table.HeaderCell>Name</Table.HeaderCell>
-                    <Table.HeaderCell>Home phone</Table.HeaderCell>
+                    <Table.HeaderCell>Phone</Table.HeaderCell>
                     <Table.HeaderCell align="right">Items in stock</Table.HeaderCell>
                     <Table.HeaderCell align="right">Balance</Table.HeaderCell>
                   </Table.Row>
@@ -264,7 +264,7 @@ function RouteComponent() {
                           {customer.firstName} {customer.lastName}
                         </Link>
                       </Table.Cell>
-                      <Table.Cell>{customer.homePhone}</Table.Cell>
+                      <Table.Cell>{customer.phone}</Table.Cell>
                       <Table.Cell align="right">{customer.stock}</Table.Cell>
                       <Table.Cell align="right">${customer.balance}</Table.Cell>
                     </Table.Row>

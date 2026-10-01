@@ -437,7 +437,7 @@ test('protected customer replacement permits only its coordinated get and suppre
       city: '',
       province: '',
       postalCode: '',
-      homePhone: '',
+      phone: '',
       email: '',
       stock: 0,
       balance: '0.00',

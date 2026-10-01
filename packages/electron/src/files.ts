@@ -15,7 +15,7 @@ const customerFields = [
   'city',
   'province',
   'postalCode',
-  'homePhone',
+  'phone',
   'email',
   'stock',
   'balance',

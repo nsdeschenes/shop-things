@@ -30,7 +30,7 @@ test('empty defaults validate on Save and preserve arbitrary contacts and exact 
   await user.type(name, 'Ada');
   await user.type(screen.getByRole('textbox', {name: 'Province'}), 'somewhere');
   await user.type(screen.getByRole('textbox', {name: 'Postal code'}), 'ab cd');
-  await user.type(screen.getByRole('textbox', {name: 'Home phone'}), '+1 (902) 555-1234');
+  await user.type(screen.getByRole('textbox', {name: 'Phone'}), '+1 (902) 555-1234');
   await user.type(screen.getByRole('textbox', {name: 'Email address'}), 'contact text');
   const balance = screen.getByRole('textbox', {name: 'Balance ($)'});
   await user.clear(balance);
@@ -48,7 +48,7 @@ test('empty defaults validate on Save and preserve arbitrary contacts and exact 
         customerNumber: 1,
         province: 'somewhere',
         postalCode: 'ab cd',
-        homePhone: '+1 (902) 555-1234',
+        phone: '+1 (902) 555-1234',
         email: 'contact text',
         balance: '-1.23',
       },
@@ -104,7 +104,7 @@ test('Edit retains exact loaded strings and original revision across background 
     city: '',
     province: 'custom province',
     postalCode: 'aB cd',
-    homePhone: '+1 (902) 555',
+    phone: '+1 (902) 555',
     email: 'contact text',
     stock: 0,
     balance: '-1.23',
@@ -173,7 +173,7 @@ test('changing immutable route ID remounts the editable customer and history res
     city: '',
     province: '',
     postalCode: '',
-    homePhone: '',
+    phone: '',
     email: '',
     stock: 0,
     balance: '0.00',
