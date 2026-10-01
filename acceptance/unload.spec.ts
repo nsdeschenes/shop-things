@@ -8,10 +8,12 @@ test('native preview unload warning preserves a dismissed invalid draft and acce
   await page.getByRole('link', {name: 'Add customer'}).click();
   await page.getByRole('textbox', {name: 'First name'}).fill('Unload Probe');
   await page.getByRole('button', {name: 'Save', exact: true}).click();
+  await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
+  await page.getByRole('link', {name: 'Unload Probe', exact: true}).click();
   await expect(
     page.getByRole('heading', {name: 'Unload Probe', exact: true})
   ).toBeVisible();
-  await page.getByRole('button', {name: 'Edit customer'}).click();
+  await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
   await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
   let accept = false;
   const dialogs: string[] = [];

@@ -34,10 +34,16 @@ test('saved customer list/search/detail through actual bundled hash renderer IPC
     await expect(
       page.getByRole('heading', {name: 'Alpha One', exact: true})
     ).toBeVisible();
-    await expect(page.getByText('$-1.23', {exact: true})).toBeVisible();
-    await expect(page.getByText('$10.00', {exact: true})).toBeVisible();
-    await expect(page.getByText('+1 (902) 555-1234', {exact: true})).toBeVisible();
-    await expect(page.getByRole('button', {name: 'Edit customer'})).toBeEnabled();
+    await expect(
+      page.getByRole('textbox', {name: 'Previous balance ($)', exact: true})
+    ).toHaveValue('10.00');
+    await expect(
+      page.getByRole('textbox', {name: 'Balance ($)', exact: true})
+    ).toHaveValue('-1.23');
+    await expect(
+      page.getByRole('textbox', {name: 'Home phone', exact: true})
+    ).toHaveValue('+1 (902) 555-1234');
+    await expect(page.getByRole('button', {name: 'Save'})).toBeEnabled();
     await expect(page.getByRole('button', {name: 'Delete customer'})).toBeEnabled();
     await page.reload();
     await expect(
@@ -53,8 +59,15 @@ test('saved customer list/search/detail through actual bundled hash renderer IPC
     await page.getByRole('button', {name: 'Clear'}).click();
     await expect(page.getByText('3 results', {exact: true})).toBeVisible();
     await page.getByRole('link', {name: 'Unnumbered Three'}).click();
-    await expect(page.getByText('Unassigned', {exact: true})).toBeVisible();
-    await expect(page.getByText('$0.00', {exact: true})).toHaveCount(2);
+    await expect(
+      page.getByRole('textbox', {name: 'Customer number', exact: true})
+    ).toHaveValue('');
+    await expect(
+      page.getByRole('textbox', {name: 'Balance ($)', exact: true})
+    ).toHaveValue('0.00');
+    await expect(
+      page.getByRole('textbox', {name: 'Previous balance ($)', exact: true})
+    ).toHaveValue('0.00');
     await page.getByRole('link', {name: 'Customer records Shop Things'}).click();
     await search.fill('no such customer');
     await search.press('Enter');
@@ -234,8 +247,7 @@ test('Chromium preview searches temporary customers by name and number with pred
     await page.getByRole('link', {name: 'Add customer'}).click();
     await page.getByRole('textbox', {name: 'First name'}).fill(name);
     await page.getByRole('button', {name: 'Save'}).click();
-    await expect(page.getByRole('heading', {name, exact: true})).toBeVisible();
-    await page.getByRole('link', {name: 'Back to customers'}).click();
+    await expect(page.getByRole('link', {name, exact: true})).toBeVisible();
   }
 
   const search = page.getByRole('textbox', {name: 'Search customers'});

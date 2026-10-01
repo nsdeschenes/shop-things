@@ -38,6 +38,7 @@ interface Props {
   onMissing?(this: void): void;
   onStale?(this: void): void;
   onReloaded?(this: void): void;
+  showReload?: boolean;
 }
 
 export default function DeleteCustomer({
@@ -48,6 +49,7 @@ export default function DeleteCustomer({
   onMissing,
   onStale,
   onReloaded,
+  showReload = true,
 }: Props) {
   const [selected, setSelected] = useState<CustomerRecord | null>(null);
   const mounted = useRef(false);
@@ -157,7 +159,7 @@ export default function DeleteCustomer({
       {mutation.isError && !isCancelledError(mutation.error) && (
         <p role="alert">{mutation.error.message}</p>
       )}
-      {error?.code === 'STALE_REVISION' && (
+      {error?.code === 'STALE_REVISION' && showReload && (
         <section>
           <p>The saved customer changed. Reload before deleting again.</p>
           <Button

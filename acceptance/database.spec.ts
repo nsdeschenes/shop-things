@@ -135,7 +135,7 @@ test('database failed candidates after discard approval preserve editor, route, 
     await page.getByRole('textbox', {name: 'Search customers'}).fill('Alpha');
     await page.getByRole('textbox', {name: 'Search customers'}).press('Enter');
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('button', {name: 'Edit customer'}).click();
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     await page.getByRole('textbox', {name: 'First name'}).fill('Retained draft');
     const before = await page.evaluate(
       async () => (await Reflect.get(window, 'shopThings').database.status()).value

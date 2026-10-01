@@ -175,8 +175,7 @@ test('deletion refreshes previously visited lists and searches through history',
   await user.click(await screen.findByRole('link', {name: 'Add customer'}));
   await user.type(await screen.findByRole('textbox', {name: 'First name'}), 'Temporary');
   await user.click(screen.getByRole('button', {name: 'Save'}));
-  await screen.findByRole('heading', {name: 'Temporary'});
-  await user.click(screen.getByRole('link', {name: 'Back to customers'}));
+  await screen.findByRole('heading', {name: 'Customers'});
   await screen.findByRole('link', {name: 'Temporary'});
   await user.type(screen.getByRole('textbox', {name: 'Search customers'}), 'Temp');
   await waitFor(() => expect(router.state.location.search).toMatchObject({q: 'Temp'}));

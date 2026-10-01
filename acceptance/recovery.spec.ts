@@ -14,7 +14,7 @@ test('real IPC stale reload cancels, fails, freezes, then adopts a fresh referen
   try {
     const page = await application.firstWindow();
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('button', {name: 'Edit customer'}).click();
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     const name = page.getByRole('textbox', {name: 'First name'});
     await name.fill('Retained draft');
     expect(
@@ -71,9 +71,13 @@ test('real IPC stale reload cancels, fails, freezes, then adopts a fresh referen
     await name.fill('Fresh reference');
     await page.getByRole('button', {name: 'Save'}).click();
     await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
+    await page.getByRole('link', {name: 'Fresh reference One', exact: true}).click();
+    await expect(
       page.getByRole('heading', {name: 'Fresh reference One', exact: true})
     ).toBeVisible();
-    await page.getByRole('button', {name: 'Edit customer'}).click();
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     await name.fill('Copy this draft');
     expect(
       await page.evaluate(async () => {
@@ -90,10 +94,10 @@ test('real IPC stale reload cancels, fails, freezes, then adopts a fresh referen
     await expect(name).toHaveAttribute('readonly', '');
     await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
     await application.evaluate(() => Reflect.set(globalThis, 'acceptanceDiscard', false));
-    await page.getByRole('link', {name: 'Cancel', exact: true}).click();
+    await page.getByRole('link', {name: 'Back to customers', exact: true}).click();
     await expect(name).toHaveValue('Copy this draft');
     await application.evaluate(() => Reflect.set(globalThis, 'acceptanceDiscard', true));
-    await page.getByRole('link', {name: 'Cancel', exact: true}).click();
+    await page.getByRole('link', {name: 'Back to customers', exact: true}).click();
     await expect(
       page.getByRole('heading', {name: 'Customers', exact: true})
     ).toBeVisible();
@@ -119,7 +123,7 @@ test('unavailable real database retains mounted draft across cancelled and faile
     await search.fill('Alpha');
     await search.press('Enter');
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('button', {name: 'Edit customer'}).click();
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     const name = page.getByRole('textbox', {name: 'First name'});
     await name.fill('Unavailable draft');
     await application.evaluate(() =>
@@ -166,17 +170,24 @@ test('Chromium preview reload guards draft replacement and preserves canonical s
   await page.goto('/?preview=true#/customers/new');
   await page.getByRole('textbox', {name: 'First name'}).fill('Saved preview');
   await page.getByRole('button', {name: 'Save'}).click();
-  await page.getByRole('button', {name: 'Edit customer'}).click();
+  await page.getByRole('link', {name: 'Saved preview', exact: true}).click();
+  await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
   const name = page.getByRole('textbox', {name: 'First name'});
   await name.fill('Preview draft');
   const reload = page.getByRole('button', {name: 'Reload customer'});
   await reload.click();
-  await page.getByRole('dialog').getByRole('button', {name: 'Stay'}).click();
+  await page
+    .getByRole('dialog', {name: 'Discard Unsaved Changes?', exact: true})
+    .getByRole('button', {name: 'Stay'})
+    .click();
   await expect(name).toHaveValue('Preview draft');
   await reload.click();
-  await page.getByRole('dialog').getByRole('button', {name: 'Discard'}).click();
+  await page
+    .getByRole('dialog', {name: 'Discard Unsaved Changes?', exact: true})
+    .getByRole('button', {name: 'Discard'})
+    .click();
   await expect(name).toHaveValue('Saved preview');
-  await page.getByRole('link', {name: 'Cancel', exact: true}).click();
+  await page.getByRole('link', {name: 'Back to customers', exact: true}).click();
   await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
 });
 
@@ -210,7 +221,9 @@ test('real IPC stale Delete stays blocked until fresh reload and deleted selecti
       .getByRole('button', {name: 'Delete customer', exact: true})
       .click();
     await expect(
-      page.getByText('The saved customer changed. Reload before deleting again.')
+      page.getByText(
+        'The saved customer changed. Reload before saving again. Your edits are retained.'
+      )
     ).toBeVisible();
     await expect(
       page.getByRole('button', {name: 'Delete customer', exact: true})

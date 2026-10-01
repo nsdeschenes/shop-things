@@ -557,6 +557,7 @@ export function createApplication(
   return {
     queryClient,
     protection,
+    toasts,
     getState: () => state,
     getClient: () => client,
     isCurrentSession,

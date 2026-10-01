@@ -14,7 +14,7 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
   try {
     const page = await application.firstWindow();
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('button', {name: 'Edit customer'}).click();
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     await expect(page.getByRole('textbox', {name: 'Home phone'})).toHaveValue(
       '+1 (902) 555-1234'
     );
@@ -24,7 +24,9 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
     await page.getByRole('textbox', {name: 'Last name'}).fill('Edited');
     await page.getByRole('button', {name: 'Save'}).click();
     await expect(
-      page.getByText('Customer number is already assigned', {exact: true})
+      page
+        .getByRole('main')
+        .getByText('Customer number is already assigned', {exact: true})
     ).toBeVisible();
     await expect(number).toHaveValue('1');
     await expect(page.getByRole('textbox', {name: 'Last name'})).toHaveValue('Edited');
@@ -35,15 +37,24 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
     await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-12.30');
     await page.getByRole('button', {name: 'Save'}).click();
     await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
+    await page.getByRole('link', {name: 'Alpha Edited', exact: true}).click();
+    await expect(
       page.getByRole('heading', {name: 'Alpha Edited', exact: true})
     ).toBeVisible();
-    await expect(page.getByText('Customer saved.', {exact: true})).toBeVisible();
+    await expect(page.getByText('Customer saved', {exact: true})).toBeVisible();
+    await expect(
+      page.getByRole('main').getByText('Customer saved', {exact: false})
+    ).toHaveCount(0);
     expect(new URL(page.url()).hash).toBe('#/customers/2');
     await page.getByRole('link', {name: 'Back to customers'}).click();
     await expect(page.getByRole('link', {name: 'Alpha Edited'})).toBeVisible();
     await page.getByRole('link', {name: 'Unnumbered Three'}).click();
-    await expect(page.getByText('Unassigned', {exact: true})).toBeVisible();
-    await page.getByRole('button', {name: 'Edit customer'}).click();
+    await expect(
+      page.getByRole('textbox', {name: 'Customer number', exact: true})
+    ).toHaveValue('');
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     await expect(number).toHaveValue('');
     await page.getByRole('button', {name: 'Save'}).click();
     await expect(
@@ -55,6 +66,10 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
     await expect(number).toHaveValue('-');
     await number.fill('7');
     await page.getByRole('button', {name: 'Save'}).click();
+    await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
+    await page.getByRole('link', {name: 'Unnumbered Three', exact: true}).click();
     await expect(
       page.getByRole('heading', {name: 'Unnumbered Three', exact: true})
     ).toBeVisible();
@@ -69,12 +84,20 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
         .status
     ).toBe('success');
     await page.getByRole('link', {name: 'Alpha Edited'}).click();
-    await expect(page.getByText('aB cd', {exact: true})).toBeVisible();
-    await expect(page.getByText('custom province', {exact: true})).toBeVisible();
-    await expect(page.getByText('$-12.30', {exact: true})).toBeVisible();
+    await expect(
+      page.getByRole('textbox', {name: 'Postal code', exact: true})
+    ).toHaveValue('aB cd');
+    await expect(page.getByRole('textbox', {name: 'Province', exact: true})).toHaveValue(
+      'custom province'
+    );
+    await expect(
+      page.getByRole('textbox', {name: 'Balance ($)', exact: true})
+    ).toHaveValue('-12.30');
     await page.getByRole('link', {name: 'Back to customers'}).click();
     await page.getByRole('link', {name: 'Unnumbered Three'}).click();
-    await expect(page.getByText('7', {exact: true})).toBeVisible();
+    await expect(
+      page.getByRole('textbox', {name: 'Customer number', exact: true})
+    ).toHaveValue('7');
   } finally {
     await application.evaluate(() => Reflect.set(globalThis, 'acceptanceDiscard', true));
     await application.close();
@@ -91,7 +114,7 @@ test('held Update freezes editing and rejects retained stale revisions', async (
   try {
     const page = await application.firstWindow();
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('button', {name: 'Edit customer'}).click();
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     const name = page.getByRole('textbox', {name: 'First name'});
     await name.fill('Submitted');
     await application.evaluate(() =>
@@ -111,14 +134,18 @@ test('held Update freezes editing and rejects retained stale revisions', async (
     await expect(page.getByRole('textbox', {name: 'Customer number'})).toBeDisabled();
     await page.keyboard.type('Ignored');
     await page.locator('form').evaluate(form => form.requestSubmit());
-    await page.getByRole('link', {name: 'Cancel'}).click();
+    await page.getByRole('link', {name: 'Back to customers'}).click();
     await expect(
-      page.getByRole('heading', {name: 'Edit Customer', exact: true})
+      page.getByRole('heading', {name: 'Alpha One', exact: true})
     ).toBeVisible();
     await application.evaluate(() => {
       Reflect.get(globalThis, 'acceptanceReleaseRead')();
       Reflect.set(globalThis, 'acceptanceHeldRead', null);
     });
+    await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
+    await page.getByRole('link', {name: 'Submitted One', exact: true}).click();
     await expect(
       page.getByRole('heading', {name: 'Submitted One', exact: true})
     ).toBeVisible();
@@ -130,7 +157,7 @@ test('held Update freezes editing and rejects retained stale revisions', async (
           ).length
       )
     ).toBe(1);
-    await page.getByRole('button', {name: 'Edit customer'}).click();
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     await name.fill('Retained draft');
     const external = await page.evaluate(async () => {
       const client = Reflect.get(window, 'shopThings');
@@ -144,7 +171,9 @@ test('held Update freezes editing and rejects retained stale revisions', async (
     expect(external.status).toBe('success');
     await page.getByRole('button', {name: 'Save'}).click();
     await expect(
-      page.getByText('This customer changed. Reload before editing.', {exact: true})
+      page
+        .getByRole('main')
+        .getByText('This customer changed. Reload before editing.', {exact: true})
     ).toBeVisible();
     await expect(name).toHaveValue('Retained draft');
     await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
@@ -152,7 +181,7 @@ test('held Update freezes editing and rejects retained stale revisions', async (
     await expect(name).toBeEnabled();
     await expect(name).toHaveValue('Retained draft');
     await application.evaluate(() => Reflect.set(globalThis, 'acceptanceDiscard', true));
-    await page.getByRole('link', {name: 'Cancel'}).click();
+    await page.getByRole('link', {name: 'Back to customers'}).click();
     await expect(page.getByText('3 results', {exact: true})).toBeVisible();
   } finally {
     await application.evaluate(() => {
@@ -170,12 +199,13 @@ test('Chromium preview edits temporary saved records with exact contact and numb
   await page.goto('/?preview=true#/customers/new');
   await page.getByRole('textbox', {name: 'First name'}).fill('Temporary');
   await page.getByRole('button', {name: 'Save'}).click();
-  await page.getByRole('button', {name: 'Edit customer'}).click();
+  await page.getByRole('link', {name: 'Temporary', exact: true}).click();
+  await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
   const number = page.getByRole('textbox', {name: 'Customer number'});
   await number.fill('-');
   await page.getByRole('button', {name: 'Save'}).click();
   await expect(number).toHaveValue('-');
-  await page.getByRole('link', {name: 'Cancel'}).click();
+  await page.getByRole('link', {name: 'Back to customers'}).click();
   await expect(page.getByRole('button', {name: 'Stay'})).toBeFocused();
   await page.keyboard.press('Enter');
   await number.fill('42');
@@ -183,11 +213,56 @@ test('Chromium preview edits temporary saved records with exact contact and numb
   await page.getByRole('textbox', {name: 'Postal code'}).fill('aB cd');
   await page.getByRole('textbox', {name: 'First name'}).fill('Edited');
   await page.getByRole('button', {name: 'Save'}).click();
+  await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
+  await page.getByRole('link', {name: 'Edited', exact: true}).click();
   await expect(page.getByRole('heading', {name: 'Edited', exact: true})).toBeVisible();
-  await expect(page.getByText('42', {exact: true})).toBeVisible();
-  await expect(page.getByText('aB cd', {exact: true})).toBeVisible();
+  await expect(
+    page.getByRole('textbox', {name: 'Customer number', exact: true})
+  ).toHaveValue('42');
+  await expect(page.getByRole('textbox', {name: 'Postal code', exact: true})).toHaveValue(
+    'aB cd'
+  );
   await page.getByRole('link', {name: 'Back to customers'}).click();
   await page.getByRole('textbox', {name: 'Search customers'}).fill('42');
   await page.getByRole('textbox', {name: 'Search customers'}).press('Enter');
   await expect(page.getByRole('link', {name: 'Edited', exact: true})).toBeVisible();
+});
+
+test('successful customer saves show a success toast and return to the list', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/?preview=true#/customers/new');
+  await page.getByRole('button', {name: 'Save', exact: true}).click();
+  await expect(
+    page
+      .getByRole('region', {name: 'Notifications'})
+      .getByText('Could not save customer', {exact: true})
+  ).toBeVisible();
+  expect(new URL(page.url()).hash).toBe('#/customers/new');
+  await page.getByLabel('Dismiss error').click();
+  await page.getByRole('textbox', {name: 'First name'}).fill('Toast customer');
+  await page.getByRole('button', {name: 'Save', exact: true}).click();
+  await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
+  await expect(page.getByText('Customer saved', {exact: true})).toBeVisible();
+  await expect(
+    page.getByRole('main').getByText('Customer saved', {exact: false})
+  ).toHaveCount(0);
+  expect(new URL(page.url()).hash).toBe('#/customers');
+  await page.getByRole('region', {name: 'Notifications'}).focus();
+  await page.getByLabel('Dismiss notification').click();
+  await page.getByRole('link', {name: 'Toast customer', exact: true}).click();
+  await page.getByRole('textbox', {name: 'First name'}).fill('Updated customer');
+  await page.getByRole('button', {name: 'Save', exact: true}).click();
+  await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
+  await expect(page.getByText('Customer saved', {exact: true})).toBeVisible();
+  await expect(
+    page.getByRole('main').getByText('Customer saved', {exact: false})
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('link', {name: 'Updated customer', exact: true})
+  ).toBeVisible();
+  expect(new URL(page.url()).hash).toBe('#/customers');
+  await page
+    .getByRole('dialog', {name: 'Customer saved', exact: true})
+    .screenshot({path: testInfo.outputPath('success-toast.png')});
 });

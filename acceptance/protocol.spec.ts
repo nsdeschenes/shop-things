@@ -28,7 +28,7 @@ test('actual stale and duplicate draft resolutions cannot clear or unfreeze a ne
   try {
     const page = await application.firstWindow();
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('button', {name: 'Edit customer'}).click();
+    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     const input = page.getByRole('textbox', {name: 'Balance ($)', exact: true});
     await input.fill('-');
     await application.evaluate(() => {
