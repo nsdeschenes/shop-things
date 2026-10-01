@@ -34,6 +34,7 @@ interface Props {
   application: Application;
   record: CustomerRecord;
   disabled: boolean;
+  busy?: boolean;
   onDeleted(this: void): void;
   onMissing?(this: void): void;
   onStale?(this: void): void;
@@ -45,6 +46,7 @@ export default function DeleteCustomer({
   application,
   record,
   disabled,
+  busy = false,
   onDeleted,
   onMissing,
   onStale,
@@ -62,8 +64,9 @@ export default function DeleteCustomer({
       mounted.current = false;
     };
   }, []);
-  const error =
-    mutation.error instanceof CustomerRequestError ? mutation.error.error : null;
+  const failure =
+    mutation.variables?.revision === record.reference.revision ? mutation.error : null;
+  const error = failure instanceof CustomerRequestError ? failure.error : null;
   const blocked =
     error !== null &&
     [
@@ -151,14 +154,13 @@ export default function DeleteCustomer({
     <>
       <Button
         variant="danger"
+        busy={busy}
         disabled={disabled || reloading || mutation.isPending || blocked}
         onClick={() => setSelected(record)}
       >
         {mutation.isPending ? 'Deleting customer…' : 'Delete customer'}
       </Button>
-      {mutation.isError && !isCancelledError(mutation.error) && (
-        <p role="alert">{mutation.error.message}</p>
-      )}
+      {failure && !isCancelledError(failure) && <p role="alert">{failure.message}</p>}
       {error?.code === 'STALE_REVISION' && showReload && (
         <section>
           <p>The saved customer changed. Reload before deleting again.</p>

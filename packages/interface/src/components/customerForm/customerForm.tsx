@@ -90,6 +90,14 @@ const styles = stylex.create({
     marginTop: spacing.space14,
   },
   actions: {gap: spacing.space10, display: 'flex'},
+  saveStatus: {
+    overflow: 'hidden',
+    clipPath: 'inset(50%)',
+    position: 'absolute',
+    whiteSpace: 'nowrap',
+    height: 1,
+    width: 1,
+  },
 });
 
 function focusInvalidField() {
@@ -339,6 +347,7 @@ export default function CustomerForm({
         <div {...stylex.props(styles.actions)}>
           <Button
             variant="primary"
+            busy={pending}
             disabled={disabled || blocked !== null}
             type="submit"
             form={formId}
@@ -351,10 +360,11 @@ export default function CustomerForm({
           </Link>
           {initialRecord && savedRecord && blocked !== 'deleted' && (
             <DeleteCustomer
-              key={`${savedRecord.reference.session}:${savedRecord.reference.id}:${savedRecord.reference.revision}`}
+              key={`${savedRecord.reference.session}:${savedRecord.reference.id}`}
               application={application}
               record={savedRecord}
               disabled={disabled}
+              busy={pending}
               onStale={() => setBlocked('stale')}
               onMissing={() => setBlocked('deleted')}
               showReload={false}
@@ -371,7 +381,11 @@ export default function CustomerForm({
         </div>
       }
     >
-      {pending && <p role="status">Saving customer…</p>}
+      {pending && (
+        <p role="status" {...stylex.props(styles.saveStatus)}>
+          Saving customer…
+        </p>
+      )}
       {error && <p role="alert">{error}</p>}
       {blocked === 'stale' && (
         <p>

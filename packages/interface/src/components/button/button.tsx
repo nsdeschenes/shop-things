@@ -5,12 +5,15 @@ import buttonStyles from './buttonStyles';
 
 type Props = Omit<BaseButton.Props, 'className' | 'style'> & {
   variant?: 'primary' | 'secondary' | 'danger';
+  busy?: boolean;
 };
 
-export default function Button({variant = 'secondary', ...props}: Props) {
+export default function Button({variant = 'secondary', busy = false, ...props}: Props) {
   return (
     <BaseButton
       {...props}
+      disabled={busy || props.disabled}
+      aria-busy={busy || undefined}
       {...stylex.props(
         buttonStyles.base,
         variant === 'primary' && buttonStyles.primary,

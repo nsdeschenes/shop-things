@@ -266,3 +266,72 @@ test('successful customer saves show a success toast and return to the list', as
     .getByRole('dialog', {name: 'Customer saved', exact: true})
     .screenshot({path: testInfo.outputPath('success-toast.png')});
 });
+
+test('saving keeps the customer form and buttons stable until redirecting', async ({
+  page,
+}) => {
+  await page.goto('/?preview=true#/customers/new');
+  await page.getByRole('textbox', {name: 'First name'}).fill('Layout customer');
+  await page.getByRole('button', {name: 'Save', exact: true}).click();
+  await expect(
+    page
+      .getByRole('region', {name: 'Notifications'})
+      .getByText('Customer saved', {exact: true})
+  ).toBeVisible();
+  await page.getByLabel('Dismiss notification').click();
+  await page.getByRole('link', {name: 'Layout customer', exact: true}).click();
+  await page.getByRole('textbox', {name: 'City'}).fill('Saved city');
+  await page.getByRole('button', {name: 'Save', exact: true}).hover();
+  await page.evaluate(() => {
+    const form = document.querySelector('form')!;
+    const initialTop = form.getBoundingClientRect().top;
+    const buttons = [...document.querySelectorAll('main button')].filter(button =>
+      ['Save', 'Delete customer'].includes(button.textContent?.trim() ?? '')
+    );
+    const backgrounds = buttons.map(button => getComputedStyle(button).backgroundColor);
+    const samples = {
+      maxShift: 0,
+      remounted: false,
+      buttonRemounted: false,
+      buttonChangedColour: false,
+    };
+    const observer = new MutationObserver(() => {
+      if (!form.isConnected) {
+        samples.remounted ||= buttons[0]?.getAttribute('aria-busy') === 'true';
+        return;
+      }
+
+      samples.maxShift = Math.max(
+        samples.maxShift,
+        Math.abs(form.getBoundingClientRect().top - initialTop)
+      );
+      samples.remounted ||= !form.isConnected;
+      samples.buttonRemounted ||= buttons.some(button => !button.isConnected);
+      samples.buttonChangedColour ||= buttons.some(
+        (button, index) => getComputedStyle(button).backgroundColor !== backgrounds[index]
+      );
+    });
+    observer.observe(document.querySelector('main')!, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+    });
+    Reflect.set(window, 'saveLayout', {samples, observer});
+  });
+  await page.getByRole('button', {name: 'Save', exact: true}).click();
+  await expect(
+    page
+      .getByRole('region', {name: 'Notifications'})
+      .getByText('Customer saved', {exact: true})
+  ).toBeVisible();
+  const layout = await page.evaluate(() => {
+    const {samples, observer} = Reflect.get(window, 'saveLayout');
+    observer.disconnect();
+    return samples;
+  });
+  expect(layout.remounted).toBe(false);
+  expect(layout.buttonRemounted).toBe(false);
+  expect(layout.buttonChangedColour).toBe(false);
+  expect(layout.maxShift).toBeLessThanOrEqual(0.5);
+  expect(new URL(page.url()).hash).toBe('#/customers');
+});
