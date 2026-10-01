@@ -19,7 +19,10 @@ async function setup(overrides: Partial<ActionServiceOptions> = {}) {
     ...f,
     session,
     async prepare(
-      rows: ({customerNumber: number | string} & typeof values)[] = [
+      rows: ({customerNumber: number | string; stock: number | string} & Omit<
+        typeof values,
+        'stock'
+      >)[] = [
         {customerNumber: 9, ...values, firstName: 'First'},
         {customerNumber: 9, ...values, firstName: 'Second'},
       ]
@@ -127,6 +130,23 @@ it.each([
     balance: saved,
     previousBalance: saved,
   });
+});
+
+it('imports and saves empty stock as zero', async () => {
+  const f = await setup();
+  const review = await f.prepare([{customerNumber: 9, ...values, stock: ''}]);
+  expect(review.status).toBe('ready');
+  expect(review.diagnostics).toEqual([]);
+  expect(review.rows[0]?.values.stock).toBe(0);
+  expect(
+    success(
+      await f.service.handlers['imports.commit']({
+        session: f.session,
+        importId: review.importId,
+      })
+    )
+  ).toMatchObject({kind: 'committed', addedCount: 1});
+  expect((await f.list())[0]?.customer.stock).toBe(0);
 });
 
 it('imports reordered CSV balances and numeric donate', async () => {

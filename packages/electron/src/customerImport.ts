@@ -211,8 +211,8 @@ export async function readCustomerImport(
 
     function integer(column: 'customerNumber' | 'stock') {
       const value = source[column] ?? '';
-      if (column === 'customerNumber' && value === '') {
-        return null;
+      if (value === '') {
+        return column === 'stock' ? 0 : null;
       }
 
       const number = Number(value);
