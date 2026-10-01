@@ -112,6 +112,7 @@ export async function readCustomerImport(
     diagnostics: [],
     invalidRecordCount: 0,
     omittedDiagnosticCount: 0,
+    numberChangeCount: 0,
   };
   function reject(reason: string, recordNumber: number | null = null, column = 'file') {
     review.status = 'rejected';
@@ -277,7 +278,12 @@ export async function readCustomerImport(
     if (invalid) {
       review.invalidRecordCount++;
     } else {
-      review.rows.push({recordNumber, sourceCustomerNumber, values});
+      review.rows.push({
+        recordNumber,
+        sourceCustomerNumber,
+        assignedCustomerNumber: null,
+        values,
+      });
     }
   });
   review.omittedDiagnosticCount = detailCount - review.diagnostics.length;

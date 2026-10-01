@@ -73,6 +73,7 @@ it('preserves reordered exported text, BOM, quoted commas, quotes and embedded n
     {
       recordNumber: 1,
       sourceCustomerNumber: 42,
+      assignedCustomerNumber: 42,
       values: {
         ...values,
         firstName: row.firstName,
@@ -240,4 +241,48 @@ it('cancels the picker and releases admission during review; reopening expires p
       importId: review.importId,
     })
   ).toMatchObject({status: 'error', error: {code: 'STALE_SESSION'}});
+});
+
+it.each([
+  {savedNumbers: [], sourceNumbers: ['', '1', '1'], assigned: [2, 1, 3], changes: 2},
+  {savedNumbers: [1, 3], sourceNumbers: ['', '2', '3'], assigned: [4, 2, 5], changes: 2},
+  {savedNumbers: [], sourceNumbers: ['42', '87'], assigned: [42, 87], changes: 0},
+])('previews batch numbers without changing saved customers: $assigned', async plan => {
+  const f = await setup();
+  for (const customerNumber of plan.savedNumbers) {
+    const saved = success(
+      await f.service.handlers['customers.create']({session: f.session, values})
+    );
+    if (saved.customer.customerNumber !== customerNumber) {
+      success(
+        await f.service.handlers['customers.update']({
+          reference: saved.reference,
+          changes: {customerNumber},
+        })
+      );
+    }
+  }
+
+  const before = success(
+    await f.service.handlers['customers.list']({session: f.session, query: ''})
+  );
+  await writeFile(
+    f.choices.csv!,
+    csv(plan.sourceNumbers.map(customerNumber => ({...source, customerNumber})))
+  );
+  const prepared = success(
+    await f.service.handlers['imports.prepare']({session: f.session})
+  );
+  const review = success(
+    await f.service.handlers['imports.review']({
+      session: f.session,
+      importId: prepared.importId,
+    })
+  );
+  expect(review.rows.map(row => row.assignedCustomerNumber)).toEqual(plan.assigned);
+  expect(review.numberChangeCount).toBe(plan.changes);
+  expect(review).toEqual(prepared);
+  expect(
+    success(await f.service.handlers['customers.list']({session: f.session, query: ''}))
+  ).toEqual(before);
 });

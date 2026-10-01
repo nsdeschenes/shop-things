@@ -123,7 +123,14 @@ function ImportReview() {
       {review.status === 'ready' && (
         <>
           <p role="status">
-            {review.rows.length} source records. No customers have been added.
+            {review.rows.length} source records. {review.numberChangeCount} customer
+            numbers will change. No customers have been added.
+          </p>
+          <p>
+            Unused source customer numbers are reserved first. When rows request the same
+            unused number, the first included row keeps it. Blank or conflicting numbers
+            receive the smallest available positive number in file order. Skipped rows use
+            no numbers. Saved customers keep their numbers.
           </p>
           {review.rows.map(row => (
             <details key={row.recordNumber}>
@@ -131,6 +138,9 @@ function ImportReview() {
                 Record {row.recordNumber}: {row.values.firstName} {row.values.lastName}
               </summary>
               <p>Source customer number: {row.sourceCustomerNumber ?? 'Blank'}</p>
+              <p>
+                Assigned customer number: {row.assignedCustomerNumber ?? 'Not included'}
+              </p>
               <dl>
                 {Object.entries(row.values).map(([field, value]) => (
                   <div key={field}>

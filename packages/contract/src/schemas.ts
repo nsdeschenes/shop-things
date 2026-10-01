@@ -104,6 +104,7 @@ const sessionArguments = z.strictObject({session: token});
 export const importRowSchema = z.strictObject({
   recordNumber: positiveInteger,
   sourceCustomerNumber: positiveInteger.nullable(),
+  assignedCustomerNumber: positiveInteger.nullable(),
   values: createCustomerInputSchema,
 });
 export const importReviewSchema = z.strictObject({
@@ -121,6 +122,7 @@ export const importReviewSchema = z.strictObject({
   ),
   invalidRecordCount: nonnegativeInteger,
   omittedDiagnosticCount: nonnegativeInteger,
+  numberChangeCount: nonnegativeInteger,
 });
 
 export const actions = {

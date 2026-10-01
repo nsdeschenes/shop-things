@@ -28,6 +28,7 @@ import {
 import type {CustomerChanges, CustomerData, DatabaseHandle} from '@shop-things/db';
 
 import {readCustomerImport} from './customerImport.js';
+import {numberCustomerImportRows} from './customerImportNumbers.js';
 import type {DraftCoordinator, DraftLease} from './draftCoordinator.js';
 import {
   copyBackup,
@@ -137,6 +138,19 @@ export class ActionService {
 
           this.requireSession(args.session);
           const review = await readCustomerImport(path, args.session);
+          if (review.status === 'ready') {
+            const savedCustomers = await this.database.listCustomers(
+              this.requireSession(args.session).db
+            );
+            Object.assign(
+              review,
+              numberCustomerImportRows(
+                review.rows,
+                savedCustomers.map(customer => customer.customerNumber)
+              )
+            );
+          }
+
           this.imports.set(review.importId, review);
           return structuredClone(review);
         }),

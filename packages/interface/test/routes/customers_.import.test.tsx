@@ -7,6 +7,8 @@ import {createApplication} from '../../src/application/controller';
 import createPreviewClient from '../../src/application/preview';
 import renderRoute from '../renderRoute';
 
+const numberingExplanation = /Unused source customer numbers are reserved first/;
+
 const review: ImportReview = {
   importId: 'chosen',
   session: 'preview',
@@ -16,6 +18,7 @@ const review: ImportReview = {
     {
       recordNumber: 1,
       sourceCustomerNumber: 42,
+      assignedCustomerNumber: 42,
       values: {
         firstName: 'Anne',
         lastName: 'Smith',
@@ -36,6 +39,7 @@ const review: ImportReview = {
   diagnostics: [],
   invalidRecordCount: 0,
   omittedDiagnosticCount: 0,
+  numberChangeCount: 0,
 };
 function fixture(selected = review) {
   const client = createPreviewClient();
@@ -64,6 +68,9 @@ test('shows a selected file and inspectable rows; cancel returns without a disca
   expect(screen.getByRole('status')).toHaveTextContent('1 source records');
   await userEvent.click(screen.getByText('Record 1: Anne Smith'));
   expect(screen.getByText('Source customer number: 42')).toBeVisible();
+  expect(screen.getByText('Assigned customer number: 42')).toBeVisible();
+  expect(screen.getByRole('status')).toHaveTextContent('0 customer numbers will change');
+  expect(screen.getByText(numberingExplanation)).toBeVisible();
   await userEvent.click(screen.getByRole('button', {name: 'Cancel'}));
   expect(await screen.findByRole('heading', {name: 'Customers'})).toBeVisible();
   expect(f.client.drafts.confirmDiscard).not.toHaveBeenCalled();
@@ -129,4 +136,36 @@ test('discards only after review loads successfully', async () => {
   });
   expect(await screen.findByText('Selected file: customers.csv')).toBeVisible();
   expect(f.application.protection.isDirty()).toBe(false);
+});
+
+test('shows blank and conflicting source numbers beside their planned replacements', async () => {
+  const f = fixture({
+    ...review,
+    numberChangeCount: 2,
+    rows: [
+      {...review.rows[0]!, sourceCustomerNumber: null, assignedCustomerNumber: 2},
+      {
+        ...review.rows[0]!,
+        recordNumber: 2,
+        sourceCustomerNumber: 1,
+        assignedCustomerNumber: 1,
+      },
+      {
+        ...review.rows[0]!,
+        recordNumber: 3,
+        sourceCustomerNumber: 1,
+        assignedCustomerNumber: 3,
+      },
+    ],
+  });
+  renderRoute('/customers/import?importId=chosen', f.application);
+  await screen.findByText('Selected file: customers.csv');
+  expect(screen.getByRole('status')).toHaveTextContent(
+    '3 source records. 2 customer numbers will change'
+  );
+  await userEvent.click(screen.getByText('Record 1: Anne Smith'));
+  expect(screen.getByText('Source customer number: Blank')).toBeVisible();
+  expect(screen.getByText('Assigned customer number: 2')).toBeVisible();
+  await userEvent.click(screen.getByText('Record 3: Anne Smith'));
+  expect(screen.getByText('Assigned customer number: 3')).toBeVisible();
 });
