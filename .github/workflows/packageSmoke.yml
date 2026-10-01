@@ -9,8 +9,6 @@ jobs:
   package-smoke:
     name: Linux glibc x64 renderer and packaged application
     runs-on: ubuntu-24.04
-    env:
-      ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -40,6 +38,8 @@ jobs:
           pnpm --filter electron exec node -e 'require("electron/install.js")'
           pnpm test
           git rev-parse HEAD > "$ACCEPTANCE_REPORT_DIR/source-checks.commit"
+        env:
+          ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
       - name: Enable Electron namespace sandbox on the temporary runner
         run: |
           # Ubuntu 24.04 blocks unprivileged user namespaces for unpacked Electron binaries.
@@ -49,6 +49,7 @@ jobs:
       - name: Build, renderer, packaged and watcher acceptance
         run: xvfb-run -a node --experimental-strip-types scripts/acceptance.ts --reuse-source-checks
         env:
+          ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
           SMOKE_EXECUTION_ENVIRONMENT: github-actions-ubuntu-24.04-native-linux-x64
       - uses: actions/upload-artifact@v4
         if: always()
