@@ -92,7 +92,7 @@ test('identifies unassigned customers, defaults to Cancel and submits the retain
   }, null);
   await f.user.click(screen.getByRole('button', {name: 'Delete customer'}));
   const dialog = screen.getByRole('dialog');
-  expect(dialog).toHaveTextContent('Alex Smith (customer number Unassigned)');
+  expect(dialog).toHaveTextContent('Alex Smith (# Unassigned)');
   await waitFor(() =>
     expect(within(dialog).getByRole('button', {name: 'Cancel'})).toHaveFocus()
   );

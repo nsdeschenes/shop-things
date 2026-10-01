@@ -16,6 +16,12 @@ import {spacing} from '../../styles/spacing.stylex';
 import Button from '../button/button';
 
 const styles = stylex.create({
+  backdrop: {
+    inset: 0,
+    backgroundColor: 'rgba(100, 106, 104, 0.45)',
+    position: 'fixed',
+    zIndex: 30,
+  },
   dialog: {
     padding: spacing.space24,
     borderRadius: radii.panel,
@@ -23,11 +29,17 @@ const styles = stylex.create({
     color: colors.text,
     position: 'fixed',
     transform: 'translate(-50%, -50%)',
+    zIndex: 31,
     left: '50%',
     top: '50%',
     width: 'min(440px, 90vw)',
   },
-  actions: {gap: spacing.space12, display: 'flex', marginTop: spacing.space20},
+  actions: {
+    gap: spacing.space12,
+    display: 'flex',
+    justifyContent: 'flex-end',
+    marginTop: spacing.space20,
+  },
 });
 
 interface Props {
@@ -192,15 +204,19 @@ export default function DeleteCustomer({
         }}
       >
         <Dialog.Portal>
+          <Dialog.Backdrop {...stylex.props(styles.backdrop)} />
           <Dialog.Popup
             initialFocus={() => document.getElementById('delete-cancel')}
             {...stylex.props(styles.dialog)}
           >
             <Dialog.Title>Delete Customer?</Dialog.Title>
             <Dialog.Description>
-              Delete {selected?.customer.firstName} {selected?.customer.lastName}{' '}
-              (customer number {selected?.customer.customerNumber ?? 'Unassigned'})? This
-              cannot be undone.
+              Delete{' '}
+              <strong>
+                {selected?.customer.firstName} {selected?.customer.lastName}
+              </strong>{' '}
+              (# {selected?.customer.customerNumber ?? 'Unassigned'})? This cannot be
+              undone.
             </Dialog.Description>
             <div {...stylex.props(styles.actions)}>
               <Button id="delete-cancel" onClick={() => setSelected(null)}>

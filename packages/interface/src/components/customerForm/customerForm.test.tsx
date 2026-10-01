@@ -14,9 +14,10 @@ test('empty defaults validate on Save and preserve arbitrary contacts and exact 
   const notify = vi.spyOn(application.toasts, 'error');
   const name = await screen.findByRole('textbox', {name: 'First name'});
   expect(screen.getByRole('textbox', {name: 'Province'})).toHaveValue('');
-  expect(
-    screen.queryByRole('textbox', {name: 'Customer number'})
-  ).not.toBeInTheDocument();
+  const number = screen.getByRole('textbox', {name: 'Customer number'});
+  expect(number).toBeDisabled();
+  await waitFor(() => expect(number).toHaveValue('1'));
+  expect(number).toHaveAccessibleDescription('Automatically assigned when you save.');
   await user.click(screen.getByRole('button', {name: 'Save'}));
   expect(
     await screen.findByText('Enter a first name, a last name, or both.')
@@ -241,7 +242,7 @@ test('a queued file transition suppresses clean Save navigation even before nati
   expect(router.state.location.pathname).toBe('/customers/new');
   expect(screen.getByRole('textbox', {name: 'First name'})).toHaveValue('Saved');
   expect(screen.getByRole('button', {name: 'Reload customer'})).toBeEnabled();
-  expect(screen.getByText('Customer number: 1')).toBeVisible();
+  expect(screen.getByRole('textbox', {name: 'Customer number'})).toHaveValue('1');
   const session = application.getState().database!.session!;
   const saved = await client.customers.get({session, id: 1});
   if (saved.status !== 'success') {

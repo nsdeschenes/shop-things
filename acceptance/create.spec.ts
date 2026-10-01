@@ -18,7 +18,12 @@ test('Create persists exact contacts and decimal balances across guarded reload 
     await search.fill('Ada');
     await search.press('Enter');
     await page.getByRole('link', {name: 'Add customer'}).click();
-    await expect(page.getByText('Customer number: Assigned when saved')).toBeVisible();
+    const number = page.getByRole('textbox', {name: 'Customer number'});
+    await expect(number).toBeDisabled();
+    await expect(number).toHaveValue('3');
+    await expect(number).toHaveAccessibleDescription(
+      'Automatically assigned when you save.'
+    );
     await expect(page.getByRole('textbox', {name: 'Province'})).toHaveValue('');
     await page.getByRole('button', {name: 'Save'}).click();
     await expect(
@@ -37,6 +42,7 @@ test('Create persists exact contacts and decimal balances across guarded reload 
     ).toBeVisible();
     await page.getByRole('link', {name: 'Ada', exact: true}).click();
     await expect(page.getByRole('heading', {name: 'Ada', exact: true})).toBeVisible();
+    await expect(number).toHaveValue('3');
     await expect(page.getByText('Customer saved', {exact: true})).toBeVisible();
     await expect(page.getByRole('textbox', {name: 'Postal code'})).toHaveValue('aB cd');
     await expect(page.getByRole('textbox', {name: 'Email address'})).toHaveValue(
