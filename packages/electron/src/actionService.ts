@@ -214,21 +214,9 @@ export class ActionService {
             parsed.status === 'ready'
               ? await this.database.listCustomers(this.requireSession(args.session).db)
               : [];
-          const review = summarizeCustomerImport({
-            ...parsed,
-            ...matchCustomerImportRows(parsed.rows, saved),
-          });
-          Object.assign(
-            review,
-            numberCustomerImportRows(
-              review.rows,
-              saved.map(customer => customer.customerNumber),
-              new Set(
-                review.rows
-                  .filter(row => row.choice === 'include' || row.choice === 'add')
-                  .map(row => row.recordNumber)
-              )
-            )
+          const review = this.finalizeImport(
+            {...parsed, ...matchCustomerImportRows(parsed.rows, saved)},
+            saved
           );
           this.imports.set(review.importId, review);
           return structuredClone(review);
@@ -265,26 +253,17 @@ export class ActionService {
             );
           }
 
-          const updated = summarizeCustomerImport({
-            ...review,
-            rows: review.rows.map(item =>
-              item === row ? {...item, choice: args.choice} : item
-            ),
-          });
           const saved = await this.database.listCustomers(
             this.requireSession(args.session).db
           );
-          Object.assign(
-            updated,
-            numberCustomerImportRows(
-              updated.rows,
-              saved.map(customer => customer.customerNumber),
-              new Set(
-                updated.rows
-                  .filter(row => row.choice === 'include' || row.choice === 'add')
-                  .map(row => row.recordNumber)
-              )
-            )
+          const updated = this.finalizeImport(
+            {
+              ...review,
+              rows: review.rows.map(item =>
+                item === row ? {...item, choice: args.choice} : item
+              ),
+            },
+            saved
           );
           this.imports.set(review.importId, updated);
           return structuredClone(updated);
@@ -548,17 +527,24 @@ export class ActionService {
 
     const previousMatches = signatures(review.matchGroups);
     const currentMatches = signatures(matched.matchGroups);
-    const updated = summarizeCustomerImport({
-      ...review,
-      ...matched,
-      rows: matched.rows.map((row, index) => {
-        const previous = review.rows[index]!;
-        const unchanged =
-          row.matches.length === previous.matches.length &&
-          row.matches.every(id => previousMatches.get(id) === currentMatches.get(id));
-        return unchanged ? {...row, choice: previous.choice} : row;
-      }),
-    });
+    return this.finalizeImport(
+      {
+        ...review,
+        ...matched,
+        rows: matched.rows.map((row, index) => {
+          const previous = review.rows[index]!;
+          const unchanged =
+            row.matches.length === previous.matches.length &&
+            row.matches.every(id => previousMatches.get(id) === currentMatches.get(id));
+          return unchanged ? {...row, choice: previous.choice} : row;
+        }),
+      },
+      saved
+    );
+  }
+
+  private finalizeImport(review: ImportReview, saved: CustomerData[]): ImportReview {
+    const updated = summarizeCustomerImport(review);
     return {
       ...updated,
       ...numberCustomerImportRows(

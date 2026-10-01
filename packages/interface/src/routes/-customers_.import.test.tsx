@@ -3,10 +3,10 @@ import {act, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, test, vi} from 'vitest';
 
-import {createApplication} from '../../src/application/controller';
-import {customerKeys} from '../../src/application/customers';
-import createPreviewClient from '../../src/application/preview';
-import renderRoute from '../renderRoute';
+import renderRoute from '../../test/renderRoute';
+import {createApplication} from '../application/controller';
+import {customerKeys} from '../application/customers';
+import createPreviewClient from '../application/preview';
 
 const numberingExplanation = /Unused source customer numbers are reserved first/;
 

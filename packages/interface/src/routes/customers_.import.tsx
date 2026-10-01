@@ -4,6 +4,7 @@ import {createFileRoute, redirect} from '@tanstack/react-router';
 import {useRef, useState, useSyncExternalStore} from 'react';
 import {z} from 'zod';
 
+import type {Application, RequestScope} from '../application/controller';
 import {CustomerRequestError, refreshSavedCustomers} from '../application/customers';
 import {admitCustomerRoute} from '../application/routing';
 import Button from '../components/button/button';
@@ -12,6 +13,35 @@ import {
   CustomerRoutePending,
 } from '../components/customerRouteFeedback/customerRouteFeedback';
 import PageShell from '../components/pageShell/pageShell';
+
+function importReviewOptions(
+  application: Application,
+  session: string,
+  importId: string,
+  readScope?: RequestScope
+) {
+  return queryOptions({
+    // Navigation scope controls admission, not the session-bound review identity.
+    queryKey: ['imports', session, importId],
+    staleTime: Infinity,
+    queryFn: async () => {
+      const result = await application.read(
+        session,
+        client => client.imports.review({session, importId}),
+        readScope
+      );
+      if (result.status === 'error') {
+        throw new CustomerRequestError(result.error);
+      }
+
+      if (result.status !== 'success') {
+        throw new Error('Could not load the import. Try again.');
+      }
+
+      return result.value;
+    },
+  });
+}
 
 export const Route = createFileRoute('/customers_/import')({
   validateSearch: z.object({importId: z.string().optional()}),
@@ -22,28 +52,9 @@ export const Route = createFileRoute('/customers_/import')({
       throw redirect({to: '/customers'});
     }
 
-    const importId = deps.importId;
-    return queryClient.fetchQuery({
-      // Navigation scope controls admission, not the session-bound review identity.
-      queryKey: ['imports', session, importId],
-      staleTime: Infinity,
-      queryFn: async () => {
-        const result = await application.read(
-          session,
-          client => client.imports.review({session, importId}),
-          readScope
-        );
-        if (result.status === 'error') {
-          throw new CustomerRequestError(result.error);
-        }
-
-        if (result.status !== 'success') {
-          throw new Error('Could not load the import. Try again.');
-        }
-
-        return result.value;
-      },
-    });
+    return queryClient.fetchQuery(
+      importReviewOptions(application, session, deps.importId, readScope)
+    );
   },
   pendingComponent: CustomerRoutePending,
   errorComponent: CustomerRouteError,
@@ -53,27 +64,10 @@ export const Route = createFileRoute('/customers_/import')({
 function ImportReview() {
   const loaded = Route.useLoaderData();
   const {application, queryClient} = Route.useRouteContext();
-  const {data: review} = useQuery(
-    queryOptions({
-      queryKey: ['imports', loaded.session, loaded.importId],
-      queryFn: async () => {
-        const result = await application.read(loaded.session, client =>
-          client.imports.review({session: loaded.session, importId: loaded.importId})
-        );
-        if (result.status === 'error') {
-          throw new CustomerRequestError(result.error);
-        }
-
-        if (result.status !== 'success') {
-          throw new Error('Could not load the import. Try again.');
-        }
-
-        return result.value;
-      },
-      initialData: loaded,
-      staleTime: Infinity,
-    })
-  );
+  const {data: review} = useQuery({
+    ...importReviewOptions(application, loaded.session, loaded.importId),
+    initialData: loaded,
+  });
   const [openRecords, setOpenRecords] = useState<ReadonlySet<number>>(new Set());
   const [updating, setUpdating] = useState(false);
   const [saving, setSaving] = useState(false);
