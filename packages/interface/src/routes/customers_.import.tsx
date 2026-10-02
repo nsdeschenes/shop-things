@@ -1,3 +1,5 @@
+import {ChevronRightIcon} from '@heroicons/react/24/outline';
+import type {ImportRow} from '@shop-things/contract';
 /* oxlint-disable @tanstack/query/exhaustive-deps -- Navigation scope controls admission, not review identity. */
 import * as stylex from '@stylexjs/stylex';
 import {queryOptions, useQuery} from '@tanstack/react-query';
@@ -9,10 +11,12 @@ import type {Application, RequestScope} from '../application/controller';
 import {CustomerRequestError, refreshSavedCustomers} from '../application/customers';
 import {admitCustomerRoute} from '../application/routing';
 import Button from '../components/button/button';
+import buttonStyles from '../components/button/buttonStyles';
 import {
   CustomerRouteError,
   CustomerRoutePending,
 } from '../components/customerRouteFeedback/customerRouteFeedback';
+import Input from '../components/input/input';
 import PageShell from '../components/pageShell/pageShell';
 import {colors} from '../styles/colors.stylex';
 import {radii} from '../styles/radii.stylex';
@@ -20,17 +24,17 @@ import {typography} from '../styles/typography.stylex';
 
 const styles = stylex.create({
   fileBar: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: 16,
     padding: 20,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderStyle: 'solid',
     borderColor: colors.border,
     borderRadius: radii.large,
+    borderStyle: 'solid',
+    borderWidth: 1,
+    gap: 16,
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    display: 'flex',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
     marginBottom: 20,
   },
   fileName: {
@@ -39,35 +43,35 @@ const styles = stylex.create({
     overflowWrap: 'anywhere',
   },
   fileHint: {
-    marginTop: 6,
-    marginBottom: 0,
     color: colors.textMuted,
     fontSize: typography.fontSizeSmall,
+    marginBottom: 0,
+    marginTop: 6,
   },
-  actions: {display: 'flex', flexWrap: 'wrap', gap: 8},
+  actions: {gap: 8, display: 'flex', flexWrap: 'wrap'},
   stats: {
+    gap: 12,
     display: 'grid',
     gridTemplateColumns: {
       default: 'repeat(4, minmax(0, 1fr))',
       '@media (max-width: 650px)': 'repeat(2, minmax(0, 1fr))',
     },
-    gap: 12,
     marginBottom: 12,
   },
   stat: {
     padding: 18,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderStyle: 'solid',
     borderColor: colors.border,
     borderRadius: radii.large,
+    borderStyle: 'solid',
+    borderWidth: 1,
+    backgroundColor: colors.surface,
   },
   statValue: {
     display: 'block',
     fontSize: 30,
+    fontVariantNumeric: 'tabular-nums',
     fontWeight: typography.fontWeightBold,
     lineHeight: 1.15,
-    fontVariantNumeric: 'tabular-nums',
     marginBottom: 6,
   },
   statLabel: {color: colors.textMuted, fontSize: typography.fontSizeSmall},
@@ -78,117 +82,156 @@ const styles = stylex.create({
     backgroundColor: {default: '#fff8e6', ':hover': '#fff1cc'},
   },
   reviewBadge: {backgroundColor: '#fff1cc', color: colors.warningText},
+  numberNotice: {
+    padding: 12,
+    borderRadius: radii.panel,
+    backgroundColor: colors.successBackground,
+    color: colors.successText,
+    lineHeight: 1.6,
+  },
   status: {
+    color: colors.textMuted,
     fontSize: typography.fontSizeSmall,
     lineHeight: 1.6,
-    color: colors.textMuted,
     marginBottom: 16,
   },
   policy: {
+    color: colors.textMuted,
     fontSize: typography.fontSizeSmall,
     lineHeight: 1.6,
-    color: colors.textMuted,
     marginBottom: 24,
   },
   policySummary: {
-    cursor: 'pointer',
     color: colors.secondaryText,
+    cursor: 'pointer',
     fontWeight: typography.fontWeightSemibold,
   },
-  sectionHeading: {fontSize: typography.fontSizeLarge, marginTop: 24, marginBottom: 12},
+  sectionHeading: {fontSize: typography.fontSizeLarge, marginBottom: 12, marginTop: 24},
   row: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderStyle: 'solid',
     borderColor: colors.border,
     borderRadius: radii.large,
-    marginBottom: 8,
+    borderStyle: 'solid',
+    borderWidth: 1,
     overflow: 'hidden',
+    backgroundColor: colors.surface,
+    marginBottom: 8,
   },
   summary: {
     padding: 16,
-    cursor: 'pointer',
+    gap: 10,
+    alignItems: 'center',
     backgroundColor: {default: colors.surface, ':hover': colors.rowHover},
+    cursor: 'pointer',
+    display: 'flex',
+    listStyleType: 'none',
     outlineColor: colors.focusRing,
   },
   summaryContent: {
-    display: 'inline-flex',
-    width: 'calc(100% - 24px)',
-    verticalAlign: 'middle',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
     gap: 12,
+    alignItems: 'center',
+    display: 'flex',
+    flexGrow: 1,
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    minWidth: 0,
   },
+  chevron: {flexShrink: 0, height: 16, width: 16},
+  chevronOpen: {transform: 'rotate(90deg)'},
   name: {fontWeight: typography.fontWeightSemibold},
-  rowMeta: {display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12},
+  rowMeta: {gap: 12, alignItems: 'center', display: 'flex', flexWrap: 'wrap'},
   number: {
-    fontSize: typography.fontSizeSmall,
     color: colors.textMuted,
+    fontSize: typography.fontSizeSmall,
     fontVariantNumeric: 'tabular-nums',
   },
   badge: {
-    fontSize: 12,
-    fontWeight: typography.fontWeightSemibold,
+    borderRadius: radii.button,
     paddingBlock: 4,
     paddingInline: 8,
-    borderRadius: radii.button,
     backgroundColor: colors.disabledBackground,
     color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: typography.fontWeightSemibold,
   },
   body: {
     padding: 20,
-    borderTopWidth: 1,
-    borderTopStyle: 'solid',
-    borderTopColor: colors.border,
     fontSize: typography.fontSizeSmall,
+    borderTopColor: colors.border,
+    borderTopStyle: 'solid',
+    borderTopWidth: 1,
   },
   matches: {
     padding: 16,
-    marginBlock: 16,
-    borderWidth: 1,
-    borderStyle: 'solid',
     borderColor: colors.border,
     borderRadius: radii.panel,
+    borderStyle: 'solid',
+    borderWidth: 1,
+    marginBlock: 16,
     lineHeight: 1.6,
   },
-  choice: {
-    display: 'inline-flex',
-    alignItems: 'center',
+  matchList: {padding: 0, gap: 12, display: 'grid', listStyleType: 'none'},
+  match: {
+    padding: 16,
+    borderRadius: radii.panel,
+    backgroundColor: colors.pageBackground,
+  },
+  matchTitle: {fontWeight: typography.fontWeightSemibold, marginBottom: 4},
+  matchHelp: {color: colors.textMuted, marginBottom: 12, marginTop: 4},
+  matchTargets: {gap: 8, display: 'grid', paddingLeft: 20},
+  matchValue: {color: colors.textMuted, display: 'block', overflowWrap: 'anywhere'},
+  decisionHelp: {color: colors.textMuted, marginBottom: 16, marginTop: 16},
+  editForm: {
+    gap: 12,
+    alignItems: 'end',
+    display: 'flex',
+    flexWrap: 'wrap',
+    marginTop: 16,
+  },
+  editLabel: {
     gap: 6,
-    marginRight: 20,
+    display: 'grid',
+    flexGrow: 1,
     fontWeight: typography.fontWeightSemibold,
-    cursor: 'pointer',
+  },
+  choice: {
+    fontSize: typography.fontSizeSmall,
+    minHeight: 30,
+    paddingBlock: 4,
+    paddingInline: 10,
+    marginRight: 8,
   },
   fields: {
+    gap: 16,
     display: 'grid',
     gridTemplateColumns: {
       default: 'repeat(3, minmax(0, 1fr))',
       '@media (max-width: 650px)': 'repeat(2, minmax(0, 1fr))',
     },
-    gap: 16,
-    marginTop: 20,
     marginBottom: 0,
+    marginTop: 20,
   },
   fieldName: {color: colors.textMuted, fontSize: 12, marginBottom: 4},
+  field: {padding: 8, borderRadius: radii.panel},
+  editedField: {backgroundColor: colors.successBackground},
+  detailsHeading: {fontSize: typography.fontSizeBody, marginBottom: 8, marginTop: 20},
   fieldValue: {margin: 0},
   fieldText: {
     margin: 0,
     fontFamily: typography.fontFamily,
-    whiteSpace: 'pre-wrap',
     overflowWrap: 'anywhere',
+    whiteSpace: 'pre-wrap',
   },
   errors: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderStyle: 'solid',
+    padding: 20,
     borderColor: colors.errorText,
     borderRadius: radii.large,
-    padding: 20,
+    borderStyle: 'solid',
+    borderWidth: 1,
+    backgroundColor: colors.surface,
     color: colors.errorText,
-    marginBottom: 20,
     fontSize: typography.fontSizeSmall,
     lineHeight: 1.6,
+    marginBottom: 20,
   },
 });
 
@@ -335,7 +378,14 @@ function ImportReview() {
     }
   }
 
-  async function resolve(recordNumber: number, choice: 'add' | 'skip') {
+  async function resolve(
+    recordNumber: number,
+    change: 'add' | 'skip' | {field: 'email' | 'phone'; value: string}
+  ) {
+    if (disabled) {
+      return;
+    }
+
     const captured = application.captureSession(review.session);
     setUpdating(true);
     try {
@@ -344,7 +394,7 @@ function ImportReview() {
           session: review.session,
           importId: review.importId,
           recordNumber,
-          choice,
+          ...(typeof change === 'string' ? {choice: change} : change),
         })
       );
       if (!captured.isCurrent()) {
@@ -381,6 +431,12 @@ function ImportReview() {
   const orderedRows = review.rows.toSorted(
     (a, b) => Number(b.choice === 'unresolved') - Number(a.choice === 'unresolved')
   );
+  const groups = new Map(review.matchGroups.map(group => [group.id, group]));
+  const recordsByNumber = new Map(review.rows.map(row => [row.recordNumber, row]));
+  const collisionCount = review.rows.filter(
+    row => row.choice === 'unresolved' && row.matches.length > 0
+  ).length;
+  const confirmationCount = review.unresolvedCount - collisionCount;
   return (
     <PageShell
       title="Import Customers"
@@ -505,7 +561,7 @@ function ImportReview() {
               {label: 'Source records', count: review.sourceRecordCount},
               {label: 'Customers to add', count: review.includedCount, positive: true},
               {
-                label: 'Need review',
+                label: 'Pending decisions',
                 count: review.unresolvedCount,
                 attention: review.unresolvedCount > 0,
               },
@@ -526,9 +582,9 @@ function ImportReview() {
           </div>
           <p role="status" {...stylex.props(styles.status)}>
             {review.sourceRecordCount} source records. {review.includedCount} customers to
-            add. {review.skippedCount} skipped. {review.unresolvedCount} unresolved
-            possible matches. {review.numberChangeCount} customer numbers will change. No
-            customers have been added.
+            add. {review.skippedCount} skipped. {collisionCount} unresolved possible
+            matches. {confirmationCount} awaiting confirmation. {review.numberChangeCount}{' '}
+            customer numbers will change. No customers have been added.
           </p>
           <details {...stylex.props(styles.policy)}>
             <summary {...stylex.props(styles.policySummary)}>
@@ -569,6 +625,14 @@ function ImportReview() {
                   row.choice === 'unresolved' && styles.reviewSummary
                 )}
               >
+                <ChevronRightIcon
+                  aria-hidden="true"
+                  strokeWidth={2.5}
+                  {...stylex.props(
+                    styles.chevron,
+                    openRecords.has(row.recordNumber) && styles.chevronOpen
+                  )}
+                />
                 <span {...stylex.props(styles.summaryContent)}>
                   <span {...stylex.props(styles.name)}>
                     Record {row.recordNumber}: {row.values.firstName}{' '}
@@ -576,9 +640,25 @@ function ImportReview() {
                   </span>
                   <span {...stylex.props(styles.rowMeta)}>
                     <span {...stylex.props(styles.number)}>
-                      Source to assigned number: {row.sourceCustomerNumber ?? 'Blank'} →{' '}
-                      {row.assignedCustomerNumber ?? 'Not included'}
+                      {row.proposedCustomerNumber !== undefined ? (
+                        <>
+                          If added: customer #{row.proposedCustomerNumber}
+                          {row.proposedCustomerNumber === row.sourceCustomerNumber
+                            ? ' (same as CSV)'
+                            : ' (new number)'}
+                        </>
+                      ) : (
+                        <>
+                          Source to assigned number: {row.sourceCustomerNumber ?? 'Blank'}{' '}
+                          → {row.assignedCustomerNumber ?? 'Not included'}
+                        </>
+                      )}
                     </span>
+                    {row.choice === 'unresolved' && !row.matches.length && (
+                      <span {...stylex.props(styles.badge, styles.positive)}>
+                        No collision
+                      </span>
+                    )}
                     <span
                       {...stylex.props(
                         styles.badge,
@@ -588,7 +668,9 @@ function ImportReview() {
                       )}
                     >
                       {row.choice === 'unresolved'
-                        ? 'Needs review'
+                        ? row.matches.length > 0
+                          ? 'Needs review'
+                          : 'Awaiting confirmation'
                         : row.choice === 'skip'
                           ? 'Skipped'
                           : 'Ready to add'}
@@ -599,86 +681,237 @@ function ImportReview() {
               {openRecords.has(row.recordNumber) && (
                 <div {...stylex.props(styles.body)}>
                   <p>Source customer number: {row.sourceCustomerNumber ?? 'Blank'}</p>
-                  <p>
-                    Assigned customer number:{' '}
-                    {row.assignedCustomerNumber ?? 'Not included'}
-                  </p>
-                  {row.matches.length > 0 ? (
+                  {row.proposedCustomerNumber !== undefined ? (
+                    <div {...stylex.props(styles.numberNotice)}>
+                      <strong>
+                        If added, customer number {row.proposedCustomerNumber}
+                        {row.proposedCustomerNumber === row.sourceCustomerNumber
+                          ? ' will be kept from the CSV.'
+                          : row.sourceCustomerNumber === null
+                            ? ' will be assigned.'
+                            : ' will replace the CSV number.'}
+                      </strong>
+                      <div>
+                        This plan assumes the pending records are added. Numbers update if
+                        records are skipped.
+                      </div>
+                    </div>
+                  ) : (
+                    <p>
+                      <span>
+                        Assigned customer number:{' '}
+                        {row.assignedCustomerNumber ?? 'Not included'}
+                      </span>
+                      {row.assignedCustomerNumber !== null &&
+                        row.assignedCustomerNumber === row.sourceCustomerNumber && (
+                          <span> — same as CSV; this number will be kept.</span>
+                        )}
+                    </p>
+                  )}
+                  {row.matches.length > 0 ||
+                  row.collisionFields?.length ||
+                  row.choice !== 'include' ? (
                     <fieldset disabled={disabled} {...stylex.props(styles.matches)}>
-                      <legend>Possible matches for record {row.recordNumber}</legend>
+                      <legend>
+                        {row.matches.length > 0 ? 'Possible matches' : 'Confirm customer'}{' '}
+                        for record {row.recordNumber}
+                      </legend>
                       <p>
-                        Matching details are signals. Add anyway creates a separate
-                        customer.
+                        {row.matches.length > 0
+                          ? 'This record may be a duplicate. It shares the details below with another CSV record or a saved customer. Check the matches before deciding whether to add it.'
+                          : row.editedFields?.length
+                            ? 'No email or phone collision remains. Review the updated customer details below, then confirm that this is the correct record to import.'
+                            : 'No email or phone collision remains. The matching record was edited. Confirm whether to add this customer or skip it.'}
                       </p>
-                      <ul>
+                      <ul {...stylex.props(styles.matchList)}>
                         {row.matches.map(id => {
                           const group = review.matchGroups.find(item => item.id === id)!;
+                          const incomingValue =
+                            group.reason === 'name'
+                              ? `${row.values.firstName} ${row.values.lastName}`.trim()
+                              : row.values[group.reason];
                           return (
-                            <li key={id}>
-                              Matching {group.reason}:
-                              <ul>
+                            <li key={id} {...stylex.props(styles.match)}>
+                              <div {...stylex.props(styles.matchTitle)}>
+                                Matching {group.reason}:
+                              </div>
+                              <div>
+                                Your CSV value:{' '}
+                                <strong>{incomingValue || 'Not provided'}</strong>
+                              </div>
+                              <p {...stylex.props(styles.matchHelp)}>
+                                {group.reason === 'phone'
+                                  ? 'The phone digits match; spaces, brackets, and punctuation are ignored.'
+                                  : group.reason === 'email'
+                                    ? 'The email addresses match; capitalization and surrounding spaces are ignored.'
+                                    : 'The first and last names match; capitalization and surrounding spaces are ignored.'}
+                              </p>
+                              <ul {...stylex.props(styles.matchTargets)}>
                                 {group.targets
                                   .filter(
                                     target =>
                                       target.kind !== 'csv' ||
                                       target.recordNumber !== row.recordNumber
                                   )
-                                  .map(target => (
-                                    <li
-                                      key={
-                                        target.kind === 'csv'
-                                          ? `csv:${target.recordNumber}`
-                                          : `customer:${target.id}`
-                                      }
-                                    >
-                                      {target.kind === 'csv'
-                                        ? `CSV record ${target.recordNumber}`
-                                        : `Saved customer ${target.customerNumber ?? '(no number)'}: ${target.firstName} ${target.lastName} (ID ${target.id})`}
-                                    </li>
-                                  ))}
+                                  .map(target => {
+                                    const otherRow =
+                                      target.kind === 'csv'
+                                        ? recordsByNumber.get(target.recordNumber)
+                                        : undefined;
+                                    const otherValue = otherRow
+                                      ? group.reason === 'name'
+                                        ? `${otherRow.values.firstName} ${otherRow.values.lastName}`.trim()
+                                        : otherRow.values[group.reason]
+                                      : null;
+                                    return (
+                                      <li
+                                        key={
+                                          target.kind === 'csv'
+                                            ? `csv:${target.recordNumber}`
+                                            : `customer:${target.id}`
+                                        }
+                                      >
+                                        {target.kind === 'csv' ? (
+                                          <>
+                                            <span>CSV record {target.recordNumber}</span>
+                                            {otherRow && (
+                                              <span>
+                                                : {otherRow.values.firstName}{' '}
+                                                {otherRow.values.lastName}
+                                              </span>
+                                            )}
+                                            {otherValue && (
+                                              <span {...stylex.props(styles.matchValue)}>
+                                                {otherValue}
+                                              </span>
+                                            )}
+                                          </>
+                                        ) : (
+                                          <>
+                                            <span>
+                                              Saved customer{' '}
+                                              {target.customerNumber ?? '(no number)'}:{' '}
+                                              {target.firstName} {target.lastName}
+                                            </span>
+                                            <span {...stylex.props(styles.matchValue)}>
+                                              Already in your database with a matching{' '}
+                                              {group.reason}.
+                                            </span>
+                                          </>
+                                        )}
+                                      </li>
+                                    );
+                                  })}
                               </ul>
                             </li>
                           );
                         })}
                       </ul>
-                      <label {...stylex.props(styles.choice)}>
-                        <input
-                          type="radio"
-                          name={`choice-${row.recordNumber}`}
-                          checked={row.choice === 'add'}
-                          onChange={() => {
-                            void resolve(row.recordNumber, 'add');
-                          }}
-                        />
-                        Add anyway
-                      </label>
-                      <label {...stylex.props(styles.choice)}>
-                        <input
-                          type="radio"
-                          name={`choice-${row.recordNumber}`}
-                          checked={row.choice === 'skip'}
-                          onChange={() => {
-                            void resolve(row.recordNumber, 'skip');
-                          }}
-                        />
+                      {Array.from(
+                        new Set([
+                          ...(row.collisionFields ?? []),
+                          ...(row.editedFields ?? []),
+                          ...row.matches.flatMap(id => {
+                            const reason = groups.get(id)?.reason;
+                            return reason === 'email' || reason === 'phone'
+                              ? [reason]
+                              : [];
+                          }),
+                        ]),
+                        field => (
+                          <div key={field} {...stylex.props(styles.match)}>
+                            <form
+                              key={row.values[field]}
+                              {...stylex.props(styles.editForm)}
+                              onSubmit={event => {
+                                event.preventDefault();
+                                const value = new FormData(event.currentTarget).get(
+                                  'value'
+                                );
+                                if (typeof value === 'string') {
+                                  void resolve(row.recordNumber, {field, value});
+                                }
+                              }}
+                            >
+                              <label {...stylex.props(styles.editLabel)}>
+                                New {field}
+                                <Input
+                                  aria-label={`New ${field} for record ${row.recordNumber}`}
+                                  name="value"
+                                  defaultValue={row.values[field]}
+                                  disabled={disabled}
+                                />
+                              </label>
+                              <Button type="submit" disabled={disabled}>
+                                Apply change
+                              </Button>
+                            </form>
+                            <p {...stylex.props(styles.matchHelp)}>
+                              Change this imported customer's {field} and check the
+                              matches again. Leave it blank to clear it. Review and
+                              confirm the updated record before importing.
+                            </p>
+                          </div>
+                        )
+                      )}
+                      {(row.editedFields?.length || row.matches.length === 0) && (
+                        <ImportCustomerDetails row={row} />
+                      )}
+                      <p {...stylex.props(styles.decisionHelp)}>
+                        <strong>
+                          {row.matches.length > 0
+                            ? 'Add anyway'
+                            : row.editedFields?.length
+                              ? 'Confirm and add'
+                              : 'Add customer'}
+                        </strong>{' '}
+                        {row.matches.length > 0
+                          ? 'includes this record in the import.'
+                          : 'imports this record using the customer number shown above.'}{' '}
+                        <strong>Skip</strong> leaves this record out of the import.
+                      </p>
+                      <button
+                        type="button"
+                        aria-pressed={row.choice === 'add'}
+                        disabled={disabled}
+                        {...stylex.props(
+                          buttonStyles.base,
+                          buttonStyles.primary,
+                          styles.choice
+                        )}
+                        onClick={() => {
+                          void resolve(row.recordNumber, 'add');
+                        }}
+                      >
+                        {row.matches.length > 0
+                          ? 'Add anyway'
+                          : row.editedFields?.length
+                            ? 'Confirm and add'
+                            : 'Add customer'}
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={row.choice === 'skip'}
+                        disabled={disabled}
+                        {...stylex.props(
+                          buttonStyles.base,
+                          row.choice === 'skip' && buttonStyles.primary,
+                          styles.choice
+                        )}
+                        onClick={() => {
+                          void resolve(row.recordNumber, 'skip');
+                        }}
+                      >
                         Skip
-                      </label>
+                      </button>
                     </fieldset>
                   ) : (
                     <p>Included automatically</p>
                   )}
-                  <dl {...stylex.props(styles.fields)}>
-                    {Object.entries(row.values).map(([field, value]) => (
-                      <div key={field}>
-                        <dt {...stylex.props(styles.fieldName)}>{field}</dt>
-                        <dd {...stylex.props(styles.fieldValue)}>
-                          <pre {...stylex.props(styles.fieldText)}>
-                            {String(value) || '—'}
-                          </pre>
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
+                  {(row.choice === 'include' ||
+                    (row.matches.length > 0 && !row.editedFields?.length)) && (
+                    <ImportCustomerDetails row={row} />
+                  )}
                 </div>
               )}
             </details>
@@ -686,5 +919,35 @@ function ImportReview() {
         </>
       )}
     </PageShell>
+  );
+}
+
+function ImportCustomerDetails({row}: {row: ImportRow}) {
+  const title = row.editedFields?.length
+    ? 'Updated customer details'
+    : 'Customer details';
+  return (
+    <section aria-label={`${title} for record ${row.recordNumber}`}>
+      <h3 {...stylex.props(styles.detailsHeading)}>{title}</h3>
+      <dl {...stylex.props(styles.fields)}>
+        {Object.entries(row.values).map(([field, value]) => (
+          <div
+            key={field}
+            {...stylex.props(
+              styles.field,
+              row.editedFields?.some(edited => edited === field) && styles.editedField
+            )}
+          >
+            <dt {...stylex.props(styles.fieldName)}>
+              {field}
+              {row.editedFields?.some(edited => edited === field) && ' · Updated'}
+            </dt>
+            <dd {...stylex.props(styles.fieldValue)}>
+              <pre {...stylex.props(styles.fieldText)}>{String(value) || '—'}</pre>
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }

@@ -1,5 +1,5 @@
 import type {DatabaseState, ImportReview} from '@shop-things/contract';
-import {act, screen, waitFor} from '@testing-library/react';
+import {act, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, test, vi} from 'vitest';
 
@@ -10,6 +10,9 @@ import renderRoute from '../renderRoute';
 
 const numberingExplanation = /Unused source customer numbers are reserved first/;
 const recordLabelPattern = /^Record \d+: Anne Smith$/;
+const importNumberExplanation =
+  /imports this record using the customer number shown above/;
+const importDecisionExplanation = /includes this record in the import/;
 
 const review: ImportReview = {
   importId: 'chosen',
@@ -192,9 +195,9 @@ test('puts unresolved records first while preserving record numbers and order wi
     choicesResolved: false,
     rows: [
       {...review.rows[0]!, recordNumber: 1, choice: 'include'},
-      {...review.rows[0]!, recordNumber: 2, choice: 'unresolved'},
+      {...review.rows[0]!, recordNumber: 2, choice: 'unresolved', matches: ['email']},
       {...review.rows[0]!, recordNumber: 3, choice: 'skip'},
-      {...review.rows[0]!, recordNumber: 4, choice: 'unresolved'},
+      {...review.rows[0]!, recordNumber: 4, choice: 'unresolved', matches: ['email']},
     ],
   };
   const f = fixture(flagged);
@@ -260,8 +263,8 @@ test('shows all match reasons and targets with fresh explicit choices and backen
       rows: [
         {...flagged.rows[0]!, choice: 'choice' in args ? args.choice : 'unresolved'},
       ],
-      includedCount: ('choice' in args ? args.choice : 'unresolved') === 'add' ? 1 : 0,
-      skippedCount: ('choice' in args ? args.choice : 'unresolved') === 'skip' ? 1 : 0,
+      includedCount: 'choice' in args && args.choice === 'add' ? 1 : 0,
+      skippedCount: 'choice' in args && args.choice === 'skip' ? 1 : 0,
       unresolvedCount: 0,
       choicesResolved: true,
     },
@@ -269,19 +272,19 @@ test('shows all match reasons and targets with fresh explicit choices and backen
   renderRoute('/customers/import?importId=chosen', f.application);
   await screen.findByText('Selected file: customers.csv');
   expect(screen.getByRole('status')).toHaveTextContent('1 unresolved possible matches');
-  expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', {name: 'Add anyway'})).not.toBeInTheDocument();
   await userEvent.click(screen.getByText('Record 1: Anne Smith'));
   expect(await screen.findByText('CSV record 2')).toBeVisible();
-  expect(screen.getByText('Saved customer 99: Saved Customer (ID 7)')).toBeVisible();
+  expect(screen.getByText('Saved customer 99: Saved Customer')).toBeVisible();
   expect(screen.getByText('Matching name:')).toBeVisible();
   expect(screen.getByText('Matching email:')).toBeVisible();
   expect(screen.getByText('Matching phone:')).toBeVisible();
-  const add = screen.getByRole('radio', {name: 'Add anyway'});
-  const skip = screen.getByRole('radio', {name: 'Skip'});
-  expect(add).not.toBeChecked();
-  expect(skip).not.toBeChecked();
+  const add = screen.getByRole('button', {name: 'Add anyway'});
+  const skip = screen.getByRole('button', {name: 'Skip'});
+  expect(add).toHaveAttribute('aria-pressed', 'false');
+  expect(skip).toHaveAttribute('aria-pressed', 'false');
   await userEvent.click(skip);
-  await waitFor(() => expect(skip).toBeChecked());
+  await waitFor(() => expect(skip).toHaveAttribute('aria-pressed', 'true'));
   expect(screen.getByRole('status')).toHaveTextContent('1 skipped. 0 unresolved');
   expect(f.client.imports.resolve).toHaveBeenCalledWith({
     session: f.application.getState().database?.session,
@@ -290,8 +293,176 @@ test('shows all match reasons and targets with fresh explicit choices and backen
     choice: 'skip',
   });
   await userEvent.click(add);
-  await waitFor(() => expect(add).toBeChecked());
+  await waitFor(() => expect(add).toHaveAttribute('aria-pressed', 'true'));
   expect(screen.getByRole('status')).toHaveTextContent('1 customers to add');
+});
+
+test('explains a shared email and identifies the other CSV customer before choosing', async () => {
+  const flagged: ImportReview = {
+    ...review,
+    sourceRecordCount: 2,
+    unresolvedCount: 2,
+    includedCount: 0,
+    choicesResolved: false,
+    rows: [
+      {
+        ...review.rows[0]!,
+        choice: 'unresolved',
+        matches: ['email'],
+        values: {...review.rows[0]!.values, email: 'anne@example.com'},
+      },
+      {
+        ...review.rows[0]!,
+        recordNumber: 2,
+        sourceCustomerNumber: 43,
+        assignedCustomerNumber: null,
+        choice: 'unresolved',
+        matches: ['email'],
+        values: {
+          ...review.rows[0]!.values,
+          firstName: 'Annie',
+          email: 'ANNE@example.com',
+        },
+      },
+    ],
+    matchGroups: [
+      {
+        id: 'email',
+        reason: 'email',
+        targets: [
+          {kind: 'csv', recordNumber: 1},
+          {kind: 'csv', recordNumber: 2},
+        ],
+      },
+    ],
+  };
+  const f = fixture(flagged);
+  const confirmedRecords = new Map<number, 'add' | 'skip'>();
+  let editedEmail = 'anne@example.com';
+  f.client.imports.resolve = vi.fn<typeof f.client.imports.resolve>(async args => {
+    if ('choice' in args) {
+      confirmedRecords.set(args.recordNumber, args.choice);
+    } else {
+      editedEmail = args.value;
+      confirmedRecords.delete(args.recordNumber);
+    }
+
+    return {
+      status: 'success',
+      value: {
+        ...flagged,
+        session: args.session,
+        matchGroups: [],
+        unresolvedCount: 2 - confirmedRecords.size,
+        includedCount: [...confirmedRecords.values()].filter(choice => choice === 'add')
+          .length,
+        skippedCount: [...confirmedRecords.values()].filter(choice => choice === 'skip')
+          .length,
+        choicesResolved: confirmedRecords.size === 2,
+        rows: flagged.rows.map(row => ({
+          ...row,
+          choice: confirmedRecords.get(row.recordNumber) ?? 'unresolved',
+          matches: [],
+          editedFields: row.recordNumber === 1 ? ['email'] : undefined,
+          collisionFields: ['email'],
+          proposedCustomerNumber: confirmedRecords.has(row.recordNumber)
+            ? undefined
+            : (row.sourceCustomerNumber ?? undefined),
+          assignedCustomerNumber:
+            confirmedRecords.get(row.recordNumber) === 'add'
+              ? row.sourceCustomerNumber
+              : null,
+          values:
+            row.recordNumber === 1 ? {...row.values, email: editedEmail} : row.values,
+        })),
+      },
+    };
+  });
+  renderRoute('/customers/import?importId=chosen', f.application);
+  await userEvent.click(await screen.findByText('Record 1: Anne Smith'));
+  const matches = within(
+    screen.getByRole('group', {name: 'Possible matches for record 1'})
+  );
+  expect(matches.getByText('anne@example.com')).toBeVisible();
+  expect(
+    matches.getByText(
+      'The email addresses match; capitalization and surrounding spaces are ignored.'
+    )
+  ).toBeVisible();
+  const otherCustomer = matches.getAllByRole('listitem')[1];
+  expect(otherCustomer).toHaveTextContent('Annie Smith');
+  expect(otherCustomer).toHaveTextContent('ANNE@example.com');
+  expect(matches.getByText(importDecisionExplanation)).toHaveTextContent(
+    'Skip leaves this record out of the import.'
+  );
+  const input = matches.getByRole('textbox', {name: 'New email for record 1'});
+  await userEvent.clear(input);
+  await userEvent.type(input, 'new@example.com');
+  await userEvent.click(matches.getByRole('button', {name: 'Apply change'}));
+  expect(f.client.imports.resolve).toHaveBeenCalledWith({
+    session: f.application.getState().database?.session,
+    importId: 'chosen',
+    recordNumber: 1,
+    field: 'email',
+    value: 'new@example.com',
+  });
+  await waitFor(() =>
+    expect(screen.getAllByText('Awaiting confirmation')).toHaveLength(2)
+  );
+  expect(screen.getByRole('button', {name: 'Add 0 customers'})).toBeDisabled();
+  const updatedDetails = within(
+    screen.getByRole('region', {name: 'Updated customer details for record 1'})
+  );
+  expect(updatedDetails.getByText('new@example.com')).toBeVisible();
+  expect(updatedDetails.getByText('email · Updated')).toBeVisible();
+  expect(updatedDetails.queryByText('anne@example.com')).not.toBeInTheDocument();
+  const correction = screen.getByRole('textbox', {name: 'New email for record 1'});
+  expect(correction).toHaveValue('new@example.com');
+  await userEvent.clear(correction);
+  await userEvent.type(correction, 'corrected@example.com');
+  await userEvent.click(screen.getByRole('button', {name: 'Apply change'}));
+  await waitFor(() =>
+    expect(updatedDetails.getByText('corrected@example.com')).toBeVisible()
+  );
+  await userEvent.click(screen.getByRole('button', {name: 'Confirm and add'}));
+  await waitFor(() =>
+    expect(screen.getByRole('button', {name: 'Add 1 customers'})).toBeDisabled()
+  );
+  await userEvent.click(screen.getByText('Record 2: Annie Smith'));
+  expect(screen.getByRole('textbox', {name: 'New email for record 2'})).toHaveValue(
+    'ANNE@example.com'
+  );
+  expect(
+    screen.getByText(
+      'No email or phone collision remains. The matching record was edited. Confirm whether to add this customer or skip it.'
+    )
+  ).toBeVisible();
+  expect(screen.getByText('No collision')).toBeVisible();
+  expect(
+    within(screen.getByRole('group', {name: 'Confirm customer for record 2'})).getByText(
+      importNumberExplanation
+    )
+  ).toHaveTextContent(
+    'Add customer imports this record using the customer number shown above. Skip leaves this record out of the import.'
+  );
+  expect(screen.getByText('If added: customer #43 (same as CSV)')).toBeVisible();
+  expect(
+    screen.getByText('If added, customer number 43 will be kept from the CSV.')
+  ).toBeVisible();
+  expect(screen.getByRole('status')).toHaveTextContent(
+    '0 unresolved possible matches. 1 awaiting confirmation.'
+  );
+  await userEvent.click(screen.getByRole('button', {name: 'Add customer'}));
+  await waitFor(() =>
+    expect(screen.getByRole('button', {name: 'Add 2 customers'})).toBeEnabled()
+  );
+  expect(f.client.imports.resolve).toHaveBeenLastCalledWith({
+    session: f.application.getState().database?.session,
+    importId: 'chosen',
+    recordNumber: 2,
+    choice: 'add',
+  });
+  expect(screen.getByText('corrected@example.com')).toBeVisible();
 });
 
 test('gates Add on choices and included totals; prevents duplicate clicks and cancellation during commit', async () => {
@@ -618,14 +789,20 @@ test('shows revised numbering and counts, retains unaffected choices, and gates 
   ).toHaveLength(2);
   await userEvent.click(screen.getByText('Record 1: Anne Smith'));
   await userEvent.click(screen.getByText('Record 2: Anne Smith'));
-  expect(screen.getByText('Saved customer 44: Anne Smith (ID 9)')).toBeVisible();
+  expect(screen.getByText('Saved customer 44: Anne Smith')).toBeVisible();
   expect(screen.getByRole('status')).toHaveTextContent(
     '0 customers to add. 1 skipped. 1 unresolved'
   );
   expect(screen.getByRole('button', {name: 'Add 0 customers'})).toBeDisabled();
-  expect(screen.getAllByRole('radio', {name: 'Add anyway'})[0]).not.toBeChecked();
-  expect(screen.getAllByRole('radio', {name: 'Skip'})[1]).toBeChecked();
-  await userEvent.click(screen.getAllByRole('radio', {name: 'Add anyway'})[0]!);
+  expect(screen.getAllByRole('button', {name: 'Add anyway'})[0]).toHaveAttribute(
+    'aria-pressed',
+    'false'
+  );
+  expect(screen.getAllByRole('button', {name: 'Skip'})[1]).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+  await userEvent.click(screen.getAllByRole('button', {name: 'Add anyway'})[0]!);
   expect(await screen.findByText('Assigned customer number: 1')).toBeVisible();
   expect(screen.getByRole('status')).toHaveTextContent('1 customer numbers will change');
   expect(screen.getByRole('button', {name: 'Add 1 customers'})).toBeEnabled();
@@ -715,13 +892,13 @@ test('retains review choices through BUSY and an outage, then allows same-sessio
     .mockResolvedValueOnce({status: 'cancelled'});
   renderRoute('/customers/import?importId=chosen', f.application);
   await userEvent.click(await screen.findByText('Record 1: Anne Smith'));
-  const choice = screen.getByRole('radio', {name: 'Add anyway'});
+  const choice = screen.getByRole('button', {name: 'Add anyway'});
   const prior = f.application.getState().database!;
   await userEvent.click(screen.getByRole('button', {name: 'Add 1 customers'}));
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Another operation is running.'
   );
-  expect(choice).toBeChecked();
+  expect(choice).toHaveAttribute('aria-pressed', 'true');
   f.client.database.status = async () => ({
     status: 'success',
     value: {...prior, available: false, version: prior.version + 1},
@@ -730,7 +907,7 @@ test('retains review choices through BUSY and an outage, then allows same-sessio
   expect(
     await screen.findByText('The database is unavailable. Your review is retained.')
   ).toBeVisible();
-  expect(choice).toBeChecked();
+  expect(choice).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByRole('button', {name: 'Add 1 customers'})).toBeDisabled();
   await act(async () => {
     f.client.database.status = async () => ({
@@ -739,7 +916,7 @@ test('retains review choices through BUSY and an outage, then allows same-sessio
     });
     await f.application.reconcile();
   });
-  expect(choice).toBeChecked();
+  expect(choice).toHaveAttribute('aria-pressed', 'true');
   await userEvent.click(screen.getByRole('button', {name: 'Add 1 customers'}));
   expect(
     await screen.findByText('Backup cancelled. No customers were added.')
