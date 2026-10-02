@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {cp, mkdtemp, readFile, rm, mkdir, writeFile, chmod} from 'node:fs/promises';
+import {
+  cp,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  mkdir,
+  writeFile,
+  chmod,
+} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -436,9 +445,16 @@ try {
     migrationsFolder,
   });
   try {
-    assert.equal(
-      (await migrated.db.all('select name from __drizzle_migrations')).length,
-      2
+    const shippedMigrations = (await readdir(migrationsFolder, {withFileTypes: true}))
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name)
+      .sort();
+    const appliedMigrations = await migrated.db.all<{name: string}>(
+      'select name from __drizzle_migrations order by id'
+    );
+    assert.deepEqual(
+      appliedMigrations.map(migration => migration.name),
+      shippedMigrations
     );
     const next = await db.createCustomer(migrated.db, {firstName: 'After migration'});
     assert.equal(next.customerNumber, 1);
