@@ -44,6 +44,14 @@ test('database, export and restore dialogs keep paths in main and use the curren
     first,
     expect.objectContaining({properties: ['openFile']})
   );
+  expect(await dialogs.importCsv()).toBe('/selected.db');
+  expect(boundary.showOpenDialog).toHaveBeenLastCalledWith(
+    first,
+    expect.objectContaining({
+      title: 'Import customers',
+      filters: [{name: 'CSV', extensions: ['csv']}],
+    })
+  );
   window = new BrowserWindow();
   expect(await dialogs.exportCsv()).toBe('/destination.db');
   expect(boundary.showSaveDialog).toHaveBeenLastCalledWith(
@@ -81,6 +89,7 @@ test('cancelled or empty native file selections produce cancellation', async () 
   for (const method of [
     () => dialogs.createDatabase(),
     () => dialogs.openDatabase(),
+    () => dialogs.importCsv(),
     () => dialogs.exportCsv(),
     () => dialogs.backupDatabase(),
     () => dialogs.restoreSource(),
@@ -91,6 +100,7 @@ test('cancelled or empty native file selections produce cancellation', async () 
 
   boundary.showOpenDialog.mockResolvedValue({canceled: false, filePaths: []});
   boundary.showSaveDialog.mockResolvedValue({canceled: false, filePath: ''});
+  expect(await dialogs.importCsv()).toBeNull();
   expect(await dialogs.openDatabase()).toBeNull();
   expect(await dialogs.createDatabase()).toBeNull();
 });

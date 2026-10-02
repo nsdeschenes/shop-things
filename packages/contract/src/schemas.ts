@@ -101,7 +101,91 @@ function action<A extends z.ZodType, R extends z.ZodType>(args: A, value: R) {
 
 const sessionArguments = z.strictObject({session: token});
 
+export const importRowSchema = z.strictObject({
+  recordNumber: positiveInteger,
+  sourceCustomerNumber: positiveInteger.nullable(),
+  assignedCustomerNumber: positiveInteger.nullable(),
+  proposedCustomerNumber: positiveInteger.optional(),
+  editedFields: z.array(z.enum(['email', 'phone'])).optional(),
+  collisionFields: z.array(z.enum(['email', 'phone'])).optional(),
+  values: createCustomerInputSchema,
+  matches: z.array(token),
+  choice: z.enum(['include', 'unresolved', 'add', 'skip']),
+});
+export const importMatchGroupSchema = z.strictObject({
+  id: token,
+  reason: z.enum(['name', 'email', 'phone']),
+  targets: z.array(
+    z.discriminatedUnion('kind', [
+      z.strictObject({kind: z.literal('csv'), recordNumber: positiveInteger}),
+      z.strictObject({
+        kind: z.literal('customer'),
+        id: positiveInteger,
+        customerNumber: positiveInteger.nullable(),
+        firstName: z.string(),
+        lastName: z.string(),
+      }),
+    ])
+  ),
+});
+export const importReviewSchema = z.strictObject({
+  importId: token,
+  session: token,
+  fileName: z.string(),
+  status: z.enum(['ready', 'rejected', 'empty']),
+  rows: z.array(importRowSchema),
+  matchGroups: z.array(importMatchGroupSchema),
+  diagnostics: z.array(
+    z.strictObject({
+      recordNumber: positiveInteger.nullable(),
+      column: z.string(),
+      reason: z.string(),
+    })
+  ),
+  sourceRecordCount: nonnegativeInteger,
+  includedCount: nonnegativeInteger,
+  skippedCount: nonnegativeInteger,
+  unresolvedCount: nonnegativeInteger,
+  choicesResolved: z.boolean(),
+  invalidRecordCount: nonnegativeInteger,
+  omittedDiagnosticCount: nonnegativeInteger,
+  numberChangeCount: nonnegativeInteger,
+});
+
 export const actions = {
+  'imports.commit': action(
+    sessionArguments.extend({importId: token}),
+    z.discriminatedUnion('kind', [
+      z.strictObject({
+        kind: z.literal('committed'),
+        session: token,
+        addedCount: nonnegativeInteger,
+        skippedCount: nonnegativeInteger,
+      }),
+      z.strictObject({kind: z.literal('changed'), review: importReviewSchema}),
+    ])
+  ),
+  'imports.prepare': action(sessionArguments, importReviewSchema),
+  'imports.review': action(
+    sessionArguments.extend({importId: token}),
+    importReviewSchema
+  ),
+  'imports.resolve': action(
+    z.union([
+      sessionArguments.extend({
+        importId: token,
+        recordNumber: positiveInteger,
+        choice: z.enum(['add', 'skip']),
+      }),
+      sessionArguments.extend({
+        importId: token,
+        recordNumber: positiveInteger,
+        field: z.enum(['email', 'phone']),
+        value: z.string(),
+      }),
+    ]),
+    importReviewSchema
+  ),
   'customers.list': action(
     sessionArguments.extend({query: z.string()}),
     z.array(customerRecordSchema)

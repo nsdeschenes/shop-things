@@ -47,6 +47,14 @@ export function createNativeDialogs(
     createDatabase: () =>
       chooseDestination('Create customer database', 'customers.sqlite'),
     openDatabase: () => chooseExisting('Open customer database'),
+    importCsv: async () => {
+      const result = await dialog.showOpenDialog(currentWindow(), {
+        title: 'Import customers',
+        properties: ['openFile'],
+        filters: [{name: 'CSV', extensions: ['csv']}],
+      });
+      return result.canceled ? null : result.filePaths[0] || null;
+    },
     exportCsv: () =>
       chooseDestination('Export all saved customers', 'customers.csv', true),
     backupDatabase: () =>

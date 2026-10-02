@@ -61,6 +61,12 @@ function makeBridge() {
         return () => listeners.delete(callback);
       },
     },
+    imports: {
+      commit: async () => ({status: 'cancelled'}),
+      prepare: async () => ({status: 'cancelled'}),
+      review: async () => ({status: 'cancelled'}),
+      resolve: async () => ({status: 'cancelled'}),
+    },
     exports: {csv: async () => ({status: 'success', value: {path: '/export'}})},
     drafts: {
       confirmDiscard: async () => ({status: 'success', value: {approved: true}}),

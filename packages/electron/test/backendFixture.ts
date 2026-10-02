@@ -54,6 +54,7 @@ export async function fixture(overrides: Partial<ActionServiceOptions> = {}) {
   const dialogs: BackendDialogs = {
     createDatabase: async () => choices.create,
     openDatabase: async () => choices.open,
+    importCsv: async () => choices.csv,
     exportCsv: async () => choices.csv,
     backupDatabase: async () => choices.backup,
     restoreSource: async () => choices.restoreSource,

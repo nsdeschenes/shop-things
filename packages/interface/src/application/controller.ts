@@ -581,6 +581,78 @@ export function createApplication(
           : undefined;
       return coordinatedRequest(session, operation, scope, admitted);
     },
+    async commitImport(session: string, importId: string) {
+      if (
+        state.pendingFile ||
+        state.pendingTransition ||
+        state.reconciling ||
+        protectionRequest ||
+        protection.getState().frozen ||
+        protection.getState().saving
+      ) {
+        return busy;
+      }
+
+      const attempt = generation;
+      publish({...state, pendingFile: 'importSaving'});
+      try {
+        return await serialize(async () => {
+          if (!client || !isCurrentSession(session) || state.recoveryRequired) {
+            return unavailable;
+          }
+
+          const result = await client.imports.commit({session, importId});
+          if (attempt !== generation || !isCurrentSession(session)) {
+            return obsolete;
+          }
+
+          if (
+            result.status === 'error' &&
+            (result.error.code === 'STALE_SESSION' ||
+              result.error.code === 'DATABASE_UNAVAILABLE')
+          ) {
+            await reconcile();
+            if (attempt !== generation || !isCurrentSession(session)) {
+              return obsolete;
+            }
+          }
+
+          return result;
+        });
+      } finally {
+        if (attempt === generation) {
+          publish({...state, pendingFile: null});
+        }
+      }
+    },
+    async prepareImport() {
+      const session = state.database?.session;
+      if (
+        !session ||
+        state.pendingFile ||
+        protection.getState().frozen ||
+        protection.getState().saving
+      ) {
+        return busy;
+      }
+
+      const attempt = generation;
+      publish({...state, pendingFile: 'import'});
+      try {
+        return await serialize(async () => {
+          if (!client || !isCurrentSession(session)) {
+            return unavailable;
+          }
+
+          const result = await client.imports.prepare({session});
+          return attempt === generation && isCurrentSession(session) ? result : obsolete;
+        });
+      } finally {
+        if (attempt === generation) {
+          publish({...state, pendingFile: null});
+        }
+      }
+    },
     fileAction,
     reloadCustomer,
     transition,

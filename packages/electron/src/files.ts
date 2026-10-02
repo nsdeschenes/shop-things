@@ -7,7 +7,6 @@ import {basename, dirname, join} from 'node:path';
 import type {CustomerData} from '@shop-things/db';
 
 const customerFields = [
-  'id',
   'customerNumber',
   'firstName',
   'lastName',
