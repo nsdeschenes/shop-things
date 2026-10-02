@@ -46,7 +46,20 @@ test('database startup shows loading, first launch cancellation is silent, Creat
     await expect(page.getByRole('button', {name: 'Database', exact: true})).toHaveCount(
       0
     );
+    await application.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceFiles').push({hold: true})
+    );
     await page.getByRole('button', {name: 'Create database', exact: true}).click();
+    await expect(page.getByRole('status', {name: 'Loading database'})).toBeVisible();
+    await expect
+      .poll(() =>
+        application.evaluate(() => Reflect.get(globalThis, 'acceptancePickerHeld'))
+      )
+      .toBe(true);
+    await application.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceReleasePicker')()
+    );
+    await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(0);
     await expect(page.getByRole('heading', {name: 'Set Up Your Database'})).toBeVisible();
     await expect(page.getByRole('alertdialog', {includeHidden: true})).toHaveCount(0);
     await application.evaluate(
@@ -59,6 +72,11 @@ test('database startup shows loading, first launch cancellation is silent, Creat
     await expect(
       page.getByRole('button', {name: 'Open database', exact: true})
     ).toBeDisabled();
+    await expect
+      .poll(() =>
+        application.evaluate(() => Reflect.get(globalThis, 'acceptancePickerHeld'))
+      )
+      .toBe(true);
     await application.evaluate(() =>
       Reflect.get(globalThis, 'acceptanceReleasePicker')()
     );
@@ -84,6 +102,10 @@ test('database startup shows loading, first launch cancellation is silent, Creat
     ).toBeVisible();
     await expect(reopened.getByText('Active database: created.sqlite')).toBeVisible();
   } finally {
+    await application.evaluate(() => {
+      Reflect.get(globalThis, 'acceptanceReleaseStartup')?.();
+      Reflect.get(globalThis, 'acceptanceReleasePicker')?.();
+    });
     await application.close();
     await rm(directory, {recursive: true, force: true});
   }

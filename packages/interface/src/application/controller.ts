@@ -109,7 +109,12 @@ export function createApplication(
   }
 
   function flushSessionChange() {
-    if (!pendingSessionChange || protectionRequest) {
+    if (
+      !pendingSessionChange ||
+      protectionRequest ||
+      state.pendingTransition ||
+      state.pendingFile
+    ) {
       return;
     }
 
@@ -463,6 +468,7 @@ export function createApplication(
     } finally {
       if (attempt === generation) {
         publish({...state, pendingTransition: false});
+        flushSessionChange();
       }
     }
   }
@@ -552,6 +558,7 @@ export function createApplication(
     } finally {
       if (attempt === generation) {
         publish({...state, pendingFile: null});
+        flushSessionChange();
       }
     }
   }
@@ -724,6 +731,7 @@ export function createApplication(
       } finally {
         if (attempt === generation) {
           publish({...state, pendingFile: null});
+          flushSessionChange();
         }
       }
     },
@@ -753,6 +761,7 @@ export function createApplication(
       } finally {
         if (attempt === generation) {
           publish({...state, pendingFile: null});
+          flushSessionChange();
         }
       }
     },

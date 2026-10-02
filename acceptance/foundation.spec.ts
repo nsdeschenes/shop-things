@@ -38,7 +38,8 @@ test('explicit preview survives routing and reload without native storage', asyn
     await expect(page.getByRole('menuitem', {name, exact: true})).toHaveCount(0);
   }
 
-  await expect(page.getByRole('button', {name: 'Save'})).toBeEnabled();
+  await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+  await expect(page.getByRole('textbox', {name: 'First name'})).toBeEnabled();
   await page.getByRole('link', {name: 'Customer records Shop Things'}).click();
   await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
   expect(new URL(page.url()).searchParams.get('preview')).toBe('true');

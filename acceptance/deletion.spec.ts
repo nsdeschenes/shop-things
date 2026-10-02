@@ -11,11 +11,10 @@ import launchElectron from './launchElectron';
 const root = fileURLToPath(new URL('..', import.meta.url));
 
 async function confirm(page: Page) {
-  await page.getByRole('button', {name: 'Delete customer'}).click();
-  await page
-    .getByRole('dialog', {name: 'Delete Customer?', exact: true})
-    .getByRole('button', {name: 'Delete customer'})
-    .click();
+  const dialog = page.getByRole('dialog', {name: 'Delete Customer?', exact: true});
+  await expect(dialog).toBeHidden();
+  await page.getByRole('main').getByRole('button', {name: 'Delete customer'}).click();
+  await dialog.getByRole('button', {name: 'Delete customer'}).click();
 }
 
 test('identifying deletion persists and returns to the unfiltered list through actual bundled renderer IPC', async () => {
@@ -33,7 +32,7 @@ test('identifying deletion persists and returns to the unfiltered list through a
     await page.getByRole('link', {name: 'Alpha One'}).click();
     await page.getByRole('button', {name: 'Delete customer'}).click();
     const dialog = page.getByRole('dialog', {name: 'Delete Customer?', exact: true});
-    await expect(dialog).toContainText('Alpha One (customer number 2)');
+    await expect(dialog).toContainText('Alpha One (# 2)');
     await expect(dialog.getByRole('button', {name: 'Cancel'})).toBeFocused();
     await dialog.getByRole('button', {name: 'Cancel'}).click();
     await expect(
@@ -125,7 +124,7 @@ test('real stale revision fails safely and late prior-session deletion cannot na
     await page.getByRole('button', {name: 'Delete customer'}).click();
     await expect(
       page.getByRole('dialog', {name: 'Delete Customer?', exact: true})
-    ).toContainText('customer number Unassigned');
+    ).toContainText('Unnumbered Three (# Unassigned)');
     await page
       .getByRole('dialog', {name: 'Delete Customer?', exact: true})
       .getByRole('button', {name: 'Cancel'})
@@ -145,7 +144,9 @@ test('real stale revision fails safely and late prior-session deletion cannot na
     await expect(
       page.getByRole('heading', {name: 'Unnumbered Three', exact: true})
     ).toBeVisible();
-    await expect(page.getByRole('button', {name: 'Delete customer'})).toBeDisabled();
+    await expect(
+      page.getByRole('main').getByRole('button', {name: 'Delete customer'})
+    ).toBeDisabled();
     expect(
       await application.evaluate(
         () =>
@@ -209,7 +210,7 @@ test('Chromium preview cancels identifying deletion then removes the temporary s
   const detailRoute = new URL(page.url()).hash;
   await page.getByRole('button', {name: 'Delete customer'}).click();
   const dialog = page.getByRole('dialog', {name: 'Delete Customer?', exact: true});
-  await expect(dialog).toContainText('Temporary Delete (customer number 1)');
+  await expect(dialog).toContainText('Temporary Delete (# 1)');
   await expect(dialog.getByRole('button', {name: 'Cancel'})).toBeFocused();
   await dialog.getByRole('button', {name: 'Cancel'}).click();
   await expect(

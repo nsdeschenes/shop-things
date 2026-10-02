@@ -14,6 +14,7 @@ function git(args: string[]) {
 }
 
 const supporting = process.argv.includes('--supporting-macos');
+const reuseSourceChecks = process.argv.includes('--reuse-source-checks');
 const glibc = Reflect.get(
   Reflect.get(process.report.getReport(), 'header'),
   'glibcVersionRuntime'
@@ -136,6 +137,18 @@ try {
   }
 
   report.cleanBefore = true;
+  if (reuseSourceChecks) {
+    const sourceCommit = (
+      await readFile(join(directory, 'source-checks.commit'), 'utf8')
+    ).trim();
+    assert.equal(sourceCommit, report.commit, 'Source checks must use this commit');
+    report.sourceChecks = {
+      origin: 'prior-workflow-steps',
+      commit: sourceCommit,
+      commands: ['pnpm fmt:check', 'pnpm lint', 'pnpm typecheck', 'pnpm test'],
+    };
+  }
+
   const pnpmVersion = spawnSync('pnpm', ['--version'], {encoding: 'utf8'});
   assert.equal(pnpmVersion.status, 0, String(pnpmVersion.error ?? pnpmVersion.stderr));
   report.pnpm = pnpmVersion.stdout.trim();
@@ -143,26 +156,19 @@ try {
     process.platform === 'linux'
       ? await readFile('/etc/os-release', 'utf8')
       : spawnSync('sw_vers', [], {encoding: 'utf8'}).stdout.trim();
-  await command('install', 'pnpm', ['install', '--frozen-lockfile']);
-  await command('electron-runtime', 'pnpm', [
-    '--filter',
-    'electron',
-    'exec',
-    'node',
-    '-e',
-    'require("electron/install.js")',
-  ]);
-  await command('chromium-runtime', 'pnpm', [
-    'exec',
-    'playwright',
-    'install',
-    'chromium',
-  ]);
-  const {chromium} = await import('@playwright/test');
-  const browser = await chromium.launch();
-  report.chromium = browser.version();
-  await browser.close();
-  await command('source-tests', 'pnpm', ['test']);
+  if (!reuseSourceChecks) {
+    await command('install', 'pnpm', ['install', '--frozen-lockfile']);
+    await command('electron-runtime', 'pnpm', [
+      '--filter',
+      'electron',
+      'exec',
+      'node',
+      '-e',
+      'require("electron/install.js")',
+    ]);
+    await command('source-tests', 'pnpm', ['test']);
+  }
+
   const source: Record<string, unknown> = {};
   for (const suite of ['contract', 'db', 'electron', 'interface', 'scripts']) {
     const results = JSON.parse(
@@ -186,9 +192,25 @@ try {
   }
 
   report.sourceTests = source;
-  await command('typecheck', 'pnpm', ['typecheck']);
+  await command('chromium-runtime', 'pnpm', [
+    'exec',
+    'playwright',
+    'install',
+    'chromium',
+  ]);
+  const {chromium} = await import('@playwright/test');
+  const browser = await chromium.launch();
+  report.chromium = browser.version();
+  await browser.close();
+  if (!reuseSourceChecks) {
+    await command('typecheck', 'pnpm', ['typecheck']);
+  }
+
   await command('build', 'pnpm', ['build']);
-  await command('lint', 'pnpm', ['lint']);
+  if (!reuseSourceChecks) {
+    await command('lint', 'pnpm', ['lint']);
+  }
+
   try {
     await command('renderer', 'pnpm', ['test:renderer']);
   } finally {

@@ -28,6 +28,11 @@ when retaining evidence independently. Run source tests, builds, renderer tests,
 packaging and watcher checks sequentially: they replace shared emitted outputs.
 The runner refuses dirty sources, binds all reports to one commit, rejects skipped
 source/renderer checks, and verifies source restoration after watcher probes.
+CI runs formatting, lint, TypeScript and unit tests as separate workflow steps before
+build and acceptance. Lint first builds the shared contract/database declarations.
+It passes `--reuse-source-checks` with the current commit marker
+and unit-test JSON reports in `ACCEPTANCE_REPORT_DIR`, so acceptance validates their
+revision and no-skip counts without repeating those checks or dependency installation.
 A passed run covers only the recorded target and executed automated checks. It does
 not certify manual GUI behavior, signing, installation, or other platforms.
 

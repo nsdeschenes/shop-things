@@ -232,8 +232,11 @@ test('real IPC stale Delete stays blocked until fresh reload and deleted selecti
       )
     ).toBeVisible();
     await expect(
-      page.getByRole('button', {name: 'Delete customer', exact: true})
+      page.getByRole('main').getByRole('button', {name: 'Delete customer', exact: true})
     ).toBeDisabled();
+    await expect(
+      page.getByRole('dialog', {name: 'Delete Customer?', exact: true})
+    ).toBeHidden();
     await page.getByRole('button', {name: 'Refresh customers'}).click();
     await expect(
       page.getByRole('heading', {name: 'External One', exact: true})

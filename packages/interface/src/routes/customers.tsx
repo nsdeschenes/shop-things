@@ -161,7 +161,11 @@ function RouteComponent() {
   const session = state.database?.session ?? '';
   const available = state.database?.available === true && !state.recoveryRequired;
   const disabled =
-    !available || state.pendingTransition || state.reconciling || protection.frozen;
+    !available ||
+    Boolean(state.pendingFile) ||
+    state.pendingTransition ||
+    state.reconciling ||
+    protection.frozen;
   const customers = useQuery({
     ...customerListOptions(application, session, q),
     enabled: !disabled,
@@ -240,7 +244,9 @@ function RouteComponent() {
             'The database is unavailable. Open or retry the database to continue.'}
         </p>
       ) : searching || customers.isPending || isCancelledError(customers.error) ? (
-        <LoadingSpinner label="Loading customers…" />
+        state.pendingFile || state.refreshingCustomers ? null : (
+          <LoadingSpinner label="Loading customers…" />
+        )
       ) : customers.isError && !customers.data ? (
         <section role="alert">
           <p>{customers.error.message}</p>

@@ -21,19 +21,33 @@ jobs:
       - name: Install locked workspace and Chromium desktop dependencies
         run: |
           pnpm install --frozen-lockfile
-          pnpm exec playwright install --with-deps chromium
+          pnpm exec playwright install-deps chromium
           sudo apt-get update
           sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
-      - name: Sequential source, renderer, packaged and watcher acceptance
-        run: xvfb-run -a node --experimental-strip-types scripts/acceptance.ts
+      - name: Check formatting
+        run: pnpm fmt:check
+      - name: Build shared package declarations for lint
+        run: pnpm prepare:backend
+      - name: Check lint
+        run: pnpm lint
+      - name: Check TypeScript
+        run: pnpm typecheck
+      - name: Run unit tests
+        run: |
+          mkdir -p "$ACCEPTANCE_REPORT_DIR"
+          pnpm --filter electron exec node -e 'require("electron/install.js")'
+          pnpm test
+          git rev-parse HEAD > "$ACCEPTANCE_REPORT_DIR/source-checks.commit"
+        env:
+          ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
+      - name: Enable Electron namespace sandbox on the temporary runner
+        run: |
+          # Ubuntu 24.04 blocks unprivileged user namespaces for unpacked Electron binaries.
+          # Allow Chromium's namespace sandbox for direct packaged and watcher launches.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare --user --map-root-user true
+      - name: Build, renderer, packaged and watcher acceptance
+        run: xvfb-run -a node --experimental-strip-types scripts/acceptance.ts --reuse-source-checks
         env:
           ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
           SMOKE_EXECUTION_ENVIRONMENT: github-actions-ubuntu-24.04-native-linux-x64
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: renderer-acceptance-linux-x64-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/shop-things-acceptance
-            acceptance-reports/renderer
-          if-no-files-found: error

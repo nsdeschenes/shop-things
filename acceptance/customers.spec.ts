@@ -2,9 +2,17 @@ import {mkdtemp, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
-import {expect, test} from '@playwright/test';
+import {expect, test, type Page} from '@playwright/test';
 
 import launchElectron from './launchElectron';
+
+async function expectCustomerOrder(page: Page, names: string[]) {
+  const links = page.getByRole('list', {name: 'Customers'}).getByRole('link');
+  await expect(links).toHaveCount(names.length);
+  for (const [index, name] of names.entries()) {
+    await expect(links.nth(index)).toHaveAccessibleName(name);
+  }
+}
 
 const alphaDetailLink = /\/customers\/2$/;
 
@@ -16,11 +24,7 @@ test('saved customer list/search/detail through actual bundled hash renderer IPC
   try {
     const page = await application.firstWindow();
     await expect(page.getByText('3 results', {exact: true})).toBeVisible();
-    expect(await page.locator('tbody a').allTextContents()).toEqual([
-      'Alpha One',
-      'Unnumbered Three',
-      'Zed Two',
-    ]);
+    await expectCustomerOrder(page, ['Alpha One', 'Unnumbered Three', 'Zed Two']);
     await expect(page.getByRole('link', {name: 'Add customer'})).toBeVisible();
     const search = page.getByRole('textbox', {name: 'Search customers'});
     await search.fill('Alpha');
@@ -43,7 +47,7 @@ test('saved customer list/search/detail through actual bundled hash renderer IPC
     await expect(page.getByRole('textbox', {name: 'Phone', exact: true})).toHaveValue(
       '+1 (902) 555-1234'
     );
-    await expect(page.getByRole('button', {name: 'Save'})).toBeEnabled();
+    await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
     await expect(page.getByRole('button', {name: 'Delete customer'})).toBeEnabled();
     await page.reload();
     await expect(
@@ -254,21 +258,16 @@ test('Chromium preview searches temporary customers by name and number with pred
   await search.fill(' ALI ');
   await search.press('Enter');
   await expect(page.getByText('2 results', {exact: true})).toBeVisible();
-  await expect(page.locator('tbody a')).toHaveText(['alice', 'Alina']);
+  await expectCustomerOrder(page, ['alice', 'Alina']);
   await search.fill('1');
   await search.press('Enter');
   await expect(page.getByText('1 result', {exact: true})).toBeVisible();
-  await expect(page.locator('tbody a')).toHaveText(['Zoe']);
+  await expectCustomerOrder(page, ['Zoe']);
   await search.fill('[literal]');
   await search.press('Enter');
   await expect(page.getByText('1 result', {exact: true})).toBeVisible();
-  await expect(page.locator('tbody a')).toHaveText(['[literal]']);
+  await expectCustomerOrder(page, ['[literal]']);
   await page.getByRole('button', {name: 'Clear'}).click();
   await expect(page.getByText('4 results', {exact: true})).toBeVisible();
-  await expect(page.locator('tbody a')).toHaveText([
-    '[literal]',
-    'alice',
-    'Alina',
-    'Zoe',
-  ]);
+  await expectCustomerOrder(page, ['[literal]', 'alice', 'Alina', 'Zoe']);
 });
