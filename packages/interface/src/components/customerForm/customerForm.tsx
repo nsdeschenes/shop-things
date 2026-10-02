@@ -40,67 +40,62 @@ import PageShell from '../pageShell/pageShell';
 const identityFields = [
   {name: 'firstName', label: 'First name', inputMode: 'text'},
   {name: 'lastName', label: 'Last name', inputMode: 'text'},
+  {name: 'phone', label: 'Phone', inputMode: 'tel'},
+  {name: 'email', label: 'Email address', inputMode: 'email'},
   {name: 'address', label: 'Address', inputMode: 'text'},
   {name: 'city', label: 'City', inputMode: 'text'},
   {name: 'province', label: 'Province', inputMode: 'text'},
   {name: 'postalCode', label: 'Postal code', inputMode: 'text'},
-  {name: 'phone', label: 'Phone', inputMode: 'tel'},
-  {name: 'email', label: 'Email address', inputMode: 'email'},
 ] as const;
 
 const balanceFields = [
   {name: 'stock', label: 'Items in stock', inputMode: 'numeric'},
-  {name: 'previousBalance', label: 'Previous balance ($)', inputMode: 'decimal'},
   {name: 'balance', label: 'Balance ($)', inputMode: 'decimal'},
+  {name: 'previousBalance', label: 'Previous balance ($)', inputMode: 'decimal'},
 ] as const;
 
 const styles = stylex.create({
-  form: {gap: spacing.space22, display: 'flex', flexDirection: 'column'},
-  column: {gap: spacing.space12, display: 'flex', flexDirection: 'column', minWidth: 0},
-  topSections: {
-    gap: spacing.space22,
-    alignItems: 'stretch',
-    display: 'grid',
-    gridTemplateColumns: {
-      default: 'repeat(2, minmax(0, 1fr))',
-      [breakpoints.columns]: '1fr',
-    },
-  },
-  fieldset: {
+  form: {
+    padding: {default: spacing.space22, [breakpoints.compact]: spacing.space16},
     borderColor: colors.border,
     borderRadius: radii.panel,
     borderStyle: 'solid',
     borderWidth: controls.borderWidth,
-    paddingInline: spacing.space20,
     backgroundColor: colors.surface,
-    minWidth: 0,
-    paddingBottom: spacing.space20,
-    paddingTop: spacing.space8,
   },
-  growingSection: {flexGrow: 1},
-  compactFieldset: {paddingBottom: spacing.space12},
+  column: {gap: spacing.space18, display: 'flex', flexDirection: 'column', minWidth: 0},
+  topSections: {
+    gap: 32,
+    alignItems: 'start',
+    display: 'grid',
+    gridTemplateColumns: {
+      default: 'minmax(0, 1.4fr) minmax(0, 1fr)',
+      [breakpoints.columns]: '1fr',
+    },
+  },
+  fieldset: {padding: 0, borderWidth: 0, minWidth: 0},
   legend: {
-    paddingInline: spacing.space8,
-    fontSize: typography.fontSizeBody,
-    fontWeight: typography.fontWeightBold,
+    padding: 0,
+    fontSize: typography.fontSizeLarge,
+    fontWeight: typography.fontWeightSemibold,
+    marginBottom: spacing.space16,
   },
   grid: {
-    gap: spacing.space18,
+    gap: spacing.space12,
     display: 'grid',
     gridTemplateColumns: {
       default: 'repeat(2, minmax(0, 1fr))',
-      [breakpoints.form]: '1fr',
+      [breakpoints.compact]: '1fr',
     },
   },
-  balanceGrid: {gridTemplateColumns: '1fr'},
-  wide: {gridColumn: {default: 'span 2', [breakpoints.form]: 'auto'}},
+  wide: {gridColumn: {default: 'span 2', [breakpoints.compact]: 'auto'}},
   help: {
     color: colors.textMuted,
     fontSize: typography.fontSizeSmall,
-    marginTop: spacing.space14,
+    marginTop: spacing.space10,
   },
   fieldHelp: {marginTop: 0},
-  actions: {gap: spacing.space10, display: 'flex'},
+  actions: {gap: spacing.space10, display: 'flex', flexWrap: 'wrap'},
   saveStatus: {
     overflow: 'hidden',
     clipPath: 'inset(50%)',
@@ -496,12 +491,28 @@ export default function CustomerForm({
       >
         <div {...stylex.props(styles.topSections)}>
           <div {...stylex.props(styles.column)}>
-            <fieldset
-              disabled={disabled}
-              {...stylex.props(styles.fieldset, styles.growingSection)}
-            >
-              <legend {...stylex.props(styles.legend)}>Identity and Contact</legend>
+            <fieldset disabled={disabled} {...stylex.props(styles.fieldset)}>
+              <legend {...stylex.props(styles.legend)}>Contact details</legend>
               <div {...stylex.props(styles.grid)}>
+                {identityFields.map(config => (
+                  <form.AppField key={config.name} name={config.name}>
+                    {field =>
+                      config.name === 'province' ? (
+                        <field.ProvinceField
+                          disabled={disabled || blocked === 'deleted'}
+                        />
+                      ) : (
+                        <field.TextField
+                          readOnly={blocked === 'deleted'}
+                          label={config.label}
+                          inputMode={config.inputMode}
+                          uppercase={config.name === 'postalCode'}
+                          style={config.name === 'address' ? styles.wide : undefined}
+                        />
+                      )
+                    }
+                  </form.AppField>
+                ))}
                 {initialRecord ? (
                   <form.AppField name="customerNumber">
                     {field => (
@@ -509,12 +520,11 @@ export default function CustomerForm({
                         readOnly={blocked === 'deleted'}
                         label="Customer number"
                         inputMode="numeric"
-                        style={styles.wide}
                       />
                     )}
                   </form.AppField>
                 ) : (
-                  <Field.Root disabled {...stylex.props(fieldStyles.field, styles.wide)}>
+                  <Field.Root disabled {...stylex.props(fieldStyles.field)}>
                     <Field.Label {...stylex.props(fieldStyles.label)}>
                       Customer number
                     </Field.Label>
@@ -531,53 +541,16 @@ export default function CustomerForm({
                     </Field.Description>
                   </Field.Root>
                 )}
-                {identityFields.map(config => (
-                  <form.AppField key={config.name} name={config.name}>
-                    {field =>
-                      config.name === 'province' ? (
-                        <field.ProvinceField
-                          disabled={disabled || blocked === 'deleted'}
-                        />
-                      ) : (
-                        <field.TextField
-                          readOnly={blocked === 'deleted'}
-                          label={config.label}
-                          inputMode={config.inputMode}
-                          uppercase={config.name === 'postalCode'}
-                          style={
-                            config.name === 'address' || config.name === 'email'
-                              ? styles.wide
-                              : undefined
-                          }
-                        />
-                      )
-                    }
-                  </form.AppField>
-                ))}
               </div>
               <p {...stylex.props(styles.help)}>
                 Enter a first name, a last name, or both for a customer.
               </p>
             </fieldset>
-            <fieldset
-              disabled={disabled || blocked === 'deleted'}
-              {...stylex.props(styles.fieldset, styles.compactFieldset)}
-            >
-              <legend {...stylex.props(styles.legend)}>Donation Preference</legend>
-              <form.AppField name="donate">
-                {field => (
-                  <field.CheckboxField
-                    disabled={disabled || blocked === 'deleted'}
-                    label="Donate"
-                  />
-                )}
-              </form.AppField>
-            </fieldset>
           </div>
           <div {...stylex.props(styles.column)}>
             <fieldset disabled={disabled} {...stylex.props(styles.fieldset)}>
-              <legend {...stylex.props(styles.legend)}>Stock and Balances</legend>
-              <div {...stylex.props(styles.grid, styles.balanceGrid)}>
+              <legend {...stylex.props(styles.legend)}>Account details</legend>
+              <div {...stylex.props(styles.grid)}>
                 {balanceFields.map(config => (
                   <form.AppField key={config.name} name={config.name}>
                     {field => (
@@ -596,13 +569,27 @@ export default function CustomerForm({
               </p>
             </fieldset>
 
+            <fieldset
+              disabled={disabled || blocked === 'deleted'}
+              {...stylex.props(styles.fieldset)}
+            >
+              <legend {...stylex.props(styles.legend)}>Donation preference</legend>
+              <form.AppField name="donate">
+                {field => (
+                  <field.CheckboxField
+                    disabled={disabled || blocked === 'deleted'}
+                    label="Donate"
+                  />
+                )}
+              </form.AppField>
+            </fieldset>
+
             <form.AppField name="comments">
               {field => (
                 <field.TextareaField
                   disabled={disabled}
                   readOnly={blocked === 'deleted'}
                   label="Comments"
-                  style={styles.growingSection}
                 />
               )}
             </form.AppField>
