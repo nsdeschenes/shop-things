@@ -1,5 +1,6 @@
 import {Menu} from '@base-ui/react/menu';
 import * as stylex from '@stylexjs/stylex';
+import {useNavigate} from '@tanstack/react-router';
 import {useRef, useSyncExternalStore} from 'react';
 
 import type {Application} from '../../application/controller';
@@ -109,6 +110,7 @@ const styles = stylex.create({
 });
 
 export default function DatabaseActions({application}: {application: Application}) {
+  const navigate = useNavigate();
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const state = useSyncExternalStore(application.subscribe, application.getState);
   const protection = useSyncExternalStore(
@@ -188,6 +190,24 @@ export default function DatabaseActions({application}: {application: Application
                     {...stylex.props(styles.item)}
                   >
                     Export all customers
+                  </Menu.Item>
+                  <Menu.Item
+                    disabled={disabled || !database?.available || state.recoveryRequired}
+                    onClick={() => {
+                      void application.prepareImport().then(result => {
+                        if (result.status === 'success') {
+                          void navigate({
+                            to: '/customers/import',
+                            search: {importId: result.value.importId},
+                          });
+                        } else if (result.status === 'error') {
+                          application.toasts.error({title: result.error.message});
+                        }
+                      });
+                    }}
+                    {...stylex.props(styles.item)}
+                  >
+                    Import customers
                   </Menu.Item>
                 </Menu.Popup>
               </Menu.Positioner>

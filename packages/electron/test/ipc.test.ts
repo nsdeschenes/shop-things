@@ -66,6 +66,7 @@ function fixture() {
     dialogs: {
       createDatabase: async () => null,
       openDatabase: async () => null,
+      importCsv: async () => null,
       exportCsv: async () => null,
       backupDatabase: async () => null,
       restoreSource: async () => null,

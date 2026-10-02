@@ -270,9 +270,11 @@ export default function ApplicationShell({application, children}: ApplicationShe
           label={
             state.refreshingCustomers
               ? 'Refreshing customers'
-              : state.pendingFile
-                ? 'Loading database'
-                : 'Loading application'
+              : state.pendingFile === 'importSaving'
+                ? 'Backing up and adding customers'
+                : state.pendingFile
+                  ? 'Loading database'
+                  : 'Loading application'
           }
         />
       )}

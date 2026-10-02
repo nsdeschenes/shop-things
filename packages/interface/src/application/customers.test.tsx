@@ -9,6 +9,9 @@ import {createApplication} from './controller';
 import {
   createCustomerOptions,
   deleteCustomerOptions,
+  customerKeys,
+  customerListOptions,
+  refreshSavedCustomers,
   updateCustomerOptions,
 } from './customers';
 import createPreviewClient from './preview';
@@ -238,3 +241,56 @@ test.each(['create', 'update', 'delete'] as const)(
     expect(await screen.findByRole('heading', {name: 'Replacement'})).toBeVisible();
   }
 );
+
+test('import refresh reconciles saved caches without overwriting an editor draft or another session', async () => {
+  const client = createPreviewClient();
+  const application = createApplication('http://localhost/?preview=true', false, {
+    client,
+  });
+  await application.start();
+  const session = application.getState().database!.session!;
+  const initial = await client.customers.create({session, values});
+  if (initial.status !== 'success') {
+    throw new Error('Preview create failed');
+  }
+
+  await application.queryClient.fetchQuery(customerListOptions(application, session, ''));
+  application.queryClient.setQueryData(customerKeys.list(session, 'Original'), [
+    initial.value,
+  ]);
+  application.queryClient.setQueryData(customerKeys.list('another', ''), []);
+  renderRoute('/customers/1', application);
+  const name = await screen.findByRole('textbox', {name: 'First name'});
+  await userEvent.clear(name);
+  await userEvent.type(name, 'Unsaved draft');
+  const imported = await client.customers.create({
+    session,
+    values: {...values, firstName: 'Imported'},
+  });
+  if (imported.status !== 'success') {
+    throw new Error('Preview create failed');
+  }
+
+  await act(async () => {
+    expect(await refreshSavedCustomers(application, session)).toBe(true);
+  });
+  expect(name).toHaveValue('Unsaved draft');
+  expect(application.protection.isDirty()).toBe(true);
+  expect(application.queryClient.getQueryData(customerKeys.list(session, ''))).toEqual([
+    imported.value,
+    initial.value,
+  ]);
+  expect(
+    application.queryClient.getQueryState(customerKeys.detail(session, 1))?.isInvalidated
+  ).toBe(true);
+  expect(
+    application.queryClient.getQueryState(customerKeys.list(session, 'Original'))
+      ?.isInvalidated
+  ).toBe(true);
+  expect(application.queryClient.getQueryData(customerKeys.list('another', ''))).toEqual(
+    []
+  );
+  expect(
+    application.queryClient.getQueryState(customerKeys.list('another', ''))?.isInvalidated
+  ).toBe(false);
+});

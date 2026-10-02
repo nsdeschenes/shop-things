@@ -30,6 +30,8 @@ test('real IPC header refresh rejects dirty drafts, fails, freezes, then adopts 
         ).status;
       })
     ).toBe('success');
+    await page.getByRole('textbox', {name: 'Phone'}).fill('9025551234');
+    await page.getByRole('textbox', {name: 'Phone'}).press('Tab');
     await page.getByRole('button', {name: 'Save'}).click();
     await expect(
       page.getByText(
@@ -40,6 +42,7 @@ test('real IPC header refresh rejects dirty drafts, fails, freezes, then adopts 
     await expect(reload).toBeDisabled();
     await expect(name).toHaveValue('Retained draft');
     await name.fill('Alpha');
+    await page.getByRole('textbox', {name: 'Phone'}).fill('+1 (902) 555-1234');
     await expect(reload).toBeEnabled();
     await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
     await application.evaluate(() => {
@@ -74,8 +77,10 @@ test('real IPC header refresh rejects dirty drafts, fails, freezes, then adopts 
     await expect(name).toBeDisabled();
     await application.evaluate(() => Reflect.get(globalThis, 'acceptanceReleaseRead')());
     await expect(name).toHaveValue('External');
-    await expect(page.getByRole('button', {name: 'Save'})).toBeEnabled();
+    await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
     await name.fill('Fresh reference');
+    await page.getByRole('textbox', {name: 'Phone'}).fill('9025551234');
+    await page.getByRole('textbox', {name: 'Phone'}).press('Tab');
     await page.getByRole('button', {name: 'Save'}).click();
     await expect(
       page.getByRole('heading', {name: 'Customers', exact: true})

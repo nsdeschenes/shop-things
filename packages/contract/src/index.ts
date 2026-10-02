@@ -2,6 +2,8 @@ import type {z} from 'zod';
 
 import type {
   actions,
+  importReviewSchema,
+  importRowSchema,
   customerSchema,
   customerRecordSchema,
   createCustomerInputSchema,
@@ -15,6 +17,8 @@ import type {
   draftReplySchema,
   draftResolutionSchema,
 } from './schemas.js';
+export type ImportReview = z.infer<typeof importReviewSchema>;
+export type ImportRow = z.infer<typeof importRowSchema>;
 export type Customer = z.infer<typeof customerSchema>;
 export type CustomerRecord = z.infer<typeof customerRecordSchema>;
 export type CreateCustomerInput = z.infer<typeof createCustomerInputSchema>;
@@ -51,6 +55,7 @@ export type ShopThingsBridge = {
   database: Group<'database'> & {
     onStateChanged: (callback: (state: DatabaseState) => void) => () => void;
   };
+  imports: Group<'imports'>;
   exports: Group<'exports'>;
   drafts: Group<'drafts'> & {
     registerProtection: (protection: DraftProtection) => () => void;

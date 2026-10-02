@@ -5,6 +5,7 @@ import {
 import {z} from 'zod';
 
 const integerPattern = /^\d+$/;
+const phonePattern = /^\d*$/;
 
 const balance = z
   .string()
@@ -17,6 +18,8 @@ function customerFormSchema(editing = false) {
   return createCustomerInputSchema
     .extend({
       customerNumber: z.string(),
+      phone: z.string().regex(phonePattern, 'Enter digits only (0–9).'),
+      email: z.union([z.literal(''), z.email('Enter a valid email address.')]),
       stock: z
         .string()
         .refine(

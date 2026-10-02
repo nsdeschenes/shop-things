@@ -61,11 +61,12 @@ const styles = stylex.create({
   },
 });
 
-export default function ProvinceField() {
+export default function ProvinceField({disabled = false}: {disabled?: boolean}) {
   const field = formContexts.useFieldContext<string>();
 
   return (
     <Field.Root
+      disabled={disabled}
       name={field.name}
       dirty={field.state.meta.isDirty}
       touched={field.state.meta.isTouched}
@@ -74,6 +75,7 @@ export default function ProvinceField() {
     >
       <Field.Label {...stylex.props(fieldStyles.label)}>Province</Field.Label>
       <Combobox.Root
+        disabled={disabled}
         items={provinces}
         itemToStringLabel={provinceLabel}
         name={field.name}

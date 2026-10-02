@@ -96,6 +96,25 @@ export function customerDetailOptions(
   });
 }
 
+// Invalidate only saved data; editor drafts remain owned by draft protection.
+export async function refreshSavedCustomers(application: Application, session: string) {
+  const captured = application.captureSession(session);
+  if (!captured.isCurrent()) {
+    return false;
+  }
+
+  await application.queryClient.invalidateQueries({
+    queryKey: customerKeys.session(session),
+    refetchType: 'none',
+  });
+  if (!captured.isCurrent()) {
+    return false;
+  }
+
+  await application.queryClient.fetchQuery(customerListOptions(application, session, ''));
+  return captured.isCurrent();
+}
+
 async function adoptSavedCustomer(
   application: Application,
   record: CustomerRecord,

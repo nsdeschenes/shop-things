@@ -155,6 +155,12 @@ export function createPreloadBridge(
         };
       },
     },
+    imports: {
+      commit: call('imports.commit', actions['imports.commit']),
+      prepare: call('imports.prepare', actions['imports.prepare']),
+      review: call('imports.review', actions['imports.review']),
+      resolve: call('imports.resolve', actions['imports.resolve']),
+    },
     exports: {csv: call('exports.csv', actions['exports.csv'])},
     drafts: {
       confirmDiscard: () =>
