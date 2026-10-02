@@ -1,12 +1,12 @@
 import * as stylex from '@stylexjs/stylex';
 
 export const colors = stylex.defineVars({
-  pageBackground: '#f4f6f3',
+  pageBackground: '#f1f5f2',
   surface: '#ffffff',
   surfaceHover: '#d0e2d8',
   headerBackground: '#183f3b',
-  text: '#293a39',
-  textMuted: '#627671',
+  text: '#203c34',
+  textMuted: '#526a5d',
   errorText: '#a12622',
   warningText: '#815900',
   noticeText: '#245b83',
@@ -18,8 +18,8 @@ export const colors = stylex.defineVars({
   danger: '#a12622',
   dangerHover: '#811e1b',
   focusRing: '#24675b',
-  border: '#d9e1dc',
-  controlBorder: '#cbd6d3',
+  border: '#d5e0d9',
+  controlBorder: '#acbeb2',
   checkboxBorder: '#919e99',
   disabledBackground: '#e8eeeb',
   tableHeaderBackground: '#e9efeb',

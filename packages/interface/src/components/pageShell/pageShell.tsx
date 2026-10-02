@@ -18,9 +18,9 @@ const styles = stylex.create({
   page: {
     marginInline: 'auto',
     paddingInline: {default: spacing.space24, [breakpoints.compact]: spacing.space16},
-    maxWidth: 1080,
-    paddingBottom: spacing.space4,
-    paddingTop: spacing.space4,
+    maxWidth: 1240,
+    paddingBottom: spacing.space24,
+    paddingTop: spacing.space22,
   },
   header: {
     gap: spacing.space12,
@@ -30,10 +30,10 @@ const styles = stylex.create({
     display: 'flex',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    marginBottom: spacing.space8,
+    marginBottom: spacing.space18,
   },
   sticky: {position: 'sticky', zIndex: 1, top: 0},
-  title: {fontSize: typography.fontSizeHeading, letterSpacing: -0.6},
+  title: {fontSize: 30, fontWeight: typography.fontWeightSemibold, letterSpacing: -0.6},
 });
 
 export default function PageShell({

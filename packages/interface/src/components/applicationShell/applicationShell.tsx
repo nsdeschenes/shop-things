@@ -57,16 +57,16 @@ const styles = stylex.create({
   eyebrow: {
     fontSize: typography.fontSizeSmall,
     fontWeight: typography.fontWeightSemibold,
-    letterSpacing: 1.2,
+    letterSpacing: 0,
   },
   title: {
-    fontSize: typography.fontSizeBrand,
+    fontSize: 24,
     fontWeight: typography.fontWeightBold,
     letterSpacing: -0.8,
     lineHeight: 1.3,
   },
   database: {
-    paddingBlock: spacing.space12,
+    paddingBlock: spacing.space6,
     paddingInline: {default: spacing.space24, [breakpoints.compact]: spacing.space16},
     fontSize: typography.fontSizeSmall,
     overflowWrap: 'anywhere',
