@@ -61,11 +61,11 @@ jobs:
           test "$(git rev-parse "$CRAFT_REF")" = "$RELEASE_SHA"
       - name: Install Craft
         run: |
-          curl -fsSL --retry 3 https://github.com/getsentry/craft/releases/download/2.33.1/craft -o "$RUNNER_TEMP/craft"
-          node "$RUNNER_TEMP/craft" --version
+          curl -fsSL --retry 3 https://github.com/getsentry/craft/releases/download/2.33.1/craft -o "$RUNNER_TEMP/craft.cjs"
+          node "$RUNNER_TEMP/craft.cjs" --version
       - name: Publish the tested installer and checksums
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version }}
           RELEASE_SHA: ${{ inputs.release_sha }}
-        run: node "$RUNNER_TEMP/craft" publish "$VERSION" --rev "$RELEASE_SHA" --no-merge --keep-branch --no-input
+        run: node "$RUNNER_TEMP/craft.cjs" publish "$VERSION" --rev "$RELEASE_SHA" --no-merge --keep-branch --no-input
