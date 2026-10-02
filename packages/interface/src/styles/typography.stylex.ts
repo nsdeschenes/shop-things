@@ -1,7 +1,7 @@
 import * as stylex from '@stylexjs/stylex';
 
 export const typography = stylex.defineVars({
-  fontFamily: 'Arial, Helvetica, sans-serif',
+  fontFamily: '"Avenir Next", Avenir, Arial, sans-serif',
   fontSizeSmall: '14px',
   fontSizeBody: '16px',
   fontSizeLarge: '18px',

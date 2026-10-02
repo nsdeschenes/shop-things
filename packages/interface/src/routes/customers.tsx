@@ -22,7 +22,6 @@ import {
 import Input from '../components/input/input';
 import LoadingSpinner from '../components/loadingSpinner/loadingSpinner';
 import PageShell from '../components/pageShell/pageShell';
-import Table from '../components/table/table';
 import {breakpoints} from '../styles/breakpoints.stylex';
 import {colors} from '../styles/colors.stylex';
 import {controls} from '../styles/controls.stylex';
@@ -79,10 +78,56 @@ const styles = stylex.create({
     backgroundColor: colors.surface,
   },
   emptyTitle: {fontSize: typography.fontSizeHeading, marginBottom: spacing.space20},
+  directory: {
+    margin: 0,
+    padding: 0,
+    borderColor: colors.border,
+    borderRadius: radii.panel,
+    borderStyle: 'solid',
+    borderWidth: controls.borderWidth,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    listStyleType: 'none',
+  },
   customerLink: {
+    gap: spacing.space20,
+    paddingBlock: spacing.space20,
+    paddingInline: spacing.space22,
     textDecoration: 'none',
+    alignItems: 'center',
+    backgroundColor: {default: colors.surface, ':hover': colors.rowHover},
+    color: colors.text,
+    display: 'grid',
+    gridTemplateColumns: {
+      default: 'minmax(180px, 2fr) minmax(150px, 1.2fr) 85px 100px 70px',
+      [breakpoints.columns]: 'minmax(0, 1fr) 70px',
+    },
+    outlineColor: colors.focusRing,
+    outlineOffset: -3,
+    borderBottomColor: colors.border,
+    borderBottomStyle: 'solid',
+    borderBottomWidth: controls.borderWidth,
+  },
+  name: {
+    fontSize: 25,
+    fontWeight: typography.fontWeightRegular,
+    overflowWrap: 'anywhere',
+  },
+  detail: {
+    color: colors.textMuted,
+    display: 'block',
+    fontSize: typography.fontSizeSmall,
+    marginTop: spacing.space4,
+  },
+  secondary: {display: {default: 'block', [breakpoints.columns]: 'none'}},
+  amount: {
+    display: {default: 'block', [breakpoints.columns]: 'none'},
+    textAlign: 'right',
+  },
+  open: {
     color: colors.primary,
-    fontWeight: typography.fontWeightBold,
+    fontWeight: typography.fontWeightSemibold,
+    textAlign: 'right',
   },
 });
 
@@ -225,55 +270,54 @@ function RouteComponent() {
               </p>
             </section>
           ) : (
-            <Table.Container>
-              <Table>
-                <Table.Head>
-                  <Table.Row>
-                    <Table.HeaderCell>#</Table.HeaderCell>
-                    <Table.HeaderCell>Name</Table.HeaderCell>
-                    <Table.HeaderCell>Phone</Table.HeaderCell>
-                    <Table.HeaderCell align="right">Items in stock</Table.HeaderCell>
-                    <Table.HeaderCell align="right">Balance</Table.HeaderCell>
-                  </Table.Row>
-                </Table.Head>
-                <Table.Body>
-                  {rows.map(({customer}) => (
-                    <Table.Row
-                      key={customer.id}
-                      onClick={event => {
-                        if (
-                          disabled ||
-                          (event.target instanceof Element && event.target.closest('a'))
-                        ) {
-                          return;
-                        }
-
-                        void navigate({
-                          to: '/customers/$customerId',
-                          params: {customerId: String(customer.id)},
-                        });
-                      }}
+            <ul aria-label="Customers" {...stylex.props(styles.directory)}>
+              {rows.map(({customer}) => (
+                <li key={customer.id}>
+                  <Link
+                    to="/customers/$customerId"
+                    params={{customerId: String(customer.id)}}
+                    disabled={disabled}
+                    aria-label={`${customer.firstName} ${customer.lastName}`.trim()}
+                    aria-describedby={`customer-number-${customer.id} customer-contact-${customer.id} customer-stock-${customer.id} customer-balance-${customer.id}`}
+                    {...stylex.props(styles.customerLink)}
+                  >
+                    <span>
+                      <span {...stylex.props(styles.name)}>
+                        {customer.firstName} {customer.lastName}
+                      </span>
+                      <span
+                        id={`customer-number-${customer.id}`}
+                        {...stylex.props(styles.detail)}
+                      >
+                        Customer {customer.customerNumber ?? 'Unassigned'}
+                      </span>
+                    </span>
+                    <span
+                      id={`customer-contact-${customer.id}`}
+                      {...stylex.props(styles.secondary)}
                     >
-                      <Table.Cell>{customer.customerNumber ?? 'Unassigned'}</Table.Cell>
-                      <Table.Cell>
-                        <Link
-                          to="/customers/$customerId"
-                          params={{customerId: String(customer.id)}}
-
-                          disabled={disabled}
-                          {...stylex.props(styles.customerLink)}
-                        >
-                          {customer.firstName} {customer.lastName}
-                        </Link>
-                      </Table.Cell>
-                      <Table.Cell>{customer.phone}</Table.Cell>
-                      <Table.Cell align="right">{customer.stock}</Table.Cell>
-                      <Table.Cell align="right">${customer.balance}</Table.Cell>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table>
-            </Table.Container>
+                      {customer.phone}
+                      <span {...stylex.props(styles.detail)}>{customer.city}</span>
+                    </span>
+                    <span
+                      id={`customer-stock-${customer.id}`}
+                      {...stylex.props(styles.amount)}
+                    >
+                      {customer.stock}
+                      <span {...stylex.props(styles.detail)}>In stock</span>
+                    </span>
+                    <span
+                      id={`customer-balance-${customer.id}`}
+                      {...stylex.props(styles.amount)}
+                    >
+                      ${customer.balance}
+                      <span {...stylex.props(styles.detail)}>Balance</span>
+                    </span>
+                    <span {...stylex.props(styles.open)}>Open</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           )}
         </>
       )}
