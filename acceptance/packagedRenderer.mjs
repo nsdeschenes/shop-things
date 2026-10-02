@@ -92,7 +92,7 @@ async function passed(name) {
   await persist();
 }
 
-async function launch() {
+async function launch(readyButton = 'Database') {
   const env = {...process.env};
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.VITE_DEV_SERVER_URL;
@@ -163,7 +163,7 @@ async function launch() {
     report.logs.push({source: 'renderer-console', text: message.text()})
   );
   await page.context().tracing.start({screenshots: true, snapshots: true});
-  await expect(page.getByRole('button', {name: 'Database', exact: true})).toBeEnabled();
+  await expect(page.getByRole('button', {name: readyButton, exact: true})).toBeEnabled();
   assert.equal(new URL(page.url()).protocol, 'file:');
   assert.equal(
     await page.evaluate(
@@ -360,7 +360,7 @@ try {
   fixture = JSON.parse(isolation.stdout.trim());
   assert.equal(fixture.beforeReady, userData);
   assert.equal(fixture.ready, userData);
-  await launch();
+  await launch('Create database');
   await inventory();
   await passed(expectedCases[0]);
   const working = join(userData, 'working.sqlite');
@@ -408,7 +408,7 @@ try {
     .fill('Packaged');
   await expect(page.getByText('1 result', {exact: true})).toBeVisible();
   await page.getByRole('link', {name: 'Packaged Saved', exact: true}).click();
-  assert.equal(new URL(page.url()).hash, '#/customers/1?q=Packaged');
+  await expect(page).toHaveURL(/#\/customers\/1$/);
   await passed(expectedCases[1]);
   await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
   await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
