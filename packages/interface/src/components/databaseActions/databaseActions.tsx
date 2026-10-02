@@ -121,6 +121,7 @@ export default function DatabaseActions({application}: {application: Application
     state.phase !== 'ready' ||
     state.mode === 'unavailable' ||
     Boolean(state.pendingFile) ||
+    state.refreshingCustomers ||
     state.pendingTransition ||
     state.reconciling ||
     protection.frozen ||

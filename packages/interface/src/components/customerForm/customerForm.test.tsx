@@ -180,8 +180,16 @@ test('Edit requires valid contacts and retains the original revision across back
   expect(name).toHaveValue('Retained draft');
   expect(number).toHaveValue('11');
   expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
-  await user.click(screen.getByRole('button', {name: 'Reload customer'}));
-  await user.click(await screen.findByRole('button', {name: 'Discard'}));
+  expect(screen.getByRole('button', {name: 'Refresh customers'})).toBeDisabled();
+  await user.clear(number);
+  await user.type(number, String(created.value.customer.customerNumber));
+  await user.clear(phone);
+  await user.type(phone, '+1 (902) 555');
+  await user.clear(email);
+  await user.type(email, 'contact text');
+  await user.clear(name);
+  await user.type(name, 'Loaded');
+  await user.click(screen.getByRole('button', {name: 'Refresh customers'}));
   await waitFor(() => expect(name).toHaveValue('External'));
   expect(phone).toHaveValue('+1 (902) 555');
   expect(email).toHaveValue('contact text');
@@ -269,7 +277,7 @@ test('a queued file transition suppresses clean Save navigation even before nati
   await opening;
   expect(router.state.location.pathname).toBe('/customers/new');
   expect(screen.getByRole('textbox', {name: 'First name'})).toHaveValue('Saved');
-  expect(screen.getByRole('button', {name: 'Reload customer'})).toBeEnabled();
+  expect(screen.getByRole('button', {name: 'Refresh customers'})).toBeEnabled();
   expect(screen.getByRole('textbox', {name: 'Customer number'})).toHaveValue('1');
   const session = application.getState().database!.session!;
   const saved = await client.customers.get({session, id: 1});
@@ -286,7 +294,10 @@ test('a queued file transition suppresses clean Save navigation even before nati
   expect(
     await screen.findByText('This customer changed. Reload before saving.')
   ).toBeVisible();
-  await user.click(screen.getByRole('button', {name: 'Reload customer'}));
+  expect(screen.getByRole('button', {name: 'Refresh customers'})).toBeDisabled();
+  await user.clear(screen.getByRole('textbox', {name: 'First name'}));
+  await user.type(screen.getByRole('textbox', {name: 'First name'}), 'Saved');
+  await user.click(screen.getByRole('button', {name: 'Refresh customers'}));
   await waitFor(() =>
     expect(screen.getByRole('textbox', {name: 'First name'})).toHaveValue('External')
   );

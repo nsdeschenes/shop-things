@@ -7,3 +7,5 @@ Approving discard does not release the draft until destination loading succeeds.
 The customer list alone validates `q` with Zod, and leaving the list clears the search. Route error components distinguish malformed or missing customer IDs from database failures.
 
 Customer search uses TanStack Pacer's debounce hooks with the existing 250 ms delay. Search controls remain mounted and usable while updated results load; initial route entry may display a route pending component. Customer links use TanStack Router intent preloading, with TanStack Query determining data freshness. Speculative preloads do not receive the read admission reserved for an approved draft-discard navigation.
+
+Explicit header refresh invalidates all customer queries for the current database, refetches active queries, and adopts fresh saved values and revisions in clean customer forms. It is disabled while edits are unsaved. Refresh retains the current route and search, uses the global loading overlay, and preserves displayed data on failure with retry feedback and an error toast. Background query refresh continues to retain the editor's values and original revision.

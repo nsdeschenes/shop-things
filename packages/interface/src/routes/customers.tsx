@@ -122,6 +122,8 @@ function RouteComponent() {
     enabled: !disabled,
   });
 
+  const rows = customers.data ?? [];
+
   function submitSearch(value: string) {
     if (!disabled && value !== (router.state.location.search.q ?? '')) {
       void navigate({search: {q: value || undefined}, replace: true});
@@ -194,7 +196,7 @@ function RouteComponent() {
         </p>
       ) : searching || customers.isPending || isCancelledError(customers.error) ? (
         <LoadingSpinner label="Loading customers…" />
-      ) : customers.isError ? (
+      ) : customers.isError && !customers.data ? (
         <section role="alert">
           <p>{customers.error.message}</p>
           <Button
@@ -209,9 +211,9 @@ function RouteComponent() {
       ) : (
         <>
           <p {...stylex.props(styles.count)}>
-            {customers.data.length} {customers.data.length === 1 ? 'result' : 'results'}
+            {rows.length} {rows.length === 1 ? 'result' : 'results'}
           </p>
-          {customers.data.length === 0 ? (
+          {rows.length === 0 ? (
             <section {...stylex.props(styles.empty)}>
               <h2 {...stylex.props(styles.emptyTitle)}>
                 {q ? 'No Matching Customers' : 'No Customers Yet'}
@@ -235,7 +237,7 @@ function RouteComponent() {
                   </Table.Row>
                 </Table.Head>
                 <Table.Body>
-                  {customers.data.map(({customer}) => (
+                  {rows.map(({customer}) => (
                     <Table.Row
                       key={customer.id}
                       onClick={event => {
