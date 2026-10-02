@@ -42,8 +42,8 @@ jobs:
             jq -e 'all(.[]; (.headRefName | startswith("release/")) | not)'
       - name: Install Craft
         run: |
-          curl -fsSL --retry 3 https://github.com/getsentry/craft/releases/download/2.33.1/craft -o "$RUNNER_TEMP/craft"
-          node "$RUNNER_TEMP/craft" --version
+          curl -fsSL --retry 3 https://github.com/getsentry/craft/releases/download/2.33.1/craft -o "$RUNNER_TEMP/craft.cjs"
+          node "$RUNNER_TEMP/craft.cjs" --version
       - name: Prepare versions and changelog
         id: prepare
         env:
@@ -54,7 +54,7 @@ jobs:
           EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
         run: |
           git remote set-head origin --auto
-          node "$RUNNER_TEMP/craft" prepare "$VERSION" --no-input
+          node "$RUNNER_TEMP/craft.cjs" prepare "$VERSION" --no-input
       - name: Open the release PR and start acceptance
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
