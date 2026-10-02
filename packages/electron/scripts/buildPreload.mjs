@@ -39,7 +39,10 @@ const {bundles} = await build({
         }
 
         metadata.inputs = Object.fromEntries(
-          inputs.map(path => [relative(process.cwd(), path), {}])
+          inputs
+            .map(path => relative(process.cwd(), path))
+            .sort((left, right) => left.localeCompare(right))
+            .map(path => [path, {}])
         );
 
         for (const chunk of Object.values(output)) {
