@@ -17,6 +17,43 @@ Build installers on their target operating systems:
 Installers are written to `release/`. Run each command on its target operating
 system.
 
+## GitHub releases
+
+Releases publish the Linux x64 `.deb` installer and `SHA256SUMS` to GitHub through
+[Craft](https://craft.sentry.dev/). The root and every workspace package share the
+product version; workspace packages are not published to a registry.
+
+1. Run **Prepare release** in GitHub Actions on `main`. The version input defaults
+   to `auto`; you can override it with `major`, `minor`, `patch`, or an explicit
+   stable version such as `0.2.0` (without `v`). Craft creates a release branch,
+   synchronizes versions, generates `CHANGELOG.md`, and the workflow opens a PR
+   and explicitly starts Desktop application and Script tooling checks.
+2. Review and squash-merge the release PR after both workflows pass. Wait for
+   **Desktop application** and **Script tooling** on the resulting `main` commit. The desktop
+   run uploads the tested installer and checksums as an artifact named with the
+   full commit SHA.
+3. Run **Publish release** on `main` with the prepared version and that full
+   merge commit SHA. It checks the merged release PR, synchronized versions,
+   and successful acceptance before Craft creates the stable `v<version>`
+   GitHub release with the generated notes and existing artifacts.
+
+Auto-versioning uses conventional commits since the latest release tag. With no
+tags, Craft starts from `0.0.0` and considers the full history. Features bump minor,
+fixes bump patch, and breaking changes bump major, including before `1.0.0`.
+Prereleases are excluded from this workflow.
+
+Publishing does not rebuild the installer or merge branches. If acceptance fails,
+fix the release PR or prepare a corrected release rather than publishing a failed
+build. For a transient publish failure, rerun Publish with the same version and
+SHA; Craft handles incomplete draft releases. If the CI artifact has expired,
+rerun the original acceptance run for that exact main commit before publishing.
+
+Both workflows use the repository's `GITHUB_TOKEN`. Enable **Allow GitHub Actions
+to create and approve pull requests** in the repository Actions settings so
+Prepare can open the release PR. No custom token or release-validation issue is
+required. A successful automated run establishes CI acceptance; device installation
+checks remain a separate manual activity.
+
 ## Tests
 
 Run `pnpm typecheck` from the workspace root to check all packages and the root
@@ -59,5 +96,15 @@ The smoke suite launches the built Electron executable to verify its bundled
 database code, native addon, and migrations. CI runs this command after packaging
 and saves the smoke report.
 
+Run `pnpm test:scripts` to type-check and test the root script tooling on its own.
+The **Script tooling** workflow runs these tests when scripts or their build-test
+dependencies change. Desktop acceptance runs package tests with `pnpm test --packages-only`;
+the default `pnpm test` still includes package and script tests locally.
+
 Run `pnpm lint` to check source and tests, including the companion testing lint
 rules, and `pnpm fmt:check` to check formatting.
+The **Desktop application** workflow runs formatting, typecheck and lint as separate
+steps before the sequential test, build and packaged application acceptance run.
+It runs for Electron, its shipped interface/database/contract packages, acceptance
+code, or shared build configuration changes. Root script-test-only changes and
+root documentation changes skip the desktop workflow.

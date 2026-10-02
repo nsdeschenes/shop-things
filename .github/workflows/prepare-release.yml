@@ -1,0 +1,77 @@
+name: Prepare release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'auto, major, minor, patch, or a stable version without v'
+        required: true
+        default: auto
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: craft-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - name: Check the requested version and pending release PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(auto|major|minor|patch)$ || "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          gh pr list --base main --state open --limit 1000 --json headRefName |
+            jq -e 'all(.[]; (.headRefName | startswith("release/")) | not)'
+      - name: Install Craft
+        run: |
+          curl -fsSL --retry 3 https://github.com/getsentry/craft/releases/download/2.31.1/craft -o "$RUNNER_TEMP/craft"
+          node "$RUNNER_TEMP/craft" --version
+      - name: Prepare versions and changelog
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          GIT_AUTHOR_NAME: ${{ github.actor }}
+          GIT_COMMITTER_NAME: ${{ github.actor }}
+          EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
+        run: |
+          git remote set-head origin --auto
+          node "$RUNNER_TEMP/craft" prepare "$VERSION" --no-input
+      - name: Open the release PR and start acceptance
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.prepare.outputs.version }}
+          RELEASE_BRANCH: ${{ steps.prepare.outputs.branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BODY_FILE=$(mktemp)
+          cat > "$BODY_FILE" <<EOF
+          Prepare version $VERSION for the Linux x64 Debian release.
+
+          Synchronizes the root and all workspace package versions and updates CHANGELOG.md through Craft.
+
+          Review and squash-merge this PR after Desktop application and Script tooling pass. Then wait for both workflows on the resulting main commit and run Publish release with version $VERSION and that full commit SHA. Publication uses its tested installer and SHA256SUMS.
+          EOF
+          gh pr create --base main --head "$RELEASE_BRANCH" --title "chore(release): $VERSION" --body-file "$BODY_FILE"
+          # GITHUB_TOKEN-created branches/PRs do not trigger push/pull_request workflows.
+          gh workflow run desktop.yml --ref "$RELEASE_BRANCH"
+          gh workflow run scripts.yml --ref "$RELEASE_BRANCH"
