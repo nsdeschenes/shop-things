@@ -392,7 +392,9 @@ test('Restore migrates only a separate read-only backup copy, cleans failed migr
       reopened.getByText('Active database: restored-working.sqlite')
     ).toBeVisible();
     await reopened.getByRole('link', {name: 'Restored pending'}).click();
-    await expect(reopened.getByText('$4.56', {exact: true})).toBeVisible();
+    await expect(
+      reopened.getByRole('textbox', {name: 'Balance ($)', exact: true})
+    ).toHaveValue('4.56');
   } finally {
     await cleanup(application, directory);
   }
