@@ -61,7 +61,7 @@ jobs:
           test "$(git rev-parse "$CRAFT_REF")" = "$RELEASE_SHA"
       - name: Install Craft
         run: |
-          curl -fsSL --retry 3 https://github.com/getsentry/craft/releases/download/2.31.1/craft -o "$RUNNER_TEMP/craft"
+          curl -fsSL --retry 3 https://github.com/getsentry/craft/releases/download/2.33.1/craft -o "$RUNNER_TEMP/craft"
           node "$RUNNER_TEMP/craft" --version
       - name: Publish the tested installer and checksums
         env:

@@ -42,7 +42,7 @@ jobs:
             jq -e 'all(.[]; (.headRefName | startswith("release/")) | not)'
       - name: Install Craft
         run: |
-          curl -fsSL --retry 3 https://github.com/getsentry/craft/releases/download/2.31.1/craft -o "$RUNNER_TEMP/craft"
+          curl -fsSL --retry 3 https://github.com/getsentry/craft/releases/download/2.33.1/craft -o "$RUNNER_TEMP/craft"
           node "$RUNNER_TEMP/craft" --version
       - name: Prepare versions and changelog
         id: prepare
