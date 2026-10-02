@@ -148,7 +148,11 @@ it('rejects file and customer-record limits', async () => {
     (await f.prepare(csv(Array.from<object>({length: 10001}).fill(source))))
       .diagnostics[0]?.reason
   ).toContain('10,000');
-  const largest = await f.prepare(csv(Array.from<object>({length: 10000}).fill(source)));
+  const largest = await f.prepare(
+    csv(
+      Array.from<object>({length: 10000}).fill({...source, email: 'shared@example.test'})
+    )
+  );
   expect(largest.rows).toHaveLength(10000);
   expect(largest.matchGroups).toHaveLength(1);
   expect(largest.matchGroups[0]?.targets).toHaveLength(10000);
@@ -336,25 +340,20 @@ it('groups normalized CSV matches by signal and requires an explicit choice for 
       {...source, firstName: '', lastName: ' smith '},
     ])
   );
-  expect(review.matchGroups.map(group => group.reason)).toEqual([
-    'name',
-    'email',
-    'phone',
-    'name',
-  ]);
-  expect(review.rows.map(row => row.matches.length)).toEqual([3, 3, 0, 1, 1]);
+  expect(review.matchGroups.map(group => group.reason)).toEqual(['email', 'phone']);
+  expect(review.rows.map(row => row.matches.length)).toEqual([2, 2, 0, 0, 0]);
   expect(review.rows.map(row => row.choice)).toEqual([
     'unresolved',
     'unresolved',
     'include',
-    'unresolved',
-    'unresolved',
+    'include',
+    'include',
   ]);
   expect(review).toMatchObject({
     sourceRecordCount: 5,
-    includedCount: 1,
+    includedCount: 3,
     skippedCount: 0,
-    unresolvedCount: 4,
+    unresolvedCount: 2,
     choicesResolved: false,
   });
   const args = {session: f.session, importId: review.importId};
@@ -366,8 +365,8 @@ it('groups normalized CSV matches by signal and requires an explicit choice for 
     })
   );
   expect(skipped.rows[0]).toMatchObject({recordNumber: 1, choice: 'skip'});
-  expect(skipped).toMatchObject({includedCount: 1, skippedCount: 1, unresolvedCount: 3});
-  for (const recordNumber of [2, 4, 5]) {
+  expect(skipped).toMatchObject({includedCount: 3, skippedCount: 1, unresolvedCount: 1});
+  for (const recordNumber of [2]) {
     success(
       await f.service.handlers['imports.resolve']({...args, recordNumber, choice: 'add'})
     );
@@ -431,7 +430,7 @@ it('identifies saved matches without treating blank contacts or numbers as match
   const review = success(
     await f.service.handlers['imports.prepare']({session: f.session})
   );
-  expect(review.rows.map(row => row.matches.length)).toEqual([3, 0]);
+  expect(review.rows.map(row => row.matches.length)).toEqual([2, 0]);
   for (const group of review.matchGroups) {
     expect(group.targets).toContainEqual({
       kind: 'customer',
@@ -464,10 +463,10 @@ it('replans numbers when skipped rows relinquish reservations and consume no all
   const f = await setup();
   let review = await f.prepare(
     csv([
-      {...source, customerNumber: '1'},
-      {...source, customerNumber: '1'},
-      {...source, customerNumber: ''},
-      {...source, customerNumber: ''},
+      {...source, email: 'shared@example.test', customerNumber: '1'},
+      {...source, email: 'shared@example.test', customerNumber: '1'},
+      {...source, email: 'shared@example.test', customerNumber: ''},
+      {...source, email: 'shared@example.test', customerNumber: ''},
     ])
   );
   expect(review.rows.map(row => row.assignedCustomerNumber)).toEqual([

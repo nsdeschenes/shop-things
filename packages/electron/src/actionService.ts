@@ -246,25 +246,51 @@ export class ActionService {
           }
 
           const row = review.rows.find(item => item.recordNumber === args.recordNumber);
-          if (review.status !== 'ready' || !row || !row.matches.length) {
+          if (
+            review.status !== 'ready' ||
+            !row ||
+            (!row.matches.length &&
+              !row.collisionFields?.length &&
+              row.choice === 'include')
+          ) {
             throw new ActionError(
               'VALIDATION',
-              'Choose Add anyway or Skip only for a flagged record.'
+              'Edit contact details or choose Add anyway or Skip only for a flagged record.'
             );
           }
 
           const saved = await this.database.listCustomers(
             this.requireSession(args.session).db
           );
-          const updated = this.finalizeImport(
-            {
-              ...review,
-              rows: review.rows.map(item =>
-                item === row ? {...item, choice: args.choice} : item
-              ),
-            },
-            saved
-          );
+          const updated =
+            'choice' in args
+              ? this.finalizeImport(
+                  {
+                    ...review,
+                    rows: review.rows.map(item =>
+                      item === row ? {...item, choice: args.choice} : item
+                    ),
+                  },
+                  saved
+                )
+              : this.recheckImport(
+                  {
+                    ...review,
+                    rows: review.rows.map(item =>
+                      item === row
+                        ? {
+                            ...item,
+                            values: {...item.values, [args.field]: args.value},
+                            editedFields: [
+                              ...new Set([...(item.editedFields ?? []), args.field]),
+                            ],
+                          }
+                        : item
+                    ),
+                  },
+                  saved,
+                  row.recordNumber
+                );
           this.imports.set(review.importId, updated);
           return structuredClone(updated);
         }),
@@ -505,7 +531,11 @@ export class ActionService {
     return {path};
   }
 
-  private recheckImport(review: ImportReview, saved: CustomerData[]): ImportReview {
+  private recheckImport(
+    review: ImportReview,
+    saved: CustomerData[],
+    editedRecordNumber?: number
+  ): ImportReview {
     const matched = matchCustomerImportRows(review.rows, saved);
     function signatures(groups: ImportReview['matchGroups']) {
       return new Map(
@@ -533,6 +563,17 @@ export class ActionService {
         ...matched,
         rows: matched.rows.map((row, index) => {
           const previous = review.rows[index]!;
+          if (row.recordNumber === editedRecordNumber) {
+            return {...row, choice: 'unresolved'};
+          }
+
+          if (editedRecordNumber !== undefined && !row.matches.length) {
+            // Editing one record does not confirm the other record on the user's behalf.
+            if (previous.choice === 'unresolved' || previous.choice === 'skip') {
+              return {...row, choice: previous.choice};
+            }
+          }
+
           const unchanged =
             row.matches.length === previous.matches.length &&
             row.matches.every(id => previousMatches.get(id) === currentMatches.get(id));
@@ -545,17 +586,37 @@ export class ActionService {
 
   private finalizeImport(review: ImportReview, saved: CustomerData[]): ImportReview {
     const updated = summarizeCustomerImport(review);
+    const savedNumbers = saved.map(customer => customer.customerNumber);
+    const planned = numberCustomerImportRows(
+      updated.rows,
+      savedNumbers,
+      new Set(
+        updated.rows
+          .filter(row => row.choice === 'include' || row.choice === 'add')
+          .map(row => row.recordNumber)
+      )
+    );
+    const proposed = updated.rows.some(
+      row => row.choice === 'unresolved' && !row.matches.length
+    )
+      ? numberCustomerImportRows(
+          updated.rows,
+          savedNumbers,
+          new Set(
+            updated.rows.filter(row => row.choice !== 'skip').map(row => row.recordNumber)
+          )
+        )
+      : null;
     return {
       ...updated,
-      ...numberCustomerImportRows(
-        updated.rows,
-        saved.map(customer => customer.customerNumber),
-        new Set(
-          updated.rows
-            .filter(row => row.choice === 'include' || row.choice === 'add')
-            .map(row => row.recordNumber)
-        )
-      ),
+      numberChangeCount: planned.numberChangeCount,
+      rows: planned.rows.map((row, index) => ({
+        ...row,
+        proposedCustomerNumber:
+          row.choice === 'unresolved' && !row.matches.length
+            ? (proposed?.rows[index]?.assignedCustomerNumber ?? undefined)
+            : undefined,
+      })),
     };
   }
 

@@ -105,6 +105,9 @@ export const importRowSchema = z.strictObject({
   recordNumber: positiveInteger,
   sourceCustomerNumber: positiveInteger.nullable(),
   assignedCustomerNumber: positiveInteger.nullable(),
+  proposedCustomerNumber: positiveInteger.optional(),
+  editedFields: z.array(z.enum(['email', 'phone'])).optional(),
+  collisionFields: z.array(z.enum(['email', 'phone'])).optional(),
   values: createCustomerInputSchema,
   matches: z.array(token),
   choice: z.enum(['include', 'unresolved', 'add', 'skip']),
@@ -168,11 +171,19 @@ export const actions = {
     importReviewSchema
   ),
   'imports.resolve': action(
-    sessionArguments.extend({
-      importId: token,
-      recordNumber: positiveInteger,
-      choice: z.enum(['add', 'skip']),
-    }),
+    z.union([
+      sessionArguments.extend({
+        importId: token,
+        recordNumber: positiveInteger,
+        choice: z.enum(['add', 'skip']),
+      }),
+      sessionArguments.extend({
+        importId: token,
+        recordNumber: positiveInteger,
+        field: z.enum(['email', 'phone']),
+        value: z.string(),
+      }),
+    ]),
     importReviewSchema
   ),
   'customers.list': action(

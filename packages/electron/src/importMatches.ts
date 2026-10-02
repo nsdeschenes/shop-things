@@ -4,17 +4,12 @@ import type {CustomerData} from '@shop-things/db';
 
 type Group = ImportReview['matchGroups'][number];
 type Reason = Group['reason'];
-type Contact = Pick<ImportRow['values'], 'firstName' | 'lastName' | 'email' | 'phone'>;
+type Contact = Pick<ImportRow['values'], 'email' | 'phone'>;
 
 function matchKeys(contact: Contact): [Reason, string][] {
-  const first = contact.firstName.trim().toLowerCase();
-  const last = contact.lastName.trim().toLowerCase();
   const email = contact.email.trim().toLowerCase();
   const phone = contact.phone.replace(/\D/g, '');
   return [
-    ...(first || last
-      ? [['name', JSON.stringify([first, last])] as [Reason, string]]
-      : []),
     ...(email ? [['email', email] as [Reason, string]] : []),
     ...(phone ? [['phone', phone] as [Reason, string]] : []),
   ];
@@ -55,7 +50,19 @@ export function matchCustomerImportRows(
       const matches = matchKeys(row.values)
         .map(([reason, value]) => JSON.stringify([reason, value]))
         .filter(id => matchingIds.has(id));
-      return {...row, matches, choice: matches.length ? 'unresolved' : 'include'};
+      const collisionFields = new Set(row.collisionFields);
+      for (const [reason, value] of matchKeys(row.values)) {
+        if (reason !== 'name' && matchingIds.has(JSON.stringify([reason, value]))) {
+          collisionFields.add(reason);
+        }
+      }
+
+      return {
+        ...row,
+        ...(collisionFields.size ? {collisionFields: [...collisionFields]} : {}),
+        matches,
+        choice: matches.length ? 'unresolved' : 'include',
+      };
     }),
   };
 }

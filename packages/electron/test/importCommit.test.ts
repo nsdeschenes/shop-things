@@ -50,11 +50,14 @@ async function setup(overrides: Partial<ActionServiceOptions> = {}) {
 it('adds included rows with planned numbers, fresh IDs/revisions, and preserves saved customers and backup', async () => {
   const f = await setup();
   const existing = success(
-    await f.service.handlers['customers.create']({session: f.session, values})
+    await f.service.handlers['customers.create']({
+      session: f.session,
+      values: {...values, email: 'shared@example.test'},
+    })
   );
   const initial = await f.prepare(
     [
-      {customerNumber: 2, ...values},
+      {customerNumber: 2, ...values, email: 'shared@example.test'},
       {customerNumber: 2, ...values, firstName: 'New'},
       {customerNumber: 0, ...values, firstName: 'Another'},
     ].map(row => ({...row, customerNumber: row.customerNumber || ''}))
@@ -183,12 +186,252 @@ it('imports reordered CSV balances and numeric donate', async () => {
   });
 });
 
+it('imports customers sharing first and last names with each other and a saved customer', async () => {
+  const f = await setup();
+  success(await f.service.handlers['customers.create']({session: f.session, values}));
+  const review = await f.prepare([
+    {customerNumber: 9, ...values},
+    {customerNumber: 10, ...values},
+  ]);
+  expect(review.matchGroups).toEqual([]);
+  expect(review).toMatchObject({
+    includedCount: 2,
+    unresolvedCount: 0,
+    choicesResolved: true,
+  });
+  expect(
+    success(
+      await f.service.handlers['imports.commit']({
+        session: f.session,
+        importId: review.importId,
+      })
+    )
+  ).toMatchObject({kind: 'committed', addedCount: 2});
+  expect(
+    (await f.list()).map(row => [row.customer.firstName, row.customer.lastName])
+  ).toEqual([
+    ['Anne', 'Smith'],
+    ['Anne', 'Smith'],
+    ['Anne', 'Smith'],
+  ]);
+});
+
+it.each<{field: 'email' | 'phone'; shared: string; replacement: string}>([
+  {field: 'email', shared: 'shared@example.test', replacement: 'new@example.test'},
+  {field: 'phone', shared: '9025550100', replacement: '9025550199'},
+])(
+  'edits a matching $field, replans all affected rows, and saves the replacement',
+  async ({field, shared, replacement}) => {
+    const f = await setup();
+    const saved = success(
+      await f.service.handlers['customers.create']({
+        session: f.session,
+        values: {...values, [field]: shared},
+      })
+    );
+    const initial = await f.prepare([
+      {customerNumber: 9, ...values, [field]: shared},
+      {customerNumber: 10, ...values, [field]: shared},
+    ]);
+    const args = {session: f.session, importId: initial.importId};
+    const edited = success(
+      await f.service.handlers['imports.resolve']({
+        ...args,
+        recordNumber: 1,
+        field,
+        value: replacement,
+      })
+    );
+    expect(edited.rows[0]).toMatchObject({
+      choice: 'unresolved',
+      matches: [],
+      values: {[field]: replacement},
+    });
+    expect(edited.rows[1]?.choice).toBe('unresolved');
+    expect(edited.unresolvedCount).toBe(2);
+    expect(await f.list()).toEqual([saved]);
+    expect(success(await f.service.handlers['imports.review'](args))).toEqual(edited);
+    success(
+      await f.service.handlers['imports.resolve']({
+        ...args,
+        recordNumber: 2,
+        field,
+        value: '',
+      })
+    );
+    expect(await f.service.handlers['imports.commit'](args)).toMatchObject({
+      status: 'error',
+      error: {code: 'VALIDATION'},
+    });
+    for (const recordNumber of [1, 2]) {
+      success(
+        await f.service.handlers['imports.resolve']({
+          ...args,
+          recordNumber,
+          choice: 'add',
+        })
+      );
+    }
+
+    expect(success(await f.service.handlers['imports.commit'](args))).toMatchObject({
+      kind: 'committed',
+      addedCount: 2,
+    });
+    const customers = await f.list();
+    expect(customers).toContainEqual(saved);
+    expect(
+      customers.find(item => item.customer.customerNumber === 9)?.customer[field]
+    ).toBe(replacement);
+    expect(
+      customers.find(item => item.customer.customerNumber === 10)?.customer[field]
+    ).toBe('');
+  }
+);
+
+it.each(['add', 'skip'] as const)(
+  'keeps the other CSV record pending until explicitly confirmed: %s',
+  async choice => {
+    const f = await setup();
+    const contact = {...values, email: 'shared@example.test'};
+    const initial = await f.prepare([
+      {customerNumber: 9, ...contact},
+      {customerNumber: 10, ...contact},
+    ]);
+    const args = {session: f.session, importId: initial.importId};
+    const edited = success(
+      await f.service.handlers['imports.resolve']({
+        ...args,
+        recordNumber: 1,
+        field: 'email',
+        value: 'new@example.test',
+      })
+    );
+    expect(edited.matchGroups).toEqual([]);
+    expect(edited.rows.map(row => row.collisionFields)).toEqual([['email'], ['email']]);
+    expect(edited.rows[1]?.proposedCustomerNumber).toBe(10);
+    expect(edited.rows.map(row => row.choice)).toEqual(['unresolved', 'unresolved']);
+    expect(edited).toMatchObject({
+      includedCount: 0,
+      unresolvedCount: 2,
+      choicesResolved: false,
+    });
+    const backup = vi.spyOn(f.options.dialogs, 'backupDatabase');
+    expect(await f.service.handlers['imports.commit'](args)).toMatchObject({
+      status: 'error',
+      error: {code: 'VALIDATION'},
+    });
+    expect(backup).not.toHaveBeenCalled();
+    expect(success(await f.service.handlers['imports.review'](args))).toEqual(edited);
+    const corrected = success(
+      await f.service.handlers['imports.resolve']({
+        ...args,
+        recordNumber: 2,
+        field: 'email',
+        value: 'corrected@example.test',
+      })
+    );
+    expect(corrected.rows[1]).toMatchObject({
+      collisionFields: ['email'],
+      choice: 'unresolved',
+      values: {email: 'corrected@example.test'},
+    });
+    success(
+      await f.service.handlers['imports.resolve']({
+        ...args,
+        recordNumber: 1,
+        choice: 'add',
+      })
+    );
+    const confirmed = success(
+      await f.service.handlers['imports.resolve']({...args, recordNumber: 2, choice})
+    );
+    expect(confirmed.choicesResolved).toBe(true);
+    expect(confirmed.rows[1]?.proposedCustomerNumber).toBeUndefined();
+    expect(success(await f.service.handlers['imports.commit'](args))).toMatchObject({
+      kind: 'committed',
+      addedCount: choice === 'add' ? 2 : 1,
+    });
+    expect(
+      (await f.list()).find(row => row.customer.customerNumber === 9)?.customer.email
+    ).toBe('new@example.test');
+  }
+);
+
+it('previews a replacement number when the pending record number is already saved', async () => {
+  const f = await setup();
+  success(await f.service.handlers['customers.create']({session: f.session, values}));
+  const contact = {...values, email: 'shared@example.test'};
+  const initial = await f.prepare([
+    {customerNumber: 9, ...contact},
+    {customerNumber: 1, ...contact},
+  ]);
+  const args = {session: f.session, importId: initial.importId};
+  const edited = success(
+    await f.service.handlers['imports.resolve']({
+      ...args,
+      recordNumber: 1,
+      field: 'email',
+      value: 'new@example.test',
+    })
+  );
+  expect(edited.rows[1]).toMatchObject({
+    sourceCustomerNumber: 1,
+    assignedCustomerNumber: null,
+    proposedCustomerNumber: 2,
+    choice: 'unresolved',
+  });
+  const confirmed = success(
+    await f.service.handlers['imports.resolve']({...args, recordNumber: 2, choice: 'add'})
+  );
+  expect(confirmed.rows[1]?.assignedCustomerNumber).toBe(2);
+});
+
+it('keeps unresolved contact matches until each replacement is different', async () => {
+  const f = await setup();
+  const contact = {...values, email: 'shared@example.test', phone: '9025550100'};
+  success(
+    await f.service.handlers['customers.create']({session: f.session, values: contact})
+  );
+  const initial = await f.prepare([{customerNumber: 9, ...contact}]);
+  const args = {session: f.session, importId: initial.importId, recordNumber: 1};
+  const equivalent = success(
+    await f.service.handlers['imports.resolve']({
+      ...args,
+      field: 'email',
+      value: ' SHARED@EXAMPLE.TEST ',
+    })
+  );
+  expect(equivalent.rows[0]?.matches).toHaveLength(2);
+  expect(equivalent.choicesResolved).toBe(false);
+  const emailChanged = success(
+    await f.service.handlers['imports.resolve']({
+      ...args,
+      field: 'email',
+      value: 'new@example.test',
+    })
+  );
+  expect(emailChanged.matchGroups.map(group => group.reason)).toEqual(['phone']);
+  expect(emailChanged.rows[0]?.choice).toBe('unresolved');
+  const resolved = success(
+    await f.service.handlers['imports.resolve']({
+      ...args,
+      field: 'phone',
+      value: '9025550199',
+    })
+  );
+  expect(resolved).toMatchObject({
+    choicesResolved: false,
+    unresolvedCount: 1,
+    includedCount: 0,
+  });
+});
+
 it('fails closed for unresolved reviews before opening backup', async () => {
   const f = await setup();
   const backup = vi.spyOn(f.options.dialogs, 'backupDatabase');
   const review = await f.prepare([
-    {customerNumber: 9, ...values},
-    {customerNumber: 9, ...values},
+    {customerNumber: 9, ...values, email: 'shared@example.test'},
+    {customerNumber: 9, ...values, email: 'shared@example.test'},
   ]);
   expect(
     await f.service.handlers['imports.commit']({
@@ -225,9 +468,14 @@ it('retains review after backup cancellation and failure; every retry backs up a
 
 it('rejects concurrent submissions with BUSY and retains choices for a checked retry after cancellation', async () => {
   const f = await setup();
-  success(await f.service.handlers['customers.create']({session: f.session, values}));
+  success(
+    await f.service.handlers['customers.create']({
+      session: f.session,
+      values: {...values, email: 'shared@example.test'},
+    })
+  );
   const initial = await f.prepare([
-    {customerNumber: 9, ...values},
+    {customerNumber: 9, ...values, email: 'shared@example.test'},
     {customerNumber: 10, ...values, firstName: 'Second'},
   ]);
   const args = {session: f.session, importId: initial.importId};
@@ -305,11 +553,14 @@ it.each([false, true])(
 
 it('rejects newly matching saved customers without silently adding an unresolved row', async () => {
   const f = await setup();
-  const review = await f.prepare();
+  const review = await f.prepare([
+    {customerNumber: 9, ...values, email: 'shared@example.test'},
+    {customerNumber: 10, ...values, firstName: 'Second'},
+  ]);
   success(
     await f.service.handlers['customers.create']({
       session: f.session,
-      values: {...values, firstName: 'First'},
+      values: {...values, firstName: 'First', email: 'shared@example.test'},
     })
   );
   const dialog = vi.spyOn(f.options.dialogs, 'backupDatabase');
@@ -382,16 +633,21 @@ it.each([false, true])(
   'retains unaffected choices and requires fresh choices for changed targets before/during backup: %s',
   async duringBackup => {
     const f = await setup();
-    success(await f.service.handlers['customers.create']({session: f.session, values}));
     success(
       await f.service.handlers['customers.create']({
         session: f.session,
-        values: {...values, firstName: 'Other'},
+        values: {...values, email: 'shared@example.test'},
+      })
+    );
+    success(
+      await f.service.handlers['customers.create']({
+        session: f.session,
+        values: {...values, firstName: 'Other', email: 'other@example.test'},
       })
     );
     const initial = await f.prepare([
-      {customerNumber: 9, ...values},
-      {customerNumber: 10, ...values, firstName: 'Other'},
+      {customerNumber: 9, ...values, email: 'shared@example.test'},
+      {customerNumber: 10, ...values, firstName: 'Other', email: 'other@example.test'},
     ]);
     const args = {session: f.session, importId: initial.importId};
     success(
@@ -412,7 +668,7 @@ it.each([false, true])(
     const dialog = vi.spyOn(f.options.dialogs, 'backupDatabase');
     async function change() {
       await external.db.run(
-        "INSERT INTO customers (customerNumber,firstName,lastName) VALUES (9,'Anne','Smith')"
+        "INSERT INTO customers (customerNumber,firstName,lastName,email) VALUES (9,'Anne','Smith','shared@example.test')"
       );
     }
 
@@ -474,8 +730,15 @@ it('retains choices through temporary destination unavailability and retries in 
       },
     },
   });
-  success(await f.service.handlers['customers.create']({session: f.session, values}));
-  const initial = await f.prepare([{customerNumber: 9, ...values}]);
+  success(
+    await f.service.handlers['customers.create']({
+      session: f.session,
+      values: {...values, email: 'shared@example.test'},
+    })
+  );
+  const initial = await f.prepare([
+    {customerNumber: 9, ...values, email: 'shared@example.test'},
+  ]);
   const args = {session: f.session, importId: initial.importId};
   const review = success(
     await f.service.handlers['imports.resolve']({...args, recordNumber: 1, choice: 'add'})
@@ -498,8 +761,15 @@ it('retains choices through temporary destination unavailability and retries in 
 
 it('keeps choices when match target identities remain unchanged while display details and numbering change', async () => {
   const f = await setup();
-  success(await f.service.handlers['customers.create']({session: f.session, values}));
-  const initial = await f.prepare([{customerNumber: 9, ...values}]);
+  success(
+    await f.service.handlers['customers.create']({
+      session: f.session,
+      values: {...values, email: 'shared@example.test'},
+    })
+  );
+  const initial = await f.prepare([
+    {customerNumber: 9, ...values, email: 'shared@example.test'},
+  ]);
   const args = {session: f.session, importId: initial.importId};
   success(
     await f.service.handlers['imports.resolve']({...args, recordNumber: 1, choice: 'add'})

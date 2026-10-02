@@ -257,9 +257,11 @@ test('shows all match reasons and targets with fresh explicit choices and backen
     value: {
       ...flagged,
       session: args.session,
-      rows: [{...flagged.rows[0]!, choice: args.choice}],
-      includedCount: args.choice === 'add' ? 1 : 0,
-      skippedCount: args.choice === 'skip' ? 1 : 0,
+      rows: [
+        {...flagged.rows[0]!, choice: 'choice' in args ? args.choice : 'unresolved'},
+      ],
+      includedCount: ('choice' in args ? args.choice : 'unresolved') === 'add' ? 1 : 0,
+      skippedCount: ('choice' in args ? args.choice : 'unresolved') === 'skip' ? 1 : 0,
       unresolvedCount: 0,
       choicesResolved: true,
     },
@@ -597,7 +599,11 @@ test('shows revised numbering and counts, retains unaffected choices, and gates 
       choicesResolved: true,
       numberChangeCount: 1,
       rows: [
-        {...revised.rows[0]!, choice: args.choice, assignedCustomerNumber: 1},
+        {
+          ...revised.rows[0]!,
+          choice: 'choice' in args ? args.choice : 'unresolved',
+          assignedCustomerNumber: 1,
+        },
         revised.rows[1]!,
       ],
     },
