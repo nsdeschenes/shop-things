@@ -145,7 +145,12 @@ try {
     report.sourceChecks = {
       origin: 'prior-workflow-steps',
       commit: sourceCommit,
-      commands: ['pnpm fmt:check', 'pnpm lint', 'pnpm typecheck', 'pnpm test'],
+      commands: [
+        'pnpm fmt:check',
+        'pnpm lint',
+        'pnpm typecheck',
+        'pnpm test --packages-only',
+      ],
     };
   }
 
@@ -166,11 +171,11 @@ try {
       '-e',
       'require("electron/install.js")',
     ]);
-    await command('source-tests', 'pnpm', ['test']);
+    await command('source-tests', 'pnpm', ['test', '--packages-only']);
   }
 
   const source: Record<string, unknown> = {};
-  for (const suite of ['contract', 'db', 'electron', 'interface', 'scripts']) {
+  for (const suite of ['contract', 'db', 'electron', 'interface']) {
     const results = JSON.parse(
       await readFile(join(directory, suite + '-tests.json'), 'utf8')
     );
@@ -202,15 +207,7 @@ try {
   const browser = await chromium.launch();
   report.chromium = browser.version();
   await browser.close();
-  if (!reuseSourceChecks) {
-    await command('typecheck', 'pnpm', ['typecheck']);
-  }
-
   await command('build', 'pnpm', ['build']);
-  if (!reuseSourceChecks) {
-    await command('lint', 'pnpm', ['lint']);
-  }
-
   try {
     await command('renderer', 'pnpm', ['test:renderer']);
   } finally {

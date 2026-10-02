@@ -13,8 +13,17 @@ Use Node 26+, pnpm 12.4.2 and a clean committed checkout. Install Chromium with
 Chromium desktop libraries and Xvfb; the workflow installs them.
 
 ```sh
+pnpm fmt:check
+pnpm typecheck
+pnpm lint
 xvfb-run -a node --experimental-strip-types scripts/acceptance.ts
 ```
+
+The Desktop application workflow runs formatting, typecheck and lint as separate
+steps before the acceptance runner. Run these same prerequisites locally before
+either acceptance command. The runner handles tests, builds, renderer, packaging
+and watcher checks for the desktop packages. Root script tests run separately in
+the Script tooling workflow or with `pnpm test:scripts`.
 
 This is the required Linux glibc x64 automated command. A local unsigned macOS
 arm64 supporting run is explicitly available:
@@ -40,7 +49,7 @@ not certify manual GUI behavior, signing, installation, or other platforms.
 
 | Layer                                         | Runnable command                                          | What it establishes                                                                                                                                                                |
 | --------------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source/contract/database/components/processes | `pnpm test`, `pnpm typecheck`, `pnpm build`, `pnpm lint`  | Supporting behavior, conformance and clean emission; machine no-skip reports under acceptance orchestration                                                                        |
+| Source/contract/database/components/processes | `pnpm test`, `pnpm typecheck`, `pnpm build`, `pnpm lint`  | Supporting behavior, conformance and clean emission; package no-skip reports under acceptance orchestration, script tests in their own workflow                                    |
 | Built renderer                                | `pnpm test:renderer`                                      | Real Electron BrowserWindow, bundled sandboxed preload and named IPC against temporary real databases; actual Chromium workflows                                                   |
 | Cold development                              | `developmentBootstrap.spec.ts` in renderer suite          | Actual configured Vite with fresh dependency cache and live Electron; HMR disabled and invalid drafts retained                                                                     |
 | Complete development watcher                  | `node acceptance/watcher.mjs`                             | Original develop/supervisor child IPC; Stay/explicit retry, denied parent shutdown with resumed polling, graceful replacement, failed prerequisite build and fixed-source recovery |

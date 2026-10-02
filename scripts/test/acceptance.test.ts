@@ -14,9 +14,7 @@ const commands = [
   'electron-runtime',
   'source-tests',
   'chromium-runtime',
-  'typecheck',
   'build',
-  'lint',
   'renderer',
   'package',
   ...(process.platform === 'darwin' ? [] : ['shipped-backend-node']),
@@ -133,7 +131,7 @@ for (const scenario of [
             ...process.env,
             ACCEPTANCE_REPORT_DIR: reports,
             PATH: join(directory, 'bin') + ':' + process.env.PATH,
-            FIXTURE_FAIL_COMMAND: scenario === 'child failure' ? 'typecheck' : '',
+            FIXTURE_FAIL_COMMAND: scenario === 'child failure' ? 'build' : '',
           },
         }
       );
@@ -158,14 +156,7 @@ for (const scenario of [
         expect(report.cleanBefore && report.cleanAfter).toBe(true);
         const expectedCommands = reuseSourceChecks
           ? commands.filter(
-              name =>
-                ![
-                  'install',
-                  'electron-runtime',
-                  'source-tests',
-                  'typecheck',
-                  'lint',
-                ].includes(name)
+              name => !['install', 'electron-runtime', 'source-tests'].includes(name)
             )
           : commands;
         expect(report.steps.map((step: {name: string}) => step.name)).toEqual(
@@ -177,6 +168,14 @@ for (const scenario of [
             commit: git(['rev-parse', 'HEAD']),
           });
           expect(report.sourceTests.contract).toEqual({passed: 1, total: 1, skipped: 0});
+        }
+
+        expect(report.sourceTests).not.toHaveProperty('scripts');
+        if (!reuseSourceChecks) {
+          expect(
+            report.steps.find((step: {name: string}) => step.name === 'source-tests')
+              .command
+          ).toEqual(['pnpm', 'test', '--packages-only']);
         }
 
         for (const step of report.steps) {
@@ -199,13 +198,13 @@ for (const scenario of [
         expect(report.status).toBe('failed');
         expect(report.error.stack).toBeTruthy();
         if (scenario === 'child failure') {
-          expect(report.error.message).toContain('typecheck failed: 23');
+          expect(report.error.message).toContain('build failed: 23');
           expect(report.steps.at(-1)).toMatchObject({
-            name: 'typecheck',
+            name: 'build',
             status: 'failed',
             exitCode: 23,
           });
-          expect(await readFile(join(reports, 'typecheck.log'), 'utf8')).toContain(
+          expect(await readFile(join(reports, 'build.log'), 'utf8')).toContain(
             'fixture child diagnostic'
           );
         } else {
