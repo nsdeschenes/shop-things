@@ -55,6 +55,7 @@ async function reload(application: ElectronApplication) {
 async function cleanup(application: ElectronApplication, directory: string) {
   await application.evaluate(({BrowserWindow}) => {
     Reflect.set(globalThis, 'acceptanceDiscard', true);
+    Reflect.get(globalThis, 'acceptanceReleaseRead')?.();
     const mainId = Reflect.get(globalThis, 'acceptanceBoundary').incoming.find(
       (message: {channel: string; result?: unknown}) =>
         message.channel === 'shop-things:document' && typeof message.result === 'string'
@@ -254,12 +255,27 @@ test('one application subscription and participant span route/editor mounts and 
       )
     ).toBe(false);
     const offset = replaced.outgoing.length;
+    await application.evaluate(() =>
+      Reflect.set(globalThis, 'acceptanceFault', {
+        channel: 'shop-things:database.open',
+        hold: true,
+      })
+    );
     await application.evaluate(
       (_electron, path) => Reflect.get(globalThis, 'acceptanceFiles').push({path}),
       join(directory, 'customers.sqlite')
     );
     await page.getByRole('button', {name: 'Database', exact: true}).click();
     await page.getByRole('menuitem', {name: 'Open database', exact: true}).click();
+    await expect
+      .poll(() =>
+        application.evaluate(() => Reflect.get(globalThis, 'acceptanceHeldRead')?.channel)
+      )
+      .toBe('shop-things:database.open');
+    await expect(page.getByRole('textbox', {name: 'Search customers'})).toBeDisabled();
+    await expect(page.getByRole('status', {name: 'Loading database'})).toBeVisible();
+    await expect(page.getByRole('status')).toHaveCount(1);
+    await application.evaluate(() => Reflect.get(globalThis, 'acceptanceReleaseRead')());
     await expect(page.getByText('Database opened.', {exact: true})).toBeVisible();
     await expect(page.getByText('3 results', {exact: true})).toBeVisible();
     const final = await messages(application);

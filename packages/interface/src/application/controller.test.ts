@@ -168,6 +168,39 @@ test('new same-path session clears old cache and emits once only after matching 
   expect(resets).toEqual(['two']);
 });
 
+test('session replacement waits for the file action to settle before admitting route reads', async () => {
+  const f = fixture();
+  await f.application.start();
+  const admitted = deferred<void>();
+  const release = deferred<void>();
+  const next = {...f.first, session: 'two', version: 2};
+  f.client.database.open = async () => {
+    const request = {requestId: 'open', documentId: 'document'};
+    await f.getProtection().prepare(request);
+    f.emit(next);
+    f.getProtection().resolve({...request, outcome: 'committed'});
+    admitted.resolve();
+    await release.promise;
+    return {status: 'success', value: next};
+  };
+
+  const reads: Promise<unknown>[] = [];
+  f.application.onSessionChanged(database => {
+    reads.push(f.application.read(database.session!, async () => ({status: 'success'})));
+  });
+  const opening = f.application.fileAction('open');
+  await admitted.promise;
+  try {
+    expect(reads).toHaveLength(0);
+  } finally {
+    release.resolve();
+  }
+
+  await opening;
+  expect(reads).toHaveLength(1);
+  expect(await reads[0]).toEqual({status: 'success'});
+});
+
 test('coalesces queued searches, serializes dispatch and drops prior-session success or failure', async () => {
   const f = fixture();
   await f.application.start();
