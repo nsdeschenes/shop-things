@@ -57,6 +57,7 @@ test('Backup and CSV include every saved row while searched editor draft, route,
     await expect(page.getByText('1 result', {exact: true})).toBeVisible();
     await page.getByRole('link', {name: 'Alpha One', exact: true}).click();
     await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+    await page.getByRole('textbox', {name: 'Phone'}).fill('9025551234');
     await page.getByRole('textbox', {name: 'Comments', exact: true}).fill(savedComments);
     await page.getByRole('button', {name: 'Save', exact: true}).click();
     await expect(

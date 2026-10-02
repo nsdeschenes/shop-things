@@ -3,6 +3,7 @@ import {Form} from '@base-ui/react/form';
 import type {CustomerRecord} from '@shop-things/contract';
 import {createCustomerInputSchema} from '@shop-things/contract/schemas';
 import * as stylex from '@stylexjs/stylex';
+import {useStore} from '@tanstack/react-form';
 import {
   isCancelledError,
   useMutation,
@@ -307,7 +308,8 @@ export default function CustomerForm({
 
     return String(number);
   }, [customerList.data]);
-  const pending = create.isPending || update.isPending || protection.saving;
+  const submitting = useStore(form.store, state => state.isSubmitting);
+  const pending = submitting || create.isPending || update.isPending || protection.saving;
   const disabled =
     pending ||
     state.refreshingCustomers ||

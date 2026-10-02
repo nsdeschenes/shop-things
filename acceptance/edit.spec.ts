@@ -18,8 +18,9 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
     await expect(page.getByRole('textbox', {name: 'Phone'})).toHaveValue(
       '+1 (902) 555-1234'
     );
-    await expect(page.getByRole('textbox', {name: 'Province'})).toHaveValue('');
+    await expect(page.getByRole('combobox', {name: 'Province'})).toHaveValue('NS');
     const number = page.getByRole('textbox', {name: 'Customer number'});
+    await page.getByRole('textbox', {name: 'Phone'}).fill('9025551234');
     await number.fill('1');
     await page.getByRole('textbox', {name: 'Last name'}).fill('Edited');
     await page.getByRole('button', {name: 'Save'}).click();
@@ -31,9 +32,10 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
     await expect(number).toHaveValue('1');
     await expect(page.getByRole('textbox', {name: 'Last name'})).toHaveValue('Edited');
     await number.fill('11');
-    await page.getByRole('textbox', {name: 'Province'}).fill('custom province');
+    await page.getByRole('combobox', {name: 'Province'}).fill('ON');
+    await page.getByRole('option', {name: 'ON', exact: true}).click();
     await page.getByRole('textbox', {name: 'Postal code'}).fill('aB cd');
-    await page.getByRole('textbox', {name: 'Email address'}).fill('contact text');
+    await page.getByRole('textbox', {name: 'Email address'}).fill('Ada@example.com');
     await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-12.30');
     await page.getByRole('button', {name: 'Save'}).click();
     await expect(
@@ -56,15 +58,18 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
     ).toHaveValue('');
     await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     await expect(number).toHaveValue('');
-    await page.getByRole('button', {name: 'Save'}).click();
+    await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+    await number.press('Enter');
     await expect(
       page.getByText('Enter a positive whole customer number.', {exact: true})
     ).toBeVisible();
     await expect(number).toBeFocused();
     await number.fill('-');
-    await page.getByRole('button', {name: 'Save'}).click();
+    await number.press('Tab');
+    await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
     await expect(number).toHaveValue('-');
     await number.fill('7');
+    await number.press('Tab');
     await page.getByRole('button', {name: 'Save'}).click();
     await expect(
       page.getByRole('heading', {name: 'Customers', exact: true})
@@ -86,9 +91,9 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
     await page.getByRole('link', {name: 'Alpha Edited'}).click();
     await expect(
       page.getByRole('textbox', {name: 'Postal code', exact: true})
-    ).toHaveValue('aB cd');
-    await expect(page.getByRole('textbox', {name: 'Province', exact: true})).toHaveValue(
-      'custom province'
+    ).toHaveValue('AB CD');
+    await expect(page.getByRole('combobox', {name: 'Province', exact: true})).toHaveValue(
+      'ON'
     );
     await expect(
       page.getByRole('textbox', {name: 'Balance ($)', exact: true})
@@ -116,6 +121,7 @@ test('held Update freezes editing and rejects retained stale revisions', async (
     await page.getByRole('link', {name: 'Alpha One'}).click();
     await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
     const name = page.getByRole('textbox', {name: 'First name'});
+    await page.getByRole('textbox', {name: 'Phone'}).fill('9025551234');
     await name.fill('Submitted');
     await application.evaluate(() =>
       Reflect.set(globalThis, 'acceptanceFault', {
@@ -203,13 +209,15 @@ test('Chromium preview edits temporary saved records with exact contact and numb
   await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
   const number = page.getByRole('textbox', {name: 'Customer number'});
   await number.fill('-');
-  await page.getByRole('button', {name: 'Save'}).click();
+  await number.press('Tab');
+  await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
   await expect(number).toHaveValue('-');
   await page.getByRole('link', {name: 'Back to customers'}).click();
   await expect(page.getByRole('button', {name: 'Stay'})).toBeFocused();
   await page.keyboard.press('Enter');
   await number.fill('42');
-  await page.getByRole('textbox', {name: 'Province'}).fill('arbitrary');
+  await page.getByRole('combobox', {name: 'Province'}).fill('ON');
+  await page.getByRole('option', {name: 'ON', exact: true}).click();
   await page.getByRole('textbox', {name: 'Postal code'}).fill('aB cd');
   await page.getByRole('textbox', {name: 'First name'}).fill('Edited');
   await page.getByRole('button', {name: 'Save'}).click();
@@ -220,7 +228,7 @@ test('Chromium preview edits temporary saved records with exact contact and numb
     page.getByRole('textbox', {name: 'Customer number', exact: true})
   ).toHaveValue('42');
   await expect(page.getByRole('textbox', {name: 'Postal code', exact: true})).toHaveValue(
-    'aB cd'
+    'AB CD'
   );
   await page.getByRole('link', {name: 'Back to customers'}).click();
   await page.getByRole('textbox', {name: 'Search customers'}).fill('42');
@@ -232,14 +240,7 @@ test('successful customer saves show a success toast and return to the list', as
   page,
 }, testInfo) => {
   await page.goto('/?preview=true#/customers/new');
-  await page.getByRole('button', {name: 'Save', exact: true}).click();
-  await expect(
-    page
-      .getByRole('region', {name: 'Notifications'})
-      .getByText('Could not save customer', {exact: true})
-  ).toBeVisible();
-  expect(new URL(page.url()).hash).toBe('#/customers/new');
-  await page.getByLabel('Dismiss error').click();
+  await expect(page.getByRole('button', {name: 'Save', exact: true})).toBeDisabled();
   await page.getByRole('textbox', {name: 'First name'}).fill('Toast customer');
   await page.getByRole('button', {name: 'Save', exact: true}).click();
   await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();

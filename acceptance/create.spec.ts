@@ -24,17 +24,19 @@ test('Create persists exact contacts and decimal balances across guarded reload 
     await expect(number).toHaveAccessibleDescription(
       'Automatically assigned when you save.'
     );
-    await expect(page.getByRole('textbox', {name: 'Province'})).toHaveValue('');
-    await page.getByRole('button', {name: 'Save'}).click();
+    await expect(page.getByRole('combobox', {name: 'Province'})).toHaveValue('NS');
+    await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+    await page.getByRole('textbox', {name: 'First name'}).press('Enter');
     await expect(
       page.getByText('Enter a first name, a last name, or both.', {exact: true})
     ).toBeVisible();
     await expect(page.getByRole('textbox', {name: 'First name'})).toBeFocused();
     await page.getByRole('textbox', {name: 'First name'}).fill('Ada');
-    await page.getByRole('textbox', {name: 'Province'}).fill('somewhere');
+    await page.getByRole('combobox', {name: 'Province'}).fill('ON');
+    await page.getByRole('option', {name: 'ON', exact: true}).click();
     await page.getByRole('textbox', {name: 'Postal code'}).fill('aB cd');
-    await page.getByRole('textbox', {name: 'Phone'}).fill('+1 (902) 555-1234');
-    await page.getByRole('textbox', {name: 'Email address'}).fill('contact text');
+    await page.getByRole('textbox', {name: 'Phone'}).fill('9025551234');
+    await page.getByRole('textbox', {name: 'Email address'}).fill('Ada@example.com');
     await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-1.23');
     await page.getByRole('button', {name: 'Save'}).click();
     await expect(
@@ -44,9 +46,9 @@ test('Create persists exact contacts and decimal balances across guarded reload 
     await expect(page.getByRole('heading', {name: 'Ada', exact: true})).toBeVisible();
     await expect(number).toHaveValue('3');
     await expect(page.getByText('Customer saved', {exact: true})).toBeVisible();
-    await expect(page.getByRole('textbox', {name: 'Postal code'})).toHaveValue('aB cd');
+    await expect(page.getByRole('textbox', {name: 'Postal code'})).toHaveValue('AB CD');
     await expect(page.getByRole('textbox', {name: 'Email address'})).toHaveValue(
-      'contact text'
+      'Ada@example.com'
     );
     await expect(
       page.getByRole('textbox', {name: 'Balance ($)', exact: true})
@@ -72,7 +74,7 @@ test('Create persists exact contacts and decimal balances across guarded reload 
     ).toBe('success');
     await expect(page.getByText('4 results', {exact: true})).toBeVisible();
     await page.getByRole('link', {name: 'Ada', exact: true}).click();
-    await expect(page.getByRole('textbox', {name: 'Province'})).toHaveValue('somewhere');
+    await expect(page.getByRole('combobox', {name: 'Province'})).toHaveValue('ON');
     await expect(
       page.getByRole('textbox', {name: 'Balance ($)', exact: true})
     ).toHaveValue('-1.23');
@@ -161,6 +163,13 @@ test('actual Save freezes edits, prevents duplicates and protects failure versus
     const opening = page.evaluate(() =>
       Reflect.get(window, 'shopThings').database.open()
     );
+    await expect
+      .poll(() =>
+        application.evaluate(() =>
+          Reflect.get(globalThis, 'acceptanceIpc').includes('shop-things:database.open')
+        )
+      )
+      .toBe(true);
     await expect(name).toBeDisabled();
     await application.evaluate(() => {
       Reflect.get(globalThis, 'acceptanceReleaseRead')();
@@ -222,7 +231,8 @@ test('Chromium preview Create shares validation and safe draft guards with tempo
   await page.getByRole('link', {name: 'Add customer'}).click();
   await page.getByRole('textbox', {name: 'First name'}).fill('Temporary');
   await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
-  await page.getByRole('button', {name: 'Save'}).click();
+  await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).press('Tab');
+  await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
   await expect(
     page.getByText('Enter an amount with at most two decimal places.', {exact: true})
   ).toBeVisible();
@@ -233,6 +243,7 @@ test('Chromium preview Create shares validation and safe draft guards with tempo
     '-'
   );
   await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-2.34');
+  await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).press('Tab');
   await page.getByRole('button', {name: 'Save'}).click();
   await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible();
   await page.getByRole('link', {name: 'Temporary', exact: true}).click();
