@@ -1,6 +1,6 @@
 {
   "name": "@shop-things",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "start": "node --experimental-strip-types index.ts",
