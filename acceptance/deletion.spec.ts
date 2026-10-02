@@ -11,11 +11,10 @@ import launchElectron from './launchElectron';
 const root = fileURLToPath(new URL('..', import.meta.url));
 
 async function confirm(page: Page) {
-  await page.getByRole('button', {name: 'Delete customer'}).click();
-  await page
-    .getByRole('dialog', {name: 'Delete Customer?', exact: true})
-    .getByRole('button', {name: 'Delete customer'})
-    .click();
+  const dialog = page.getByRole('dialog', {name: 'Delete Customer?', exact: true});
+  await expect(dialog).toBeHidden();
+  await page.getByRole('main').getByRole('button', {name: 'Delete customer'}).click();
+  await dialog.getByRole('button', {name: 'Delete customer'}).click();
 }
 
 test('identifying deletion persists and returns to the unfiltered list through actual bundled renderer IPC', async () => {
@@ -145,7 +144,9 @@ test('real stale revision fails safely and late prior-session deletion cannot na
     await expect(
       page.getByRole('heading', {name: 'Unnumbered Three', exact: true})
     ).toBeVisible();
-    await expect(page.getByRole('button', {name: 'Delete customer'})).toBeDisabled();
+    await expect(
+      page.getByRole('main').getByRole('button', {name: 'Delete customer'})
+    ).toBeDisabled();
     expect(
       await application.evaluate(
         () =>
