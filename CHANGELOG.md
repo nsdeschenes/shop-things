@@ -1,5 +1,5 @@
 # Changelog
-## 0.1.0
+## 0.1.1
 
 ### New Features ✨
 
@@ -38,21 +38,29 @@
 
 #### Release
 
+- Accept Craft-generated changelog formatting by @nsdeschenes in [#116](https://github.com/nsdeschenes/shop-things/pull/116)
 - Avoid Craft changelog output path collision by @nsdeschenes in [#114](https://github.com/nsdeschenes/shop-things/pull/114)
 - Fix first-release versioning and preview changelogs by @nsdeschenes in [#113](https://github.com/nsdeschenes/shop-things/pull/113)
 
 #### Other
 
+- (ci) Stabilize acceptance artifact and readiness checks by @nsdeschenes in [#117](https://github.com/nsdeschenes/shop-things/pull/117)
 - (customers) Restore form validation and province selection by @nsdeschenes in [#99](https://github.com/nsdeschenes/shop-things/pull/99)
 - (dev) Enable TypeScript loading in child tools by @nsdeschenes in [#45](https://github.com/nsdeschenes/shop-things/pull/45)
 
 ### Internal Changes 🔧
 
+#### Release
+
+- 0.1.0 by @github-actions in [#115](https://github.com/nsdeschenes/shop-things/pull/115)
+- Add Craft desktop releases by @nsdeschenes in [#112](https://github.com/nsdeschenes/shop-things/pull/112)
+
+#### Other
+
 - (acceptance) Report current automated results by @nsdeschenes in [#82](https://github.com/nsdeschenes/shop-things/pull/82)
 - (customers) Rename home phone throughout the stack by @nsdeschenes in [#91](https://github.com/nsdeschenes/shop-things/pull/91)
 - (interface) Extract shared application shell by @nsdeschenes in [#86](https://github.com/nsdeschenes/shop-things/pull/86)
 - (preview) Limit browser preview to temporary customers by @nsdeschenes in [#81](https://github.com/nsdeschenes/shop-things/pull/81)
-- (release) Add Craft desktop releases by @nsdeschenes in [#112](https://github.com/nsdeschenes/shop-things/pull/112)
 - Gate acceptance on source checks and enable Electron sandbox by @nsdeschenes in [#102](https://github.com/nsdeschenes/shop-things/pull/102)
 - Add TypeScript Vitest suites across packages by @nsdeschenes in [#24](https://github.com/nsdeschenes/shop-things/pull/24)
 - Setup skills by @nsdeschenes in [#4](https://github.com/nsdeschenes/shop-things/pull/4)
@@ -62,4 +70,3 @@
 ### Other
 
 - init nub app by @nsdeschenes in [217d0604](https://github.com/nsdeschenes/shop-things/commit/217d0604dc7f51a7a09feb1b2b52a724a3224487)
-
