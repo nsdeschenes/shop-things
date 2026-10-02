@@ -30,7 +30,7 @@ const styles = stylex.create({
     outlineColor: colors.focusRing,
     outlineOffset: controls.focusOffset,
     resize: 'vertical',
-    minHeight: 160,
+    minHeight: 96,
     width: '100%',
   },
 });

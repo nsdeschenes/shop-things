@@ -151,6 +151,7 @@ try {
       dialogs: {
         createDatabase: async () => createPath,
         openDatabase: async () => openPath,
+        importCsv: async () => null,
         exportCsv: async () => paths.csv,
         backupDatabase: async () => paths.backup,
         restoreSource: async () => restoreSource,

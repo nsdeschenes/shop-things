@@ -77,6 +77,7 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
     dialogs: {
       createDatabase: async () => workingPath,
       openDatabase: async () => restoredPath,
+      importCsv: async () => null,
       exportCsv: async () => csvPath,
       backupDatabase: async () => backupPath,
       restoreSource: async () => backupPath,
@@ -122,6 +123,12 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
         backup: target.handlers['database.backup'],
         restore: target.handlers['database.restore'],
         onStateChanged: callback => target.onStateChanged(callback),
+      },
+      imports: {
+        commit: target.handlers['imports.commit'],
+        prepare: target.handlers['imports.prepare'],
+        review: target.handlers['imports.review'],
+        resolve: target.handlers['imports.resolve'],
       },
       exports: {csv: target.handlers['exports.csv']},
       drafts: {

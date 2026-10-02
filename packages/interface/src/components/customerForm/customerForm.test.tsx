@@ -8,34 +8,41 @@ import {createApplication} from '../../application/controller';
 import {customerKeys} from '../../application/customers';
 import createPreviewClient from '../../application/preview';
 
-test('empty defaults validate on Save and preserve arbitrary contacts and exact balances', async () => {
+test('restores contact validation, province selection, and uppercase postal codes when saving', async () => {
   const user = userEvent.setup();
   const {application} = renderRoute('/customers/new');
-  const notify = vi.spyOn(application.toasts, 'error');
   const name = await screen.findByRole('textbox', {name: 'First name'});
-  expect(screen.getByRole('textbox', {name: 'Province'})).toHaveValue('');
+  const save = screen.getByRole('button', {name: 'Save'});
+  expect(screen.getByRole('combobox', {name: 'Province'})).toHaveValue('NS');
+  expect(save).toBeDisabled();
   const number = screen.getByRole('textbox', {name: 'Customer number'});
   expect(number).toBeDisabled();
   await waitFor(() => expect(number).toHaveValue('1'));
   expect(number).toHaveAccessibleDescription('Automatically assigned when you save.');
-  await user.click(screen.getByRole('button', {name: 'Save'}));
-  expect(
-    await screen.findByText('Enter a first name, a last name, or both.')
-  ).toBeVisible();
-  await waitFor(() => expect(name).toHaveFocus());
-  expect(notify).toHaveBeenCalledExactlyOnceWith({
-    title: 'Could not save customer',
-    description: 'Check the highlighted fields and try again.',
-  });
   await user.type(name, 'Ada');
-  await user.type(screen.getByRole('textbox', {name: 'Province'}), 'somewhere');
+  await user.click(screen.getByRole('button', {name: 'Province'}));
+  await user.click(await screen.findByRole('option', {name: 'BC'}));
   await user.type(screen.getByRole('textbox', {name: 'Postal code'}), 'ab cd');
-  await user.type(screen.getByRole('textbox', {name: 'Phone'}), '+1 (902) 555-1234');
-  await user.type(screen.getByRole('textbox', {name: 'Email address'}), 'contact text');
+  expect(screen.getByRole('textbox', {name: 'Postal code'})).toHaveValue('AB CD');
+  const phone = screen.getByRole('textbox', {name: 'Phone'});
+  await user.type(phone, '+1 (902) 555-1234');
+  expect(await screen.findByText('Enter digits only (0–9).')).toBeVisible();
+  expect(phone).toBeInvalid();
+  expect(save).toBeDisabled();
+  await user.clear(phone);
+  await user.type(phone, '09025551234');
+  const email = screen.getByRole('textbox', {name: 'Email address'});
+  await user.type(email, 'contact text');
+  expect(await screen.findByText('Enter a valid email address.')).toBeVisible();
+  expect(email).toBeInvalid();
+  expect(save).toBeDisabled();
+  await user.clear(email);
+  await user.type(email, 'ada@example.com');
   const balance = screen.getByRole('textbox', {name: 'Balance ($)'});
   await user.clear(balance);
   await user.type(balance, '-1.23');
-  await user.click(screen.getByRole('button', {name: 'Save'}));
+  expect(save).toBeEnabled();
+  await user.click(save);
   expect(await screen.findByRole('link', {name: 'Ada'})).toBeVisible();
   const session = application.getState().database!.session!;
   const record = await application.request(session, client =>
@@ -46,24 +53,24 @@ test('empty defaults validate on Save and preserve arbitrary contacts and exact 
     value: {
       customer: {
         customerNumber: 1,
-        province: 'somewhere',
-        postalCode: 'ab cd',
-        phone: '+1 (902) 555-1234',
-        email: 'contact text',
+        province: 'BC',
+        postalCode: 'AB CD',
+        phone: '09025551234',
+        email: 'ada@example.com',
         balance: '-1.23',
       },
     },
   });
 });
 
-test('invalid decimal drafts and failed Save retain entered values and route guards', async () => {
+test('invalid numeric drafts retain entered values and route guards', async () => {
   const user = userEvent.setup();
   const {application, router} = renderRoute('/customers/new');
   await user.type(await screen.findByRole('textbox', {name: 'First name'}), 'Ada');
   const stock = screen.getByRole('textbox', {name: 'Items in stock'});
   await user.clear(stock);
   await user.type(stock, '-');
-  await user.click(screen.getByRole('button', {name: 'Save'}));
+  expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
   expect(stock).toHaveValue('-');
   expect(stock).toBeInvalid();
   await user.clear(stock);
@@ -72,7 +79,8 @@ test('invalid decimal drafts and failed Save retain entered values and route gua
   for (const value of ['-', '1.', '.5', '1.234']) {
     await user.clear(balance);
     await user.type(balance, value);
-    await user.click(screen.getByRole('button', {name: 'Save'}));
+    expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
+    expect(balance).toBeInvalid();
     expect(screen.getByRole('heading', {name: 'New Customer'})).toBeVisible();
     expect(balance).toHaveValue(value);
     expect(application.protection.isDirty()).toBe(true);
@@ -92,7 +100,7 @@ test('invalid decimal drafts and failed Save retain entered values and route gua
   expect(application.protection.isDirty()).toBe(false);
 });
 
-test('Edit retains exact loaded strings and original revision across background refresh', async () => {
+test('Edit requires valid contacts and retains the original revision across background refresh', async () => {
   const user = userEvent.setup();
   const {application, router} = renderRoute('/customers');
   await screen.findByRole('link', {name: 'Add customer'});
@@ -125,15 +133,27 @@ test('Edit retains exact loaded strings and original revision across background 
   });
   await screen.findByRole('textbox', {name: 'First name'});
   const number = screen.getByRole('textbox', {name: 'Customer number'});
-  expect(screen.getByRole('textbox', {name: 'Province'})).toHaveValue('custom province');
-  expect(screen.getByRole('textbox', {name: 'Postal code'})).toHaveValue('aB cd');
+  expect(screen.getByRole('combobox', {name: 'Province'})).toHaveValue('CUSTOM PROVINCE');
+  expect(screen.getByRole('textbox', {name: 'Postal code'})).toHaveValue('AB CD');
+  expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
   await user.clear(number);
   await user.type(number, '-');
-  await user.click(screen.getByRole('button', {name: 'Save'}));
+  expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
   expect(number).toHaveValue('-');
-  await waitFor(() => expect(number).toHaveFocus());
+  expect(number).toBeInvalid();
+  expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
   await user.clear(number);
   await user.type(number, '11');
+  expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
+  const phone = screen.getByRole('textbox', {name: 'Phone'});
+  const email = screen.getByRole('textbox', {name: 'Email address'});
+  expect(phone).toBeInvalid();
+  expect(email).toBeInvalid();
+  await user.clear(phone);
+  await user.type(phone, '9025551234');
+  expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
+  await user.clear(email);
+  await user.type(email, 'loaded@example.com');
   const name = screen.getByRole('textbox', {name: 'First name'});
   await user.clear(name);
   await user.type(name, 'Retained draft');
@@ -159,6 +179,22 @@ test('Edit retains exact loaded strings and original revision across background 
   ).toBeVisible();
   expect(name).toHaveValue('Retained draft');
   expect(number).toHaveValue('11');
+  expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
+  expect(screen.getByRole('button', {name: 'Refresh customers'})).toBeDisabled();
+  await user.clear(number);
+  await user.type(number, String(created.value.customer.customerNumber));
+  await user.clear(phone);
+  await user.type(phone, '+1 (902) 555');
+  await user.clear(email);
+  await user.type(email, 'contact text');
+  await user.clear(name);
+  await user.type(name, 'Loaded');
+  await user.click(screen.getByRole('button', {name: 'Refresh customers'}));
+  await waitFor(() => expect(name).toHaveValue('External'));
+  expect(phone).toHaveValue('+1 (902) 555');
+  expect(email).toHaveValue('contact text');
+  expect(phone).toBeInvalid();
+  expect(email).toBeInvalid();
   expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
 });
 
@@ -241,7 +277,7 @@ test('a queued file transition suppresses clean Save navigation even before nati
   await opening;
   expect(router.state.location.pathname).toBe('/customers/new');
   expect(screen.getByRole('textbox', {name: 'First name'})).toHaveValue('Saved');
-  expect(screen.getByRole('button', {name: 'Reload customer'})).toBeEnabled();
+  expect(screen.getByRole('button', {name: 'Refresh customers'})).toBeEnabled();
   expect(screen.getByRole('textbox', {name: 'Customer number'})).toHaveValue('1');
   const session = application.getState().database!.session!;
   const saved = await client.customers.get({session, id: 1});
@@ -258,7 +294,10 @@ test('a queued file transition suppresses clean Save navigation even before nati
   expect(
     await screen.findByText('This customer changed. Reload before saving.')
   ).toBeVisible();
-  await user.click(screen.getByRole('button', {name: 'Reload customer'}));
+  expect(screen.getByRole('button', {name: 'Refresh customers'})).toBeDisabled();
+  await user.clear(screen.getByRole('textbox', {name: 'First name'}));
+  await user.type(screen.getByRole('textbox', {name: 'First name'}), 'Saved');
+  await user.click(screen.getByRole('button', {name: 'Refresh customers'}));
   await waitFor(() =>
     expect(screen.getByRole('textbox', {name: 'First name'})).toHaveValue('External')
   );
@@ -310,6 +349,9 @@ test.each(['create', 'update'] as const)(
     for (const input of screen.getAllByRole('textbox')) {
       expect(input).toBeDisabled();
     }
+
+    expect(screen.getByRole('combobox', {name: 'Province'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Province'})).toBeDisabled();
 
     const donate = screen.getByRole('checkbox', {name: 'Donate'});
     expect(donate).toHaveAttribute('aria-disabled', 'true');

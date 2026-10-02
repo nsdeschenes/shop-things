@@ -5,6 +5,7 @@ import {copyFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 
 import type {
+  ImportReview,
   ActionHandlers,
   ActionResults,
   ContractError,
@@ -19,6 +20,7 @@ import {
   listCustomers,
   getCustomer,
   createCustomer,
+  importCustomerBatch,
   updateCustomer,
   deleteCustomer,
   DatabaseError,
@@ -26,6 +28,8 @@ import {
 } from '@shop-things/db';
 import type {CustomerChanges, CustomerData, DatabaseHandle} from '@shop-things/db';
 
+import {readCustomerImport} from './customerImport.js';
+import {numberCustomerImportRows} from './customerImportNumbers.js';
 import type {DraftCoordinator, DraftLease} from './draftCoordinator.js';
 import {
   copyBackup,
@@ -33,11 +37,13 @@ import {
   temporaryPath,
   writeCustomerCsv,
 } from './files.js';
+import {matchCustomerImportRows, summarizeCustomerImport} from './importMatches.js';
 import type {DatabaseSettings} from './settings.js';
 
 export interface BackendDialogs {
   createDatabase(): Promise<string | null>;
   openDatabase(): Promise<string | null>;
+  importCsv(): Promise<string | null>;
   exportCsv(): Promise<string | null>;
   backupDatabase(): Promise<string | null>;
   restoreSource(): Promise<string | null>;
@@ -51,6 +57,7 @@ export const databaseOperations = {
   listCustomers,
   getCustomer,
   createCustomer,
+  importCustomerBatch,
   updateCustomer,
   deleteCustomer,
   backupDatabase,
@@ -106,6 +113,7 @@ export interface ActionServiceOptions {
 export class ActionService {
   readonly handlers: ActionHandlers;
   private readonly database: DatabaseOperations;
+  private readonly imports = new Map<string, ImportReview>();
   private active: DatabaseHandle | null = null;
   private state: DatabaseState = {
     available: false,
@@ -123,6 +131,169 @@ export class ActionService {
   constructor(private readonly options: ActionServiceOptions) {
     this.database = options.database ?? databaseOperations;
     this.handlers = {
+      'imports.commit': args =>
+        this.admit(async () => {
+          const handle = this.requireSession(args.session);
+          const review = this.imports.get(args.importId);
+          if (!review || review.session !== args.session) {
+            throw new ActionError(
+              'STALE_SESSION',
+              'This import expired. Choose the file again.'
+            );
+          }
+
+          if (
+            review.status !== 'ready' ||
+            !review.choicesResolved ||
+            review.includedCount === 0
+          ) {
+            throw new ActionError(
+              'VALIDATION',
+              'Resolve every possible match before adding customers.'
+            );
+          }
+
+          let revised = this.recheckImport(
+            review,
+            await this.database.listCustomers(handle.db)
+          );
+          if (JSON.stringify(revised) !== JSON.stringify(review)) {
+            this.imports.set(review.importId, revised);
+            return {kind: 'changed' as const, review: structuredClone(revised)};
+          }
+
+          if ((await this.backup(args.session)) === null) {
+            return null;
+          }
+
+          this.requireSession(args.session);
+          const added = await this.database.importCustomerBatch(handle.db, saved => {
+            revised = this.recheckImport(review, saved);
+            if (JSON.stringify(revised) !== JSON.stringify(review)) {
+              return null;
+            }
+
+            return revised.rows
+              .filter(row => row.choice === 'include' || row.choice === 'add')
+              .map(row => {
+                if (row.assignedCustomerNumber === null) {
+                  throw new ActionError(
+                    'VALIDATION',
+                    'Every included customer needs a number.'
+                  );
+                }
+
+                return {...row.values, customerNumber: row.assignedCustomerNumber};
+              });
+          });
+          if (added === null) {
+            this.imports.set(review.importId, revised);
+            return {kind: 'changed' as const, review: structuredClone(revised)};
+          }
+
+          // Consume before publishing success, including when a renderer loses its reply.
+          this.imports.delete(review.importId);
+          return {
+            kind: 'committed' as const,
+            session: args.session,
+            addedCount: added.length,
+            skippedCount: review.skippedCount,
+          };
+        }),
+      'imports.prepare': args =>
+        this.admit(async () => {
+          this.requireSession(args.session);
+          const path = await this.options.dialogs.importCsv();
+          if (path === null) {
+            return null;
+          }
+
+          this.requireSession(args.session);
+          const parsed = await readCustomerImport(path, args.session);
+          const saved =
+            parsed.status === 'ready'
+              ? await this.database.listCustomers(this.requireSession(args.session).db)
+              : [];
+          const review = this.finalizeImport(
+            {...parsed, ...matchCustomerImportRows(parsed.rows, saved)},
+            saved
+          );
+          this.imports.set(review.importId, review);
+          return structuredClone(review);
+        }),
+      'imports.review': args =>
+        this.admit(async () => {
+          this.requireSession(args.session);
+          const review = this.imports.get(args.importId);
+          if (!review || review.session !== args.session) {
+            throw new ActionError(
+              'STALE_SESSION',
+              'This import expired. Choose the file again.'
+            );
+          }
+
+          return structuredClone(review);
+        }),
+      'imports.resolve': args =>
+        this.admit(async () => {
+          this.requireSession(args.session);
+          const review = this.imports.get(args.importId);
+          if (!review || review.session !== args.session) {
+            throw new ActionError(
+              'STALE_SESSION',
+              'This import expired. Choose the file again.'
+            );
+          }
+
+          const row = review.rows.find(item => item.recordNumber === args.recordNumber);
+          if (
+            review.status !== 'ready' ||
+            !row ||
+            (!row.matches.length &&
+              !row.collisionFields?.length &&
+              row.choice === 'include')
+          ) {
+            throw new ActionError(
+              'VALIDATION',
+              'Edit contact details or choose Add anyway or Skip only for a flagged record.'
+            );
+          }
+
+          const saved = await this.database.listCustomers(
+            this.requireSession(args.session).db
+          );
+          const updated =
+            'choice' in args
+              ? this.finalizeImport(
+                  {
+                    ...review,
+                    rows: review.rows.map(item =>
+                      item === row ? {...item, choice: args.choice} : item
+                    ),
+                  },
+                  saved
+                )
+              : this.recheckImport(
+                  {
+                    ...review,
+                    rows: review.rows.map(item =>
+                      item === row
+                        ? {
+                            ...item,
+                            values: {...item.values, [args.field]: args.value},
+                            editedFields: [
+                              ...new Set([...(item.editedFields ?? []), args.field]),
+                            ],
+                          }
+                        : item
+                    ),
+                  },
+                  saved,
+                  row.recordNumber
+                );
+          this.imports.set(review.importId, updated);
+          return structuredClone(updated);
+        }),
       'database.status': async () => ({status: 'success', value: this.status()}),
       'database.retry': () =>
         this.admit(() => this.transition(lease => this.retry(lease))),
@@ -358,6 +529,95 @@ export class ActionService {
     const path = resolve(selected);
     await writeCustomerCsv(path, await this.database.listCustomers(handle.db));
     return {path};
+  }
+
+  private recheckImport(
+    review: ImportReview,
+    saved: CustomerData[],
+    editedRecordNumber?: number
+  ): ImportReview {
+    const matched = matchCustomerImportRows(review.rows, saved);
+    function signatures(groups: ImportReview['matchGroups']) {
+      return new Map(
+        groups.map(group => [
+          group.id,
+          JSON.stringify([
+            group.reason,
+            group.targets
+              .map(target =>
+                target.kind === 'csv'
+                  ? `csv:${target.recordNumber}`
+                  : `customer:${target.id}`
+              )
+              .sort(),
+          ]),
+        ])
+      );
+    }
+
+    const previousMatches = signatures(review.matchGroups);
+    const currentMatches = signatures(matched.matchGroups);
+    return this.finalizeImport(
+      {
+        ...review,
+        ...matched,
+        rows: matched.rows.map((row, index) => {
+          const previous = review.rows[index]!;
+          if (row.recordNumber === editedRecordNumber) {
+            return {...row, choice: 'unresolved'};
+          }
+
+          if (editedRecordNumber !== undefined && !row.matches.length) {
+            // Editing one record does not confirm the other record on the user's behalf.
+            if (previous.choice === 'unresolved' || previous.choice === 'skip') {
+              return {...row, choice: previous.choice};
+            }
+          }
+
+          const unchanged =
+            row.matches.length === previous.matches.length &&
+            row.matches.every(id => previousMatches.get(id) === currentMatches.get(id));
+          return unchanged ? {...row, choice: previous.choice} : row;
+        }),
+      },
+      saved
+    );
+  }
+
+  private finalizeImport(review: ImportReview, saved: CustomerData[]): ImportReview {
+    const updated = summarizeCustomerImport(review);
+    const savedNumbers = saved.map(customer => customer.customerNumber);
+    const planned = numberCustomerImportRows(
+      updated.rows,
+      savedNumbers,
+      new Set(
+        updated.rows
+          .filter(row => row.choice === 'include' || row.choice === 'add')
+          .map(row => row.recordNumber)
+      )
+    );
+    const proposed = updated.rows.some(
+      row => row.choice === 'unresolved' && !row.matches.length
+    )
+      ? numberCustomerImportRows(
+          updated.rows,
+          savedNumbers,
+          new Set(
+            updated.rows.filter(row => row.choice !== 'skip').map(row => row.recordNumber)
+          )
+        )
+      : null;
+    return {
+      ...updated,
+      numberChangeCount: planned.numberChangeCount,
+      rows: planned.rows.map((row, index) => ({
+        ...row,
+        proposedCustomerNumber:
+          row.choice === 'unresolved' && !row.matches.length
+            ? (proposed?.rows[index]?.assignedCustomerNumber ?? undefined)
+            : undefined,
+      })),
+    };
   }
 
   private async backup(session: string): Promise<{path: string} | null> {
@@ -643,6 +903,7 @@ export class ActionService {
 
     const superseded = this.active;
     this.active = candidate;
+    this.imports.clear();
     this.publish({available: true, selectedPath: path, session: randomUUID()});
     try {
       superseded?.close();

@@ -16,6 +16,7 @@ import type {Application} from '../../application/controller';
 import {
   createCustomerOptions,
   customerListOptions,
+  customerDetailOptions,
   updateCustomerOptions,
   customerKeys,
   CustomerRequestError,
@@ -39,67 +40,62 @@ import PageShell from '../pageShell/pageShell';
 const identityFields = [
   {name: 'firstName', label: 'First name', inputMode: 'text'},
   {name: 'lastName', label: 'Last name', inputMode: 'text'},
+  {name: 'phone', label: 'Phone', inputMode: 'tel'},
+  {name: 'email', label: 'Email address', inputMode: 'email'},
   {name: 'address', label: 'Address', inputMode: 'text'},
   {name: 'city', label: 'City', inputMode: 'text'},
   {name: 'province', label: 'Province', inputMode: 'text'},
   {name: 'postalCode', label: 'Postal code', inputMode: 'text'},
-  {name: 'phone', label: 'Phone', inputMode: 'tel'},
-  {name: 'email', label: 'Email address', inputMode: 'email'},
 ] as const;
 
 const balanceFields = [
   {name: 'stock', label: 'Items in stock', inputMode: 'numeric'},
-  {name: 'previousBalance', label: 'Previous balance ($)', inputMode: 'decimal'},
   {name: 'balance', label: 'Balance ($)', inputMode: 'decimal'},
+  {name: 'previousBalance', label: 'Previous balance ($)', inputMode: 'decimal'},
 ] as const;
 
 const styles = stylex.create({
-  form: {gap: spacing.space22, display: 'flex', flexDirection: 'column'},
-  column: {gap: spacing.space12, display: 'flex', flexDirection: 'column', minWidth: 0},
-  topSections: {
-    gap: spacing.space22,
-    alignItems: 'stretch',
-    display: 'grid',
-    gridTemplateColumns: {
-      default: 'repeat(2, minmax(0, 1fr))',
-      [breakpoints.columns]: '1fr',
-    },
-  },
-  fieldset: {
+  form: {
+    padding: {default: spacing.space22, [breakpoints.compact]: spacing.space16},
     borderColor: colors.border,
     borderRadius: radii.panel,
     borderStyle: 'solid',
     borderWidth: controls.borderWidth,
-    paddingInline: spacing.space20,
     backgroundColor: colors.surface,
-    minWidth: 0,
-    paddingBottom: spacing.space20,
-    paddingTop: spacing.space8,
   },
-  growingSection: {flexGrow: 1},
-  compactFieldset: {paddingBottom: spacing.space12},
+  column: {gap: spacing.space18, display: 'flex', flexDirection: 'column', minWidth: 0},
+  topSections: {
+    gap: 32,
+    alignItems: 'start',
+    display: 'grid',
+    gridTemplateColumns: {
+      default: 'minmax(0, 1.4fr) minmax(0, 1fr)',
+      [breakpoints.columns]: '1fr',
+    },
+  },
+  fieldset: {padding: 0, borderWidth: 0, minWidth: 0},
   legend: {
-    paddingInline: spacing.space8,
-    fontSize: typography.fontSizeBody,
-    fontWeight: typography.fontWeightBold,
+    padding: 0,
+    fontSize: typography.fontSizeLarge,
+    fontWeight: typography.fontWeightSemibold,
+    marginBottom: spacing.space16,
   },
   grid: {
-    gap: spacing.space18,
+    gap: spacing.space12,
     display: 'grid',
     gridTemplateColumns: {
       default: 'repeat(2, minmax(0, 1fr))',
-      [breakpoints.form]: '1fr',
+      [breakpoints.compact]: '1fr',
     },
   },
-  balanceGrid: {gridTemplateColumns: '1fr'},
-  wide: {gridColumn: {default: 'span 2', [breakpoints.form]: 'auto'}},
+  wide: {gridColumn: {default: 'span 2', [breakpoints.compact]: 'auto'}},
   help: {
     color: colors.textMuted,
     fontSize: typography.fontSizeSmall,
-    marginTop: spacing.space14,
+    marginTop: spacing.space10,
   },
   fieldHelp: {marginTop: 0},
-  actions: {gap: spacing.space10, display: 'flex'},
+  actions: {gap: spacing.space10, display: 'flex', flexWrap: 'wrap'},
   saveStatus: {
     overflow: 'hidden',
     clipPath: 'inset(50%)',
@@ -168,6 +164,7 @@ export default function CustomerForm({
     onSubmit: async ({value}) => {
       if (
         blocked ||
+        application.getState().refreshingCustomers ||
         draftRef.current.submitting ||
         application.protection.getState().frozen
       ) {
@@ -273,6 +270,7 @@ export default function CustomerForm({
       baseline: () => draftRef.current.baseline,
       reset: () => {
         form.reset(draftRef.current.baseline);
+        void form.validate('mount');
       },
     }),
     [form]
@@ -312,6 +310,7 @@ export default function CustomerForm({
   const pending = create.isPending || update.isPending || protection.saving;
   const disabled =
     pending ||
+    state.refreshingCustomers ||
     !registered ||
     protection.frozen ||
     unavailable ||
@@ -323,45 +322,67 @@ export default function CustomerForm({
     }
   }, [error, disabled]);
 
-  async function reloadSavedCustomer() {
-    const reference = draftRef.current.saved?.reference;
-    if (!reference || disabled || blocked === 'deleted') {
-      return;
-    }
-
-    setError(null);
-    try {
-      await application.reloadCustomer(reference, record => {
-        const baseline = customerFormOptions(record.customer).defaultValues;
-        draftRef.current.saved = record;
-        setSavedRecord(record);
-        draftRef.current.baseline = baseline;
-        setDefaults(baseline);
-        form.reset(baseline);
-        setBlocked(null);
-        queryClient.setQueryData(
-          customerKeys.detail(session, record.customer.id),
-          record
-        );
-        application.protection.changed();
-      });
-    } catch (failure) {
-      if (!isCancelledError(failure)) {
-        if (
-          failure instanceof CustomerRequestError &&
-          failure.error.code === 'CUSTOMER_DELETED'
-        ) {
-          setBlocked('deleted');
+  useEffect(
+    () =>
+      application.onCustomersRefreshed(async () => {
+        const reference = draftRef.current.saved?.reference;
+        if (!reference || application.protection.isDirty()) {
+          return;
         }
 
-        setError(
-          failure instanceof Error
-            ? failure.message
-            : 'Could not reload the customer. Try again.'
-        );
-      }
-    }
-  }
+        const captured = application.captureSession(session);
+        try {
+          const refreshed = queryClient.getQueryState<CustomerRecord>(
+            customerKeys.detail(session, reference.id)
+          );
+          if (
+            refreshed?.status === 'error' &&
+            queryClient
+              .getQueryCache()
+              .find({queryKey: customerKeys.detail(session, reference.id), exact: true})
+              ?.isActive()
+          ) {
+            throw refreshed.error;
+          }
+
+          const record = await queryClient.fetchQuery(
+            customerDetailOptions(application, session, reference.id)
+          );
+          if (!captured.isCurrent() || application.protection.isDirty()) {
+            return;
+          }
+
+          const baseline = customerFormOptions(record.customer).defaultValues;
+          draftRef.current.saved = record;
+          draftRef.current.baseline = baseline;
+          setSavedRecord(record);
+          setDefaults(baseline);
+          form.reset(baseline);
+          void form.validate('mount');
+          setBlocked(null);
+          setError(null);
+          application.protection.changed();
+        } catch (failure) {
+          if (captured.isCurrent() && !isCancelledError(failure)) {
+            if (
+              failure instanceof CustomerRequestError &&
+              failure.error.code === 'CUSTOMER_DELETED'
+            ) {
+              setBlocked('deleted');
+            }
+
+            setError(
+              failure instanceof Error
+                ? failure.message
+                : 'Could not refresh the customer. Try again.'
+            );
+          }
+
+          throw failure;
+        }
+      }),
+    [application, form, queryClient, session]
+  );
 
   return (
     <PageShell
@@ -375,15 +396,19 @@ export default function CustomerForm({
       stickyHeader
       actions={
         <div {...stylex.props(styles.actions)}>
-          <Button
-            variant="primary"
-            busy={pending}
-            disabled={disabled || blocked !== null}
-            type="submit"
-            form={formId}
-          >
-            Save
-          </Button>
+          <form.Subscribe selector={state => state.canSubmit}>
+            {canSubmit => (
+              <Button
+                variant="primary"
+                busy={pending}
+                disabled={disabled || blocked !== null || !canSubmit}
+                type="submit"
+                form={formId}
+              >
+                Save
+              </Button>
+            )}
+          </form.Subscribe>
 
           <Link to="/customers" {...stylex.props(buttonStyles.base)}>
             {initialRecord ? 'Back to customers' : 'Cancel'}
@@ -419,24 +444,12 @@ export default function CustomerForm({
       {error && <p role="alert">{error}</p>}
       {blocked === 'stale' && (
         <p>
-          The saved customer changed. Reload before saving again. Your edits are retained.
+          The saved customer changed. Discard your edits, then refresh before saving
+          again.
         </p>
       )}
       {blocked === 'deleted' && (
         <p>This customer no longer exists. Your edits are retained for copying.</p>
-      )}
-      {savedRecord && blocked !== 'deleted' && (
-        <section>
-          <p>Reload saved customer replaces your draft with the saved values.</p>
-          <Button
-            disabled={disabled}
-            onClick={() => {
-              void reloadSavedCustomer();
-            }}
-          >
-            Reload customer
-          </Button>
-        </section>
       )}
       {unavailable && (
         <section role="alert">
@@ -478,12 +491,28 @@ export default function CustomerForm({
       >
         <div {...stylex.props(styles.topSections)}>
           <div {...stylex.props(styles.column)}>
-            <fieldset
-              disabled={disabled}
-              {...stylex.props(styles.fieldset, styles.growingSection)}
-            >
-              <legend {...stylex.props(styles.legend)}>Identity and Contact</legend>
+            <fieldset disabled={disabled} {...stylex.props(styles.fieldset)}>
+              <legend {...stylex.props(styles.legend)}>Contact details</legend>
               <div {...stylex.props(styles.grid)}>
+                {identityFields.map(config => (
+                  <form.AppField key={config.name} name={config.name}>
+                    {field =>
+                      config.name === 'province' ? (
+                        <field.ProvinceField
+                          disabled={disabled || blocked === 'deleted'}
+                        />
+                      ) : (
+                        <field.TextField
+                          readOnly={blocked === 'deleted'}
+                          label={config.label}
+                          inputMode={config.inputMode}
+                          uppercase={config.name === 'postalCode'}
+                          style={config.name === 'address' ? styles.wide : undefined}
+                        />
+                      )
+                    }
+                  </form.AppField>
+                ))}
                 {initialRecord ? (
                   <form.AppField name="customerNumber">
                     {field => (
@@ -491,12 +520,11 @@ export default function CustomerForm({
                         readOnly={blocked === 'deleted'}
                         label="Customer number"
                         inputMode="numeric"
-                        style={styles.wide}
                       />
                     )}
                   </form.AppField>
                 ) : (
-                  <Field.Root disabled {...stylex.props(fieldStyles.field, styles.wide)}>
+                  <Field.Root disabled {...stylex.props(fieldStyles.field)}>
                     <Field.Label {...stylex.props(fieldStyles.label)}>
                       Customer number
                     </Field.Label>
@@ -513,46 +541,16 @@ export default function CustomerForm({
                     </Field.Description>
                   </Field.Root>
                 )}
-                {identityFields.map(config => (
-                  <form.AppField key={config.name} name={config.name}>
-                    {field => (
-                      <field.TextField
-                        readOnly={blocked === 'deleted'}
-                        label={config.label}
-                        inputMode={config.inputMode}
-                        style={
-                          config.name === 'address' || config.name === 'email'
-                            ? styles.wide
-                            : undefined
-                        }
-                      />
-                    )}
-                  </form.AppField>
-                ))}
               </div>
               <p {...stylex.props(styles.help)}>
                 Enter a first name, a last name, or both for a customer.
               </p>
             </fieldset>
-            <fieldset
-              disabled={disabled || blocked === 'deleted'}
-              {...stylex.props(styles.fieldset, styles.compactFieldset)}
-            >
-              <legend {...stylex.props(styles.legend)}>Donation Preference</legend>
-              <form.AppField name="donate">
-                {field => (
-                  <field.CheckboxField
-                    disabled={disabled || blocked === 'deleted'}
-                    label="Donate"
-                  />
-                )}
-              </form.AppField>
-            </fieldset>
           </div>
           <div {...stylex.props(styles.column)}>
             <fieldset disabled={disabled} {...stylex.props(styles.fieldset)}>
-              <legend {...stylex.props(styles.legend)}>Stock and Balances</legend>
-              <div {...stylex.props(styles.grid, styles.balanceGrid)}>
+              <legend {...stylex.props(styles.legend)}>Account details</legend>
+              <div {...stylex.props(styles.grid)}>
                 {balanceFields.map(config => (
                   <form.AppField key={config.name} name={config.name}>
                     {field => (
@@ -571,13 +569,27 @@ export default function CustomerForm({
               </p>
             </fieldset>
 
+            <fieldset
+              disabled={disabled || blocked === 'deleted'}
+              {...stylex.props(styles.fieldset)}
+            >
+              <legend {...stylex.props(styles.legend)}>Donation preference</legend>
+              <form.AppField name="donate">
+                {field => (
+                  <field.CheckboxField
+                    disabled={disabled || blocked === 'deleted'}
+                    label="Donate"
+                  />
+                )}
+              </form.AppField>
+            </fieldset>
+
             <form.AppField name="comments">
               {field => (
                 <field.TextareaField
                   disabled={disabled}
                   readOnly={blocked === 'deleted'}
                   label="Comments"
-                  style={styles.growingSection}
                 />
               )}
             </form.AppField>

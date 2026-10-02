@@ -10,7 +10,7 @@ import type {
 import {applyNewerDatabaseState, getClient} from '@shop-things/contract/client';
 import {CancelledError, QueryClient} from '@tanstack/react-query';
 
-import {CustomerRequestError} from './customers';
+import {CustomerRequestError, customerKeys} from './customers';
 import createPreviewClient from './preview';
 import {createDraftProtection} from './protection';
 import toastManager, {createToasts} from './toasts';
@@ -24,6 +24,8 @@ export interface ApplicationState {
   reconciling: boolean;
   recoveryRequired: boolean;
   pendingFile: string | null;
+  refreshingCustomers: boolean;
+  refreshError: string | null;
 }
 
 export interface RequestScope {
@@ -80,6 +82,8 @@ export function createApplication(
     reconciling: false,
     recoveryRequired: false,
     pendingFile: null,
+    refreshingCustomers: false,
+    refreshError: null,
   };
   let generation = 0;
   let stopState: (() => void) | null = null;
@@ -94,6 +98,7 @@ export function createApplication(
   let queue: Promise<unknown> = Promise.resolve();
   const searches = new Map<string, object>();
   const listeners = new Set<() => void>();
+  const refreshListeners = new Set<() => Promise<void>>();
   const sessionListeners = new Set<(database: DatabaseState) => void>();
 
   function publish(next: ApplicationState) {
@@ -127,7 +132,11 @@ export function createApplication(
       return;
     }
 
-    publish({...state, database: accepted});
+    publish({
+      ...state,
+      database: accepted,
+      refreshError: previous?.session === accepted.session ? state.refreshError : null,
+    });
     // An unavailable state retains the route/draft. A new available session resets it.
     if (
       previous !== null &&
@@ -329,6 +338,93 @@ export function createApplication(
     );
   }
 
+  async function refreshCustomers() {
+    const session = state.database?.session;
+    const draft = protection.getState();
+    if (
+      !session ||
+      !isCurrentSession(session) ||
+      state.recoveryRequired ||
+      state.pendingFile ||
+      state.pendingTransition ||
+      state.reconciling ||
+      state.refreshingCustomers ||
+      draft.frozen ||
+      draft.saving ||
+      protection.isDirty()
+    ) {
+      return;
+    }
+
+    const captured = {generation, session};
+    function current() {
+      return captured.generation === generation && isCurrentSession(captured.session);
+    }
+
+    publish({...state, refreshingCustomers: true, refreshError: null});
+    notifications.close('customer-refresh');
+    try {
+      const filter = {queryKey: customerKeys.session(session)};
+      await queryClient.cancelQueries(filter);
+      await queryClient.invalidateQueries({...filter, refetchType: 'none'});
+      let failure: unknown;
+      // List searches share a request coalescing key. Refresh visible queries in order.
+      for (const query of queryClient
+        .getQueryCache()
+        .findAll({...filter, type: 'active'})) {
+        if (!current()) {
+          return;
+        }
+
+        try {
+          await queryClient.refetchQueries(
+            {queryKey: query.queryKey, exact: true, type: 'active'},
+            {throwOnError: true}
+          );
+        } catch (error) {
+          failure ??= error;
+        }
+      }
+
+      if (!current()) {
+        return;
+      }
+
+      for (const listener of refreshListeners) {
+        if (!current()) {
+          return;
+        }
+
+        try {
+          await listener();
+        } catch (error) {
+          failure ??= error;
+        }
+      }
+
+      if (failure) {
+        throw failure;
+      }
+    } catch (failure) {
+      if (current()) {
+        const message =
+          failure instanceof Error
+            ? failure.message
+            : 'Could not refresh customers. Try again.';
+        publish({...state, refreshError: message});
+        toasts.error({
+          id: 'customer-refresh',
+          title: 'Could not refresh customers',
+          description: message,
+        });
+      }
+    } finally {
+      if (captured.generation === generation) {
+        publish({...state, refreshingCustomers: false});
+      }
+    }
+  }
+
   async function transition(action: 'create' | 'open' | 'restore' | 'retry') {
     if (!client || state.phase !== 'ready') {
       return unavailable;
@@ -336,6 +432,7 @@ export function createApplication(
 
     if (
       state.pendingTransition ||
+      state.refreshingCustomers ||
       state.reconciling ||
       protectionRequest ||
       protection.getState().frozen
@@ -375,6 +472,7 @@ export function createApplication(
   ) {
     if (
       state.pendingFile ||
+      state.refreshingCustomers ||
       state.pendingTransition ||
       state.phase !== 'ready' ||
       protection.getState().frozen ||
@@ -461,6 +559,7 @@ export function createApplication(
   function dispose() {
     generation++;
     notifications.close('database-feedback');
+    notifications.close('customer-refresh');
 
     stopState?.();
     stopProtection?.();
@@ -474,6 +573,8 @@ export function createApplication(
       ...state,
       phase: 'loading',
       pendingFile: null,
+      refreshingCustomers: false,
+      refreshError: null,
       pendingTransition: false,
       reconciling: false,
     });
@@ -581,7 +682,88 @@ export function createApplication(
           : undefined;
       return coordinatedRequest(session, operation, scope, admitted);
     },
+    async commitImport(session: string, importId: string) {
+      if (
+        state.pendingFile ||
+        state.refreshingCustomers ||
+        state.pendingTransition ||
+        state.reconciling ||
+        protectionRequest ||
+        protection.getState().frozen ||
+        protection.getState().saving
+      ) {
+        return busy;
+      }
+
+      const attempt = generation;
+      publish({...state, pendingFile: 'importSaving'});
+      try {
+        return await serialize(async () => {
+          if (!client || !isCurrentSession(session) || state.recoveryRequired) {
+            return unavailable;
+          }
+
+          const result = await client.imports.commit({session, importId});
+          if (attempt !== generation || !isCurrentSession(session)) {
+            return obsolete;
+          }
+
+          if (
+            result.status === 'error' &&
+            (result.error.code === 'STALE_SESSION' ||
+              result.error.code === 'DATABASE_UNAVAILABLE')
+          ) {
+            await reconcile();
+            if (attempt !== generation || !isCurrentSession(session)) {
+              return obsolete;
+            }
+          }
+
+          return result;
+        });
+      } finally {
+        if (attempt === generation) {
+          publish({...state, pendingFile: null});
+        }
+      }
+    },
+    async prepareImport() {
+      const session = state.database?.session;
+      if (
+        !session ||
+        state.pendingFile ||
+        state.refreshingCustomers ||
+        protection.getState().frozen ||
+        protection.getState().saving
+      ) {
+        return busy;
+      }
+
+      const attempt = generation;
+      publish({...state, pendingFile: 'import'});
+      try {
+        return await serialize(async () => {
+          if (!client || !isCurrentSession(session)) {
+            return unavailable;
+          }
+
+          const result = await client.imports.prepare({session});
+          return attempt === generation && isCurrentSession(session) ? result : obsolete;
+        });
+      } finally {
+        if (attempt === generation) {
+          publish({...state, pendingFile: null});
+        }
+      }
+    },
     fileAction,
+    refreshCustomers,
+    onCustomersRefreshed(listener: () => Promise<void>) {
+      refreshListeners.add(listener);
+      return () => {
+        refreshListeners.delete(listener);
+      };
+    },
     reloadCustomer,
     transition,
     reconcile,
