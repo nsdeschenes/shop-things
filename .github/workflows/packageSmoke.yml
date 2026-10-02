@@ -51,11 +51,3 @@ jobs:
         env:
           ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
           SMOKE_EXECUTION_ENVIRONMENT: github-actions-ubuntu-24.04-native-linux-x64
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: renderer-acceptance-linux-x64-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/shop-things-acceptance
-            acceptance-reports/renderer
-          if-no-files-found: warn
