@@ -273,6 +273,7 @@ export default function CustomerForm({
       baseline: () => draftRef.current.baseline,
       reset: () => {
         form.reset(draftRef.current.baseline);
+        void form.validate('mount');
       },
     }),
     [form]
@@ -338,6 +339,7 @@ export default function CustomerForm({
         draftRef.current.baseline = baseline;
         setDefaults(baseline);
         form.reset(baseline);
+        void form.validate('mount');
         setBlocked(null);
         queryClient.setQueryData(
           customerKeys.detail(session, record.customer.id),
@@ -375,15 +377,19 @@ export default function CustomerForm({
       stickyHeader
       actions={
         <div {...stylex.props(styles.actions)}>
-          <Button
-            variant="primary"
-            busy={pending}
-            disabled={disabled || blocked !== null}
-            type="submit"
-            form={formId}
-          >
-            Save
-          </Button>
+          <form.Subscribe selector={state => state.canSubmit}>
+            {canSubmit => (
+              <Button
+                variant="primary"
+                busy={pending}
+                disabled={disabled || blocked !== null || !canSubmit}
+                type="submit"
+                form={formId}
+              >
+                Save
+              </Button>
+            )}
+          </form.Subscribe>
 
           <Link to="/customers" {...stylex.props(buttonStyles.base)}>
             {initialRecord ? 'Back to customers' : 'Cancel'}
@@ -515,18 +521,25 @@ export default function CustomerForm({
                 )}
                 {identityFields.map(config => (
                   <form.AppField key={config.name} name={config.name}>
-                    {field => (
-                      <field.TextField
-                        readOnly={blocked === 'deleted'}
-                        label={config.label}
-                        inputMode={config.inputMode}
-                        style={
-                          config.name === 'address' || config.name === 'email'
-                            ? styles.wide
-                            : undefined
-                        }
-                      />
-                    )}
+                    {field =>
+                      config.name === 'province' ? (
+                        <field.ProvinceField
+                          disabled={disabled || blocked === 'deleted'}
+                        />
+                      ) : (
+                        <field.TextField
+                          readOnly={blocked === 'deleted'}
+                          label={config.label}
+                          inputMode={config.inputMode}
+                          uppercase={config.name === 'postalCode'}
+                          style={
+                            config.name === 'address' || config.name === 'email'
+                              ? styles.wide
+                              : undefined
+                          }
+                        />
+                      )
+                    }
                   </form.AppField>
                 ))}
               </div>

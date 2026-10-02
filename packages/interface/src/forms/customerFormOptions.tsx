@@ -6,6 +6,8 @@ import customerFormSchema from './customerFormSchema';
 export default function customerFormOptions(customer?: Customer) {
   return formOptions({
     validators: {
+      onMount: customerFormSchema(Boolean(customer)),
+      onChange: customerFormSchema(Boolean(customer)),
       onBlur: customerFormSchema(Boolean(customer)),
       onSubmit: customerFormSchema(Boolean(customer)),
     },
@@ -18,8 +20,8 @@ export default function customerFormOptions(customer?: Customer) {
       lastName: customer?.lastName ?? '',
       address: customer?.address ?? '',
       city: customer?.city ?? '',
-      province: customer?.province ?? '',
-      postalCode: customer?.postalCode ?? '',
+      province: customer?.province.toUpperCase() || 'NS',
+      postalCode: (customer?.postalCode ?? '').toUpperCase(),
       phone: customer?.phone ?? '',
       email: customer?.email ?? '',
       stock: String(customer?.stock ?? 0),
