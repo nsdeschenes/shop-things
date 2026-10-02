@@ -3,7 +3,7 @@ import {buildAll} from './build.ts';
 import {testElectron, testInterface, testReportArguments} from './testHelpers.ts';
 import {pnpm, runIfMain} from './workspace.ts';
 
-export async function testAll() {
+export async function testAll({includeScripts = true} = {}) {
   if (process.env.ACCEPTANCE_REPORT_DIR) {
     await pnpm(['--filter', '@shop-things/contract', 'build']);
     await pnpm([
@@ -53,6 +53,10 @@ export async function testAll() {
   await buildAll({interfaceBuild: false});
   await testElectron();
   await testInterface();
+  if (!includeScripts) {
+    return;
+  }
+
   await pnpm(['exec', 'tsc', '-p', 'scripts/tsconfig.test.json']);
   return pnpm([
     'exec',
@@ -64,4 +68,6 @@ export async function testAll() {
   ]);
 }
 
-await runIfMain(import.meta.url, testAll);
+await runIfMain(import.meta.url, () =>
+  testAll({includeScripts: !process.argv.includes('--packages-only')})
+);

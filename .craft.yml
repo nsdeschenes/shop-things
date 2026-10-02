@@ -1,0 +1,29 @@
+minVersion: '2.31.1'
+
+versioning:
+  policy: auto
+
+changelog:
+  policy: auto
+
+preReleaseCommand: node --experimental-strip-types scripts/bump-version.ts
+postReleaseCommand: ''
+
+statusProvider:
+  name: github
+  config:
+    contexts:
+      - Linux x64 build and acceptance
+      - Script tooling checks
+
+artifactProvider:
+  name: github
+
+requireNames:
+  - /^shop-things-[0-9]+\.[0-9]+\.[0-9]+-linux-x64\.deb$/
+  - /^SHA256SUMS$/
+
+targets:
+  - name: github
+    tagPrefix: v
+    includeNames: /^(shop-things-[0-9]+\.[0-9]+\.[0-9]+-linux-x64\.deb|SHA256SUMS)$/

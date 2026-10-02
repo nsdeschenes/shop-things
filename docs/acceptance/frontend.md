@@ -15,7 +15,7 @@ other-platform verification.
 
 | Required behavior/proof                                                                    | Automated evidence                                                                                                          |
 | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| Clean contract/database/frontend emission and supporting behavior                          | Sequential acceptance source JSON reports, typecheck/build/lint; zero skipped/todo tests                                    |
+| Clean contract/database/frontend emission and supporting behavior                          | CI formatting/typecheck/lint steps; sequential acceptance source/build reports; zero skipped/todo tests                     |
 | Startup/loading/setup, remembered reopen/recovery, Create/Open/Retry, pending/cancel/error | `database.spec.ts` and `foundation.spec.ts`, real IPC and persisted settings/files                                          |
 | Customer CRUD/defaults/numeric/text validation/immutable-ID search/reopen                  | `customers`, `create`, `edit`, `deletion` specs, real database reopen and Chromium equivalents                              |
 | Saved query/mutation/session/revision coherence and explicit recovery                      | `customers`, `deletion`, `recovery` specs; real delayed responses, stale writes, same-file fresh sessions                   |

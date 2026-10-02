@@ -1,0 +1,71 @@
+name: Publish release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Prepared stable version without the v prefix
+        required: true
+        type: string
+      release_sha:
+        description: Full main commit SHA from the merged release PR
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: read
+  actions: read
+  checks: read
+  statuses: read
+
+concurrency:
+  group: craft-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - name: Verify the prepared version, merged PR and passing acceptance
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          git fetch origin main
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main
+          node --experimental-strip-types scripts/check-release-version.ts
+          gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_SHA/pulls" |
+            jq -e --arg branch "release/$VERSION" --arg sha "$RELEASE_SHA" \
+              'any(.[]; .merged_at != null and .base.ref == "main" and .head.ref == $branch and .merge_commit_sha == $sha)'
+          for workflow in desktop.yml scripts.yml; do
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs" -f head_sha="$RELEASE_SHA" -f branch=main -f event=push |
+              jq -e --arg sha "$RELEASE_SHA" \
+                '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "main" and .event == "push")] | first | .status == "completed" and .conclusion == "success"'
+          done
+          # Craft may resolve --rev to a named ref. Ensure that ref still identifies the tested commit.
+          CRAFT_REF=$(git name-rev --name-only --no-undefined "$RELEASE_SHA" 2>/dev/null || printf '%s' "$RELEASE_SHA")
+          test "$(git rev-parse "$CRAFT_REF")" = "$RELEASE_SHA"
+      - name: Install Craft
+        run: |
+          curl -fsSL --retry 3 https://github.com/getsentry/craft/releases/download/2.31.1/craft -o "$RUNNER_TEMP/craft"
+          node "$RUNNER_TEMP/craft" --version
+      - name: Publish the tested installer and checksums
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: node "$RUNNER_TEMP/craft" publish "$VERSION" --rev "$RELEASE_SHA" --no-merge --keep-branch --no-input

@@ -1,0 +1,64 @@
+name: Script tooling
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'packages/electron/**'
+      - 'packages/contract/**'
+      - 'packages/db/**'
+      - 'packages/interface/package.json'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig*.json'
+      - '.npmrc'
+      - '.gitignore'
+      - '.oxlintrc.json'
+      - '.oxfmtrc.json'
+      - '.github/workflows/scripts.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'packages/electron/**'
+      - 'packages/contract/**'
+      - 'packages/db/**'
+      - 'packages/interface/package.json'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig*.json'
+      - '.npmrc'
+      - '.gitignore'
+      - '.oxlintrc.json'
+      - '.oxfmtrc.json'
+      - '.github/workflows/scripts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    name: Script tooling checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+      - name: Install locked workspace
+        run: pnpm install --frozen-lockfile
+      - name: Check script formatting
+        run: pnpm exec oxfmt --check scripts
+      - name: Typecheck scripts
+        run: pnpm typecheck scripts
+      - name: Lint scripts
+        run: pnpm exec oxlint scripts
+      - name: Test scripts
+        run: pnpm test:scripts

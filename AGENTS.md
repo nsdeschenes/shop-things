@@ -11,3 +11,7 @@ Use the default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-
 ### Domain docs
 
 This is a multi-context repo; use the root map to find relevant package context docs. See `docs/agents/domain.md`.
+
+### Pull request titles
+
+When creating or retitling a PR, follow `docs/agents/pullRequests.md`. Craft uses PR titles for changelog entries and automatic version bumps.

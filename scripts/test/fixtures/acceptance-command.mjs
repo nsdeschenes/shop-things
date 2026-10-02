@@ -22,7 +22,7 @@ if (args[0] === '--version') {
 }
 
 if (args[0] === 'test') {
-  for (const suite of ['contract', 'db', 'electron', 'interface', 'scripts']) {
+  for (const suite of ['contract', 'db', 'electron', 'interface']) {
     await json(join(directory, suite + '-tests.json'), {
       success: true,
       numTotalTests: 1,
