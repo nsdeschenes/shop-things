@@ -242,8 +242,8 @@ try {
     signal: null,
   });
   record('BUILD_FAILURE_NO_REPLACEMENT');
-  await writeFile(source, original);
   output = '';
+  await writeFile(source, original);
   launcher.stdin.write('r\n');
   await until(() => pids.length === 3, 'fixed build replacement');
   page = await attach();

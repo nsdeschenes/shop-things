@@ -106,6 +106,7 @@ async function launch(readyButton = 'Database') {
   application.on('console', message =>
     report.logs.push({source: 'main', text: message.text()})
   );
+  page = await application.firstWindow();
   // This assertion supplements the separately verified BEFORE-ready isolation fixture.
   const runtime = await application.evaluate(({app, BrowserWindow}) => ({
     packaged: app.isPackaged,
@@ -154,7 +155,6 @@ async function launch(readyButton = 'Database') {
       };
     };
   });
-  page = await application.firstWindow();
   page.setDefaultTimeout(15_000);
   page.on('pageerror', error =>
     report.logs.push({source: 'renderer', text: String(error)})

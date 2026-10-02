@@ -4,7 +4,8 @@ import {join} from 'node:path';
 import {expect, test} from 'vitest';
 
 import {inspectBrowserDependencies} from '../inspectBrowserDependencies.ts';
-import {pnpm, root} from '../workspace.ts';
+import {runCommand} from '../processes.ts';
+import {electronRoot, pnpm, root} from '../workspace.ts';
 
 const prohibitedDependency = /Prohibited contract dependency/;
 
@@ -21,6 +22,25 @@ test('direct Electron builds compile their contract and database prerequisites',
   await readFile(join(root, 'packages/electron/dist/main.js'));
   await readFile(join(root, 'packages/electron/dist/preload.cjs'));
   await readFile(join(root, 'packages/db/dist/index.d.ts'));
+});
+
+test('identical preload builds retain byte-identical shipped artifacts', async () => {
+  await pnpm(['--filter', 'electron', 'build:main'], {stdio: 'ignore'});
+  const outputs = ['preload.cjs', 'preload.meta.json'];
+  const original = await Promise.all(
+    outputs.map(name => readFile(join(electronRoot, 'dist', name)))
+  );
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await runCommand(process.execPath, ['scripts/buildPreload.mjs'], {
+      cwd: electronRoot,
+      stdio: 'ignore',
+    });
+    for (const [index, name] of outputs.entries()) {
+      expect(await readFile(join(electronRoot, 'dist', name))).toStrictEqual(
+        original[index]
+      );
+    }
+  }
 });
 
 test('failed real preload emission leaves no launchable build', async () => {

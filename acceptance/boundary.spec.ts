@@ -337,12 +337,13 @@ test('the authorized webContents main frame succeeds while its actual child fram
     expect(
       await application.evaluate(() => Reflect.get(globalThis, 'acceptanceFrameCalls'))
     ).toEqual(['database.status']);
+    const attached = page.waitForEvent('frameattached');
     await page.evaluate(() => {
       const iframe = document.createElement('iframe');
       iframe.src = 'data:text/html,<title>Authorized window child frame</title>';
       document.body.append(iframe);
     });
-    const child = page.frames().find(frame => frame !== page.mainFrame())!;
+    const child = await attached;
     await child.waitForFunction(() => Reflect.has(window, 'acceptanceBoundaryRaw'));
     expect(await child.evaluate(invoke, authorized.documentId)).toMatchObject({
       status: 'error',
