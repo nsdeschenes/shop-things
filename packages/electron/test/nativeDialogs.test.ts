@@ -61,7 +61,9 @@ test('database, export and restore dialogs keep paths in main and use the curren
       filters: [{name: 'CSV', extensions: ['csv']}],
     })
   );
-  expect(await dialogs.backupDatabase()).toBe('/destination.db');
+  expect(await dialogs.backupDatabase('/active/customers.sqlite')).toBe(
+    '/destination.db'
+  );
   expect(boundary.showSaveDialog).toHaveBeenLastCalledWith(
     window,
     expect.objectContaining({title: 'Back up saved customers'})
@@ -82,6 +84,28 @@ test('database, export and restore dialogs keep paths in main and use the curren
   expect(boundary.showOpenDialog).toHaveBeenCalledTimes(count);
 });
 
+test.each([
+  ['/active/My customers.sqlite', 'My customers-2026-09-19T23-06-35-574Z.sqlite'],
+  ['/active/customers.db', 'customers-2026-09-19T23-06-35-574Z.db'],
+  ['/active/customers', 'customers-2026-09-19T23-06-35-574Z.sqlite'],
+])(
+  'backup dialog names the snapshot after %s with a UTC timestamp',
+  async (path, filename) => {
+    vi.setSystemTime(new Date('2026-09-19T23:06:35.574Z'));
+    try {
+      const window = new BrowserWindow();
+      const dialogs = createNativeDialogs(() => window);
+      expect(await dialogs.backupDatabase(path)).toBe('/destination.db');
+      expect(boundary.showSaveDialog).toHaveBeenLastCalledWith(
+        window,
+        expect.objectContaining({defaultPath: filename})
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+);
+
 test('cancelled or empty native file selections produce cancellation', async () => {
   const dialogs = createNativeDialogs(() => new BrowserWindow());
   boundary.showOpenDialog.mockResolvedValue({canceled: true, filePaths: ['/ignored.db']});
@@ -91,7 +115,7 @@ test('cancelled or empty native file selections produce cancellation', async () 
     () => dialogs.openDatabase(),
     () => dialogs.importCsv(),
     () => dialogs.exportCsv(),
-    () => dialogs.backupDatabase(),
+    () => dialogs.backupDatabase('/active/customers.sqlite'),
     () => dialogs.restoreSource(),
     () => dialogs.restoreDestination(),
   ]) {
