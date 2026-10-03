@@ -42,7 +42,7 @@ const identityFields = [
   {name: 'firstName', label: 'First name', inputMode: 'text'},
   {name: 'lastName', label: 'Last name', inputMode: 'text'},
   {name: 'phone', label: 'Phone', inputMode: 'tel'},
-  {name: 'email', label: 'Email address', inputMode: 'email'},
+  {name: 'email', label: 'Email', inputMode: 'email'},
   {name: 'address', label: 'Address', inputMode: 'text'},
   {name: 'city', label: 'City', inputMode: 'text'},
   {name: 'province', label: 'Province', inputMode: 'text'},
@@ -51,8 +51,8 @@ const identityFields = [
 
 const balanceFields = [
   {name: 'stock', label: 'Items in stock', inputMode: 'numeric'},
-  {name: 'balance', label: 'Balance ($)', inputMode: 'decimal'},
   {name: 'previousBalance', label: 'Previous balance ($)', inputMode: 'decimal'},
+  {name: 'balance', label: 'Balance ($)', inputMode: 'decimal'},
 ] as const;
 
 const styles = stylex.create({

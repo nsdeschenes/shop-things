@@ -35,7 +35,7 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
     await page.getByRole('combobox', {name: 'Province'}).fill('ON');
     await page.getByRole('option', {name: 'ON', exact: true}).click();
     await page.getByRole('textbox', {name: 'Postal code'}).fill('aB cd');
-    await page.getByRole('textbox', {name: 'Email address'}).fill('Ada@example.com');
+    await page.getByRole('textbox', {name: 'Email'}).fill('Ada@example.com');
     await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-12.30');
     await page.getByRole('button', {name: 'Save'}).click();
     await expect(

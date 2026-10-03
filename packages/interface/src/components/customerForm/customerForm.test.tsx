@@ -31,7 +31,7 @@ test('restores contact validation, province selection, and uppercase postal code
   expect(save).toBeDisabled();
   await user.clear(phone);
   await user.type(phone, '09025551234');
-  const email = screen.getByRole('textbox', {name: 'Email address'});
+  const email = screen.getByRole('textbox', {name: 'Email'});
   await user.type(email, 'contact text');
   expect(await screen.findByText('Enter a valid email address.')).toBeVisible();
   expect(email).toBeInvalid();
@@ -146,7 +146,7 @@ test('Edit requires valid contacts and retains the original revision across back
   await user.type(number, '11');
   expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
   const phone = screen.getByRole('textbox', {name: 'Phone'});
-  const email = screen.getByRole('textbox', {name: 'Email address'});
+  const email = screen.getByRole('textbox', {name: 'Email'});
   expect(phone).toBeInvalid();
   expect(email).toBeInvalid();
   await user.clear(phone);
