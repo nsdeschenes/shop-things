@@ -560,6 +560,7 @@ export default function CustomerForm({
                         readOnly={blocked === 'deleted'}
                         label={config.label}
                         inputMode={config.inputMode}
+                        style={config.name === 'stock' ? styles.wide : undefined}
                       />
                     )}
                   </form.AppField>
