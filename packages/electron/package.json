@@ -1,6 +1,6 @@
 {
   "name": "electron",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Customer records and saved database workflows",
   "homepage": "https://github.com/nsdeschenes/shop-things",
   "type": "module",
