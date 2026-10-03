@@ -144,7 +144,7 @@ for (const scenario of [
       expect(report.environment.target).toBe(
         process.platform === 'darwin'
           ? 'darwin-arm64-supporting-unsigned'
-          : 'linux-x64-glibc'
+          : `linux-${process.arch}-glibc`
       );
       expect(report.finishedAt).toBeTruthy();
       expect(report).not.toHaveProperty('deferred');

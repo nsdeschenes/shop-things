@@ -19,7 +19,7 @@ system.
 
 ## GitHub releases
 
-Releases publish the Linux x64 `.deb` installer and `SHA256SUMS` to GitHub through
+Releases publish the Linux arm64 `.deb` installer and `SHA256SUMS` to GitHub through
 [Craft](https://craft.sentry.dev/). The root and every workspace package share the
 product version; workspace packages are not published to a registry.
 

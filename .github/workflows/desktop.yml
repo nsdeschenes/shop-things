@@ -56,9 +56,9 @@ permissions:
   contents: read
 
 jobs:
-  linux-x64:
-    name: Linux x64 build and acceptance
-    runs-on: ubuntu-24.04
+  linux-arm64:
+    name: Linux arm64 build and acceptance
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -100,8 +100,8 @@ jobs:
         run: xvfb-run -a node --experimental-strip-types scripts/acceptance.ts --reuse-source-checks
         env:
           ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
-          SMOKE_EXECUTION_ENVIRONMENT: github-actions-ubuntu-24.04-native-linux-x64
-      - name: Stage the tested Linux x64 release
+          SMOKE_EXECUTION_ENVIRONMENT: github-actions-ubuntu-24.04-arm-native-linux-arm64
+      - name: Stage the tested Linux arm64 release
         if: github.event_name == 'push'
         run: node --experimental-strip-types scripts/stage-release.ts
         env:
@@ -116,7 +116,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: renderer-acceptance-linux-x64-${{ github.sha }}
+          name: renderer-acceptance-linux-arm64-${{ github.sha }}
           path: |
             ${{ runner.temp }}/shop-things-acceptance
             acceptance-reports/renderer

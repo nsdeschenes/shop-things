@@ -9,7 +9,7 @@
     "build": "node --experimental-strip-types scripts/build.ts",
     "dist:mac": "pnpm build && pnpm --filter electron exec electron-builder --mac dmg --arm64 --publish never",
     "dist:win": "pnpm build && pnpm --filter electron exec electron-builder --win nsis --x64 --publish never",
-    "dist:linux": "pnpm dist:linux:x64",
+    "dist:linux": "pnpm dist:linux:arm64",
     "dist:linux:x64": "pnpm build && pnpm --filter electron exec electron-builder --linux deb --x64 --publish never",
     "dist:linux:arm64": "pnpm build && pnpm --filter electron exec electron-builder --linux deb --arm64 --publish never",
     "fix": "nub run lint:fix && nub run fmt",
