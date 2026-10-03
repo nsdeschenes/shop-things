@@ -1,4 +1,6 @@
 /* oxlint-disable import/no-named-export -- Main consumes the native dialog factory as a backend boundary. */
+import {parse} from 'node:path';
+
 import {dialog} from 'electron';
 import type {BrowserWindow} from 'electron';
 
@@ -57,8 +59,14 @@ export function createNativeDialogs(
     },
     exportCsv: () =>
       chooseDestination('Export all saved customers', 'customers.csv', true),
-    backupDatabase: () =>
-      chooseDestination('Back up saved customers', 'customers-backup.sqlite'),
+    backupDatabase: databasePath => {
+      const {name, ext} = parse(databasePath);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      return chooseDestination(
+        'Back up saved customers',
+        `${name}-${timestamp}${ext || '.sqlite'}`
+      );
+    },
     restoreSource: () => chooseExisting('Choose backup to restore'),
     restoreDestination: () =>
       chooseDestination('Create restored working database', 'customers-restored.sqlite'),

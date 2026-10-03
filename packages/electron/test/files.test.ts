@@ -3,7 +3,7 @@ import {join} from 'node:path';
 
 import type {DraftRequest, DraftResolution} from '@shop-things/contract';
 import {openDatabase, openExistingDatabase, runMigrations} from '@shop-things/db';
-import {expect, test} from 'vitest';
+import {expect, test, vi} from 'vitest';
 
 import {ActionService, databaseOperations} from '../src/actionService.js';
 import {DraftCoordinator} from '../src/draftCoordinator.js';
@@ -49,6 +49,7 @@ test('cancelled or failed file operations preserve active references and approve
     );
     f.choices.csv = null;
     f.choices.backup = null;
+    const backupDialog = vi.spyOn(f.options.dialogs, 'backupDatabase');
     expect(await f.service.handlers['exports.csv']({session: state.session!})).toEqual({
       status: 'cancelled',
     });
@@ -57,6 +58,7 @@ test('cancelled or failed file operations preserve active references and approve
     ).toEqual({
       status: 'cancelled',
     });
+    expect(backupDialog).toHaveBeenCalledWith(state.selectedPath);
     f.choices.restoreSource = null;
     expect(await f.service.handlers['database.restore']()).toEqual({status: 'cancelled'});
     const source = join(f.directory, 'bad.db');

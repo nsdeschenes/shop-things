@@ -45,7 +45,7 @@ export interface BackendDialogs {
   openDatabase(): Promise<string | null>;
   importCsv(): Promise<string | null>;
   exportCsv(): Promise<string | null>;
-  backupDatabase(): Promise<string | null>;
+  backupDatabase(databasePath: string): Promise<string | null>;
   restoreSource(): Promise<string | null>;
   restoreDestination(): Promise<string | null>;
   confirmDiscard(): Promise<boolean>;
@@ -622,7 +622,7 @@ export class ActionService {
 
   private async backup(session: string): Promise<{path: string} | null> {
     const handle = this.requireSession(session);
-    const selected = await this.options.dialogs.backupDatabase();
+    const selected = await this.options.dialogs.backupDatabase(this.state.selectedPath!);
     if (selected === null) {
       return null;
     }
