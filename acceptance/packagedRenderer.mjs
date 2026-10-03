@@ -14,11 +14,13 @@ const release = join(root, 'release');
 const directory =
   process.env.ACCEPTANCE_REPORT_DIR ?? join(root, 'acceptance-reports/package-renderer');
 const reportPath = join(directory, 'packaged-renderer.json');
-const target = process.env.PACKAGED_RENDERER_TARGET ?? 'linux-x64';
+const target = process.env.PACKAGED_RENDERER_TARGET ?? `linux-${process.arch}`;
 const supporting = target === 'darwin-arm64-supporting';
+const architecture = supporting ? 'arm64' : target.slice('linux-'.length);
+const debArchitecture = architecture === 'x64' ? 'amd64' : architecture;
 const bundle = supporting
   ? join(release, 'mac-arm64/Shop Things.app/Contents')
-  : join(release, 'linux-unpacked');
+  : join(release, architecture === 'x64' ? 'linux-unpacked' : 'linux-arm64-unpacked');
 const executablePath = join(bundle, supporting ? 'MacOS/Shop Things' : 'shop-things');
 const resources = join(bundle, supporting ? 'Resources' : 'resources');
 const archive = join(resources, 'app.asar');
@@ -27,7 +29,7 @@ const addon = join(
   'app.asar.unpacked/node_modules',
   supporting
     ? '@tursodatabase/database-darwin-arm64/turso.darwin-arm64.node'
-    : '@tursodatabase/database-linux-x64-gnu/turso.linux-x64-gnu.node'
+    : `@tursodatabase/database-linux-${architecture}-gnu/turso.linux-${architecture}-gnu.node`
 );
 const report = {
   schemaVersion: 2,
@@ -37,7 +39,7 @@ const report = {
   command: process.argv,
   evidence: supporting
     ? 'unsigned macOS arm64 packaged renderer supporting automation'
-    : 'Linux glibc x64 normal packaged renderer automation',
+    : `Linux glibc ${architecture} normal packaged renderer automation`,
   skipped: 0,
   cases: [],
   logs: [],
@@ -284,9 +286,9 @@ async function inventory() {
   const artifacts = [executablePath, archive, addon];
   if (!supporting) {
     const installers = (await readdir(release)).filter(name =>
-      name.endsWith('_amd64.deb')
+      name.endsWith(`_${debArchitecture}.deb`)
     );
-    assert.equal(installers.length, 1, 'One Linux x64 installer required');
+    assert.equal(installers.length, 1, `One Linux ${architecture} installer required`);
     artifacts.push(join(release, installers[0]));
   }
 
@@ -308,11 +310,11 @@ try {
     'Packaged acceptance requires clean committed sources'
   );
   assert.ok(
-    target === 'linux-x64' || supporting,
+    target === 'linux-x64' || target === 'linux-arm64' || supporting,
     `Unsupported packaged target ${target}`
   );
   assert.equal(process.platform, supporting ? 'darwin' : 'linux');
-  assert.equal(process.arch, supporting ? 'arm64' : 'x64');
+  assert.equal(process.arch, architecture);
   report.executionEnvironment = {
     platform: process.platform,
     arch: process.arch,

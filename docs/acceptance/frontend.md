@@ -6,7 +6,7 @@ decisions #47–#52, and acceptance decision
 remain authoritative, with browser preview scope superseded by [#69](https://github.com/nsdeschenes/shop-things/issues/69). This document maps runnable evidence; it is not a release
 certificate or a substitute for the generated same-commit record.
 
-Linux glibc x64 and unsigned macOS arm64 have automated runners. Each report
+Linux glibc arm64 (CI), Linux glibc x64, and unsigned macOS arm64 have automated runners. Each report
 identifies the actual target, revision, executed checks, and current outcome.
 Automated success does not establish manual GUI, signing, installation, or
 other-platform verification.
@@ -40,11 +40,11 @@ Record the tester, date, source commit, packaged artifact SHA, and observed
 results when performing these checks. Do not infer completion from automation
 that controls native picker functions.
 
-| Platform/workflow        | Checklist still requiring actual GUI evidence                                                                                                                                                                                                                                                                                                                  |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Packaged Linux glibc x64 | Native Create/Open/Backup/Export selection and Cancel; each Restore picker Cancel; Restore source/new-destination explanation; real modal owner/window and Stay safe default; failed candidate leaves usable app/draft; close/quit/guarded reload; pending/error/BUSY/dismiss feedback; active filename/full path and destination results; nested-route reload |
-| Development desktop      | Dirty source restart cancelled without process/draft loss; explicit retry; graceful closure before fresh build/replacement; failed prerequisite build prevents launch and fixed source recovers                                                                                                                                                                |
-| Chromium on Linux        | Dirty preview reload/close shows exactly the native unload warning; dismiss preserves edits; confirmed reload resets temporary data; browser-controlled unload limitations recorded                                                                                                                                                                            |
+| Platform/workflow          | Checklist still requiring actual GUI evidence                                                                                                                                                                                                                                                                                                                  |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Packaged Linux glibc arm64 | Native Create/Open/Backup/Export selection and Cancel; each Restore picker Cancel; Restore source/new-destination explanation; real modal owner/window and Stay safe default; failed candidate leaves usable app/draft; close/quit/guarded reload; pending/error/BUSY/dismiss feedback; active filename/full path and destination results; nested-route reload |
+| Development desktop        | Dirty source restart cancelled without process/draft loss; explicit retry; graceful closure before fresh build/replacement; failed prerequisite build prevents launch and fixed source recovers                                                                                                                                                                |
+| Chromium on Linux          | Dirty preview reload/close shows exactly the native unload warning; dismiss preserves edits; confirmed reload resets temporary data; browser-controlled unload limitations recorded                                                                                                                                                                            |
 
 Keep manual and release decisions outside automated reports. Use a current run's
 logs and reports to diagnose execution failures; historical CI incidents do not

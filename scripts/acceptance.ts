@@ -29,7 +29,9 @@ const report: Record<string, unknown> = {
     os: release(),
     node: process.version,
     glibc: glibc ?? null,
-    target: supporting ? 'darwin-arm64-supporting-unsigned' : 'linux-x64-glibc',
+    target: supporting
+      ? 'darwin-arm64-supporting-unsigned'
+      : `linux-${process.arch}-glibc`,
   },
   steps: [],
 };
@@ -132,7 +134,7 @@ try {
     assert.equal(process.arch, 'arm64');
   } else {
     assert.equal(process.platform, 'linux');
-    assert.equal(process.arch, 'x64');
+    assert.ok(process.arch === 'x64' || process.arch === 'arm64');
     assert.ok(glibc, 'glibc required');
   }
 
@@ -243,14 +245,14 @@ try {
     'electron-builder',
     ...(supporting
       ? ['--mac', 'dir', '--arm64', '-c.mac.identity=null']
-      : ['--linux', 'deb', '--x64']),
+      : ['--linux', 'deb', `--${process.arch}`]),
     '--publish',
     'never',
   ]);
   if (supporting) {
     report.shippedBackend = {
       applicable: false,
-      target: 'linux-x64-glibc',
+      target: `linux-${process.arch}-glibc`,
       reason: 'The shipped backend smoke requires the Linux release artifact',
     };
   } else {
@@ -262,7 +264,11 @@ try {
     'packaged-renderer',
     process.execPath,
     ['acceptance/packagedRenderer.mjs'],
-    {PACKAGED_RENDERER_TARGET: supporting ? 'darwin-arm64-supporting' : 'linux-x64'}
+    {
+      PACKAGED_RENDERER_TARGET: supporting
+        ? 'darwin-arm64-supporting'
+        : `linux-${process.arch}`,
+    }
   );
   report.packagedRenderer = await successfulReport('packaged-renderer.json');
   await command('development-watcher', process.execPath, ['acceptance/watcher.mjs']);

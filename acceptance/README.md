@@ -25,7 +25,8 @@ either acceptance command. The runner handles tests, builds, renderer, packaging
 and watcher checks for the desktop packages. Root script tests run separately in
 the Script tooling workflow or with `pnpm test:scripts`.
 
-This is the required Linux glibc x64 automated command. A local unsigned macOS
+CI uses this command on Linux glibc arm64 to build and test the release.
+It also supports local Linux glibc x64 runs. A local unsigned macOS
 arm64 supporting run is explicitly available:
 
 ```sh

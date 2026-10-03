@@ -19,15 +19,15 @@ assert.ok(reportDirectory && commit, 'Provide ACCEPTANCE_REPORT_DIR and GITHUB_S
 const report = JSON.parse(readFileSync(join(reportDirectory, 'acceptance.json'), 'utf8'));
 assert.equal(report.status, 'passed', 'Acceptance must pass before staging a release');
 assert.equal(report.commit, commit, 'Acceptance must test the release commit');
-assert.equal(report.environment.target, 'linux-x64-glibc');
+assert.equal(report.environment.target, 'linux-arm64-glibc');
 const installers = readdirSync('release').filter(name => name.endsWith('.deb'));
 assert.equal(installers.length, 1, 'Expected exactly one Debian installer');
 const installer = installers[0]!;
 assert.ok(
-  installer.endsWith(`_${version}_amd64.deb`),
-  'Expected this version and x64 architecture'
+  installer.endsWith(`_${version}_arm64.deb`),
+  'Expected this version and arm64 architecture'
 );
-const filename = `shop-things-${version}-linux-x64.deb`;
+const filename = `shop-things-${version}-linux-arm64.deb`;
 const installerPath = join('release', installer);
 const checksum = createHash('sha256').update(readFileSync(installerPath)).digest('hex');
 const outputDirectory = join('release', 'assets');

@@ -11,7 +11,11 @@ const release = join(projectRoot, 'release');
 const runtimeScript = fileURLToPath(
   new URL('../scripts/smokePackaged.ts', import.meta.url)
 );
-const installerPattern = /_amd64\.deb$/;
+const debArchitecture = process.arch === 'x64' ? 'amd64' : process.arch;
+const bundle = join(
+  release,
+  process.arch === 'x64' ? 'linux-unpacked' : 'linux-arm64-unpacked'
+);
 async function digest(path: string) {
   return createHash('sha256')
     .update(await readFile(path))
@@ -38,7 +42,7 @@ function git(args: string[]): string {
   return result.stdout.trim();
 }
 
-test('proves the shipped Linux glibc x64 backend and retains commit/artifact evidence', async () => {
+test(`proves the shipped Linux glibc ${process.arch} backend and retains commit/artifact evidence`, async () => {
   const reportPath = process.env.SMOKE_REPORT_PATH ?? join(release, 'package-smoke.json');
   await mkdir(dirname(reportPath), {recursive: true});
   const report: Record<string, unknown> = {
@@ -46,8 +50,8 @@ test('proves the shipped Linux glibc x64 backend and retains commit/artifact evi
     status: 'running',
     startedAt: new Date().toISOString(),
     executionEnvironment:
-      process.env.SMOKE_EXECUTION_ENVIRONMENT ?? 'native Linux glibc x64',
-    target: 'linux-x64-glibc',
+      process.env.SMOKE_EXECUTION_ENVIRONMENT ?? `native Linux glibc ${process.arch}`,
+    target: `linux-${process.arch}-glibc`,
   };
   let failure: unknown;
   await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
@@ -59,7 +63,7 @@ test('proves the shipped Linux glibc x64 backend and retains commit/artifact evi
       'Acceptance requires clean committed sources, including nonignored untracked files'
     ).toBe(false);
     expect(process.platform).toBe('linux');
-    expect(process.arch).toBe('x64');
+    expect(['x64', 'arm64']).toContain(process.arch);
     const diagnostic = process.report.getReport();
     const header =
       typeof diagnostic === 'object' && diagnostic !== null && 'header' in diagnostic
@@ -73,12 +77,12 @@ test('proves the shipped Linux glibc x64 backend and retains commit/artifact evi
       'Linux acceptance requires glibc'
     );
     report.glibcVersion = header.glibcVersionRuntime;
-    const executable = join(release, 'linux-unpacked/shop-things');
-    const resources = join(release, 'linux-unpacked/resources');
+    const executable = join(bundle, 'shop-things');
+    const resources = join(bundle, 'resources');
     const archive = join(resources, 'app.asar');
     const addon = join(
       resources,
-      'app.asar.unpacked/node_modules/@tursodatabase/database-linux-x64-gnu/turso.linux-x64-gnu.node'
+      `app.asar.unpacked/node_modules/@tursodatabase/database-linux-${process.arch}-gnu/turso.linux-${process.arch}-gnu.node`
     );
     for (const path of [executable, archive, addon]) {
       expect(
@@ -88,9 +92,9 @@ test('proves the shipped Linux glibc x64 backend and retains commit/artifact evi
     }
 
     const installers = (await readdir(release)).filter(name =>
-      installerPattern.test(name)
+      name.endsWith(`_${debArchitecture}.deb`)
     );
-    expect(installers.length, 'Expected one Linux x64 installer').toBe(1);
+    expect(installers.length, `Expected one Linux ${process.arch} installer`).toBe(1);
     const installer = join(release, installers[0]!);
     report.artifacts = await Promise.all(
       [executable, archive, addon, installer].map(async path => ({

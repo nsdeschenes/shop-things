@@ -65,7 +65,7 @@ jobs:
           set -euo pipefail
           BODY_FILE=$(mktemp)
           cat > "$BODY_FILE" <<EOF
-          Prepare version $VERSION for the Linux x64 Debian release.
+          Prepare version $VERSION for the Linux arm64 Debian release.
 
           Synchronizes the root and all workspace package versions and updates CHANGELOG.md through Craft.
 
