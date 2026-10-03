@@ -1,4 +1,10 @@
 # Changelog
+## 0.3.0
+
+### Bug Fixes 🐛
+
+- (interface) Adjust customer balance order and email label by @nsdeschenes in [#122](https://github.com/nsdeschenes/shop-things/pull/122)
+
 ## 0.2.0
 
 ### New Features ✨
