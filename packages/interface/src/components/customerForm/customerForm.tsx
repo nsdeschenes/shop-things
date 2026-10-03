@@ -51,8 +51,8 @@ const identityFields = [
 
 const balanceFields = [
   {name: 'stock', label: 'Items in stock', inputMode: 'numeric'},
-  {name: 'balance', label: 'Balance ($)', inputMode: 'decimal'},
   {name: 'previousBalance', label: 'Previous balance ($)', inputMode: 'decimal'},
+  {name: 'balance', label: 'Balance ($)', inputMode: 'decimal'},
 ] as const;
 
 const styles = stylex.create({
