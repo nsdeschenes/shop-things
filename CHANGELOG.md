@@ -1,4 +1,14 @@
 # Changelog
+## 0.2.0
+
+### New Features ✨
+
+- Use timestamped database backup names and align balance fields by @nsdeschenes in [#120](https://github.com/nsdeschenes/shop-things/pull/120)
+
+### Internal Changes 🔧
+
+- (release) Build and publish the Linux ARM64 installer by @nsdeschenes in [#119](https://github.com/nsdeschenes/shop-things/pull/119)
+
 ## 0.1.1
 
 ### New Features ✨
