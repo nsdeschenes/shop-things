@@ -53,7 +53,7 @@ let fixture;
 const expectedCases = [
   'isolated-normal-packaged-bootstrap-and-resource-inventory',
   'customer-create-update-and-search-persistence',
-  'saved-backup-csv-preserve-draft-and-search',
+  'saved-backup-csv-from-settings',
   'nested-route-guarded-reload-and-native-close-Stay',
   'graceful-close-remembered-reopen-and-customer-delete',
   'independent-saved-database-backup-and-csv-verification',
@@ -94,7 +94,7 @@ async function passed(name) {
   await persist();
 }
 
-async function launch(readyButton = 'Database') {
+async function launch(readyButton = 'Database settings') {
   const env = {...process.env};
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.VITE_DEV_SERVER_URL;
@@ -165,7 +165,12 @@ async function launch(readyButton = 'Database') {
     report.logs.push({source: 'renderer-console', text: message.text()})
   );
   await page.context().tracing.start({screenshots: true, snapshots: true});
-  await expect(page.getByRole('button', {name: readyButton, exact: true})).toBeEnabled();
+  await expect(
+    page.getByRole(readyButton === 'Database settings' ? 'link' : 'button', {
+      name: readyButton,
+      exact: true,
+    })
+  ).toBeEnabled();
   assert.equal(new URL(page.url()).protocol, 'file:');
   assert.equal(
     await page.evaluate(
@@ -187,8 +192,8 @@ async function picker(path) {
 }
 
 async function menu(name) {
-  await page.getByRole('button', {name: 'Database', exact: true}).click();
-  await page.getByRole('menuitem', {name, exact: true}).click();
+  await page.getByRole('link', {name: 'Database settings', exact: true}).click();
+  await page.getByRole('button', {name, exact: true}).click();
 }
 
 async function status() {
@@ -371,9 +376,7 @@ try {
   await expect(page.getByRole('heading', {name: 'Set Up Your Database'})).toBeVisible();
   await picker(working);
   await page.getByRole('button', {name: 'Create database', exact: true}).click();
-  await expect(
-    page.getByText('Active database: working.sqlite', {exact: true})
-  ).toBeVisible();
+  await expect(page.getByText('working.sqlite', {exact: true})).toBeVisible();
   await page.getByRole('link', {name: 'Add customer', exact: true}).click();
   await page.getByRole('textbox', {name: 'First name', exact: true}).fill('Packaged');
   await page.getByRole('textbox', {name: 'Last name', exact: true}).fill('Saved');
@@ -413,8 +416,8 @@ try {
   await expect(page).toHaveURL(/#\/customers\/1$/);
   await passed(expectedCases[1]);
   await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
-  await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
-  const route = page.url();
+  await page.getByRole('link', {name: 'Database settings'}).click();
+  const settingsRoute = page.url();
   const before = await status();
   for (const [name, path, message] of [
     ['Back up database', backup, 'Backup saved.'],
@@ -423,10 +426,8 @@ try {
     await picker(path);
     await menu(name);
     await expect(page.getByText(`${message} ${path}`, {exact: true})).toBeVisible();
-    await expect(
-      page.getByRole('textbox', {name: 'Balance ($)', exact: true})
-    ).toHaveValue('-');
-    assert.equal(page.url(), route);
+    await expect(page.getByRole('heading', {name: 'Database Settings'})).toBeVisible();
+    assert.equal(page.url(), settingsRoute);
     assert.deepEqual(await status(), before);
   }
 
@@ -435,6 +436,11 @@ try {
     0
   );
   await passed(expectedCases[2]);
+  await page.getByRole('link', {name: 'Shop Things'}).click();
+  await page.getByRole('link', {name: 'Packaged Saved', exact: true}).click();
+  await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+  await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
+  const route = page.url();
   await application.evaluate(({Menu}) =>
     Menu.getApplicationMenu()
       .items.find(item => item.label === 'View')

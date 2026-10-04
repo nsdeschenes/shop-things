@@ -35,7 +35,7 @@ test('explicit preview survives routing and reload without native storage', asyn
     'Export all customers',
   ]) {
     await expect(page.getByRole('button', {name, exact: true})).toHaveCount(0);
-    await expect(page.getByRole('menuitem', {name, exact: true})).toHaveCount(0);
+    await expect(page.getByRole('button', {name, exact: true})).toHaveCount(0);
   }
 
   await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
@@ -180,9 +180,7 @@ test('actual newer database notification wins over a delayed startup status resp
     expect(created.value.selectedPath).toBe(databasePath);
     expect((await stat(databasePath)).size).toBeGreaterThan(0);
     // Database controls wait for startup status while the header remains visible.
-    await expect(
-      page.getByText('Active database: created.sqlite', {exact: true})
-    ).toHaveCount(0);
+    await expect(page.getByText('created.sqlite', {exact: true})).toHaveCount(0);
     const held = await application.evaluate(() =>
       Reflect.get(globalThis, 'acceptanceHeldStatus')
     );
@@ -194,9 +192,7 @@ test('actual newer database notification wins over a delayed startup status resp
     await expect(
       page.getByRole('heading', {name: 'Customers', exact: true})
     ).toBeVisible();
-    await expect(
-      page.getByText('Active database: created.sqlite', {exact: true})
-    ).toBeVisible();
+    await expect(page.getByText('created.sqlite', {exact: true})).toBeVisible();
     const messages = await application.evaluate(() =>
       Reflect.get(globalThis, 'acceptanceIpc')
     );

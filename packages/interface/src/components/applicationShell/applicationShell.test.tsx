@@ -168,3 +168,36 @@ test('detail refresh failure retains clean form and retries; deleted customer re
   expect(name).toHaveAttribute('readonly');
   expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
 });
+
+test('database settings navigation protects unsaved edits and preview file actions stay disabled', async () => {
+  const {user, client, application, router} = await fixture();
+  await act(async () => {
+    await router.navigate({to: '/customers/$customerId', params: {customerId: '1'}});
+  });
+  const name = await screen.findByRole('textbox', {name: 'First name'});
+  await user.clear(name);
+  await user.type(name, 'Draft');
+  await user.click(screen.getByRole('link', {name: 'Database settings'}));
+  await waitFor(() => expect(application.protection.getState().frozen).toBe(false));
+  expect(name).toHaveValue('Draft');
+  expect(router.state.location.pathname).toBe('/customers/1');
+  client.drafts.confirmDiscard = async () => ({
+    status: 'success',
+    value: {approved: true},
+  });
+  await user.click(screen.getByRole('link', {name: 'Database settings'}));
+  expect(await screen.findByRole('heading', {name: 'Database Settings'})).toBeVisible();
+  expect(router.state.location.pathname).toBe('/settings/database');
+  for (const action of [
+    'Open database',
+    'Create database',
+    'Back up database',
+    'Restore backup',
+    'Import customers',
+    'Export all customers',
+  ]) {
+    expect(screen.getByRole('button', {name: action})).toBeDisabled();
+  }
+
+  expect(application.protection.isDirty()).toBe(false);
+});

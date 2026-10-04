@@ -265,14 +265,16 @@ test('one application subscription and participant span route/editor mounts and 
       (_electron, path) => Reflect.get(globalThis, 'acceptanceFiles').push({path}),
       join(directory, 'customers.sqlite')
     );
-    await page.getByRole('button', {name: 'Database', exact: true}).click();
-    await page.getByRole('menuitem', {name: 'Open database', exact: true}).click();
+    await page.getByRole('link', {name: 'Database settings', exact: true}).click();
+    await page.getByRole('button', {name: 'Open database', exact: true}).click();
     await expect
       .poll(() =>
         application.evaluate(() => Reflect.get(globalThis, 'acceptanceHeldRead')?.channel)
       )
       .toBe('shop-things:database.open');
-    await expect(page.getByRole('textbox', {name: 'Search customers'})).toBeDisabled();
+    await expect(
+      page.getByRole('button', {name: 'Open database', exact: true})
+    ).toBeDisabled();
     await expect(page.getByRole('status', {name: 'Loading database'})).toBeVisible();
     await expect(page.getByRole('status')).toHaveCount(1);
     await application.evaluate(() => Reflect.get(globalThis, 'acceptanceReleaseRead')());
