@@ -1,6 +1,7 @@
 {
   "name": "@shop-things",
   "version": "0.3.0",
+  "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
     "start": "node --experimental-strip-types index.ts",

@@ -3,6 +3,7 @@
   "version": "0.3.0",
   "description": "Customer records and saved database workflows",
   "homepage": "https://github.com/nsdeschenes/shop-things",
+  "license": "GPL-3.0-only",
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
@@ -42,6 +43,10 @@
       "package.json"
     ],
     "extraResources": [
+      {
+        "from": "../../LICENSE",
+        "to": "LICENSE"
+      },
       {
         "from": "../db/migrations",
         "to": "migrations",
