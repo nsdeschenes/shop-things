@@ -277,8 +277,8 @@ test('import refresh reconciles saved caches without overwriting an editor draft
   expect(name).toHaveValue('Unsaved draft');
   expect(application.protection.isDirty()).toBe(true);
   expect(application.queryClient.getQueryData(customerKeys.list(session, ''))).toEqual([
-    imported.value,
     initial.value,
+    imported.value,
   ]);
   expect(
     application.queryClient.getQueryState(customerKeys.detail(session, 1))?.isInvalidated

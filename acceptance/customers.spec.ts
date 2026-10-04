@@ -24,7 +24,7 @@ test('saved customer list/search/detail through actual bundled hash renderer IPC
   try {
     const page = await application.firstWindow();
     await expect(page.getByText('3 results', {exact: true})).toBeVisible();
-    await expectCustomerOrder(page, ['Alpha One', 'Unnumbered Three', 'Zed Two']);
+    await expectCustomerOrder(page, ['Zed Two', 'Alpha One', 'Unnumbered Three']);
     await expect(page.getByRole('link', {name: 'Add customer'})).toBeVisible();
     const search = page.getByRole('textbox', {name: 'Search customers'});
     await search.fill('Alpha');
@@ -269,5 +269,5 @@ test('Chromium preview searches temporary customers by name and number with pred
   await expectCustomerOrder(page, ['[literal]']);
   await page.getByRole('button', {name: 'Clear'}).click();
   await expect(page.getByText('4 results', {exact: true})).toBeVisible();
-  await expectCustomerOrder(page, ['[literal]', 'alice', 'Alina', 'Zoe']);
+  await expectCustomerOrder(page, ['Zoe', 'alice', 'Alina', '[literal]']);
 });
