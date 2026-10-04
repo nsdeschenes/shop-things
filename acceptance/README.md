@@ -4,7 +4,10 @@ The integrated application has startup/setup/recovery, protected Create/Open/Ret
 customer CRUD and search, explicit stale/deleted/unavailable recovery, all-saved
 Backup/CSV, and separate-file Restore. Browser preview requires exactly
 `preview=true` and identifies temporary customer data that clears on reload.
-File operations are available only in Electron; preview has no file or failure controls.
+Database Settings uses the selected overview layout, with a filename link in the
+header and a collapsed file location. File operations are available only in
+Electron; browser preview shows the settings page with file actions disabled.
+Entering settings from a dirty editor uses the normal Stay/Discard protection.
 
 ## Run the complete automated record
 
@@ -77,12 +80,12 @@ controlled; no operator settings or application processes are used.
 - `recovery.spec.ts`: explicit stale reload with Stay/error/held-read/success,
   deleted copyable drafts, stale Delete, unavailable recovery and protected Retry.
 - `database.spec.ts`: visible startup loading, setup/remembered reopen/failure,
-  protected Create/Open/Retry, silent picker Cancel, existing-file/schema/settings
-  failures preserving the old session/view/draft even after discard approval.
-- `savedFiles.spec.ts`: all saved rows despite search, CSV escaping/money/null
-  values, unsaved draft exclusion, independent backup reopen, no leave prompt,
+  settings navigation and file location, Create/Open/Retry, silent picker Cancel,
+  existing-file/schema/settings failures preserving the old session and settings page.
+- `savedFiles.spec.ts`: all saved rows from settings, CSV escaping/money/null
+  values, independent backup reopen, unchanged session,
   pending/Cancel/EEXIST/folder/BUSY feedback.
-- `restore.spec.ts`: direct protected action, Stay/both picker Cancels,
+- `restore.spec.ts`: protected settings navigation, Stay/both picker Cancels,
   separate destination/source preservation, unsupported/migration/persistence
   failure cleanup, fresh-session reset and remembered reopen.
 - `history.spec.ts`, `unload.spec.ts`: actual Back/Forward safe Stay/Discard,

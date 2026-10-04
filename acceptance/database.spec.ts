@@ -85,11 +85,13 @@ test('database startup shows loading, first launch cancellation is silent, Creat
     ).toBeVisible();
     await expect(page.getByText('Database created.', {exact: true})).toBeVisible();
     await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(0);
-    await expect(page.getByText('Active database: created.sqlite')).toBeVisible();
+    await expect(page.getByText('created.sqlite')).toBeVisible();
     await expect(
-      page.getByRole('banner').getByRole('button', {name: 'Database', exact: true})
+      page.getByRole('banner').getByRole('link', {name: 'Database settings', exact: true})
     ).toBeVisible();
-    await page.getByText('Full database path', {exact: true}).click();
+    await page.getByRole('link', {name: 'Database settings'}).click();
+    await expect(page.getByRole('heading', {name: 'Database Settings'})).toBeVisible();
+    await page.getByText('File location', {exact: true}).click();
     await expect(page.getByText(path, {exact: true})).toBeVisible();
     expect(JSON.parse(await readFile(join(directory, 'database.json'), 'utf8'))).toEqual({
       path,
@@ -100,7 +102,7 @@ test('database startup shows loading, first launch cancellation is silent, Creat
     await expect(
       reopened.getByRole('heading', {name: 'Customers', exact: true})
     ).toBeVisible();
-    await expect(reopened.getByText('Active database: created.sqlite')).toBeVisible();
+    await expect(reopened.getByText('created.sqlite')).toBeVisible();
   } finally {
     await application.evaluate(() => {
       Reflect.get(globalThis, 'acceptanceReleaseStartup')?.();
@@ -147,18 +149,14 @@ test('database remembered recovery Retry never creates a missing file and Open r
   }
 });
 
-test('database failed candidates after discard approval preserve editor, route, active file and existing destination', async () => {
+test('database failed candidates preserve settings, active file and existing destination', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-database-'));
   const application = await launch(directory, {
     SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
   });
   try {
     const page = await application.firstWindow();
-    await page.getByRole('textbox', {name: 'Search customers'}).fill('Alpha');
-    await page.getByRole('textbox', {name: 'Search customers'}).press('Enter');
-    await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
-    await page.getByRole('textbox', {name: 'First name'}).fill('Retained draft');
+    await page.getByRole('link', {name: 'Database settings'}).click();
     const before = await page.evaluate(
       async () => (await Reflect.get(window, 'shopThings').database.status()).value
     );
@@ -170,13 +168,11 @@ test('database failed candidates after discard approval preserve editor, route, 
         (_electron, path) => Reflect.get(globalThis, 'acceptanceFiles').push({path}),
         path
       );
-      await page.getByRole('button', {name: 'Database', exact: true}).click();
-      await page.getByRole('menuitem', {name: action, exact: true}).click();
+      await page.getByRole('link', {name: 'Database settings', exact: true}).click();
+      await page.getByRole('button', {name: action, exact: true}).click();
       await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(0);
-      await expect(page.getByRole('textbox', {name: 'First name'})).toHaveValue(
-        'Retained draft'
-      );
-      expect(new URL(page.url()).hash).toBe('#/customers/2');
+      await expect(page.getByRole('heading', {name: 'Database Settings'})).toBeVisible();
+      expect(new URL(page.url()).hash).toBe('#/settings/database');
       expect(
         await page.evaluate(
           async () => (await Reflect.get(window, 'shopThings').database.status()).value
@@ -205,7 +201,9 @@ test('database failed candidates after discard approval preserve editor, route, 
     await expect(page.getByRole('alertdialog', {includeHidden: true})).toContainText(
       'permissions'
     );
-    await expect(page.getByRole('textbox', {name: 'First name'})).toBeEnabled();
+    await expect(
+      page.getByRole('button', {name: 'Open database', exact: true})
+    ).toBeEnabled();
   } finally {
     await application.evaluate(() => Reflect.set(globalThis, 'acceptanceDiscard', true));
     await application.close();

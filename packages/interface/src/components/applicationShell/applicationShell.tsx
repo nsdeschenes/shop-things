@@ -1,5 +1,5 @@
 import {Dialog} from '@base-ui/react/dialog';
-import {ArrowPathIcon} from '@heroicons/react/24/outline';
+import {ArrowPathIcon, CircleStackIcon, Cog6ToothIcon} from '@heroicons/react/24/outline';
 import * as stylex from '@stylexjs/stylex';
 import {Link, useBlocker, useRouter} from '@tanstack/react-router';
 import {useEffect, useRef, useSyncExternalStore, type ReactNode} from 'react';
@@ -20,6 +20,7 @@ interface ApplicationShellProps {
   children: ReactNode;
 }
 
+const pathSeparator = /[\\/]/;
 const styles = stylex.create({
   dialog: {
     padding: spacing.space24,
@@ -53,6 +54,30 @@ const styles = stylex.create({
   },
   headerActions: {gap: spacing.space12, alignItems: 'center', display: 'flex'},
   refreshIcon: {height: 20, width: 20},
+  databaseLink: {
+    borderRadius: 6,
+    gap: 10,
+    paddingBlock: 8,
+    paddingInline: 12,
+    textDecoration: 'none',
+    alignItems: 'center',
+    backgroundColor: {
+      default: 'rgba(255,255,255,0.09)',
+      ':hover': 'rgba(255,255,255,0.16)',
+    },
+    color: 'inherit',
+    display: 'flex',
+    fontSize: 14,
+    outlineOffset: 4,
+    minWidth: 0,
+  },
+  databaseName: {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    maxWidth: 180,
+  },
+  databaseIcon: {flexShrink: 0, height: 16, width: 16},
   brand: {textDecoration: 'none', color: 'inherit'},
   eyebrow: {
     fontSize: typography.fontSizeSmall,
@@ -213,7 +238,30 @@ export default function ApplicationShell({application, children}: ApplicationShe
             >
               <ArrowPathIcon aria-hidden="true" {...stylex.props(styles.refreshIcon)} />
             </Button>
-            <DatabaseActions application={application} />
+            <Link
+              to="/settings/database"
+              disabled={
+                Boolean(state.pendingFile || state.refreshingCustomers) ||
+                protection.frozen ||
+                protection.saving
+              }
+              aria-label="Database settings"
+              title={
+                state.database.selectedPath?.split(pathSeparator).at(-1) ??
+                'Temporary database'
+              }
+              {...stylex.props(styles.databaseLink)}
+            >
+              <CircleStackIcon
+                aria-hidden="true"
+                {...stylex.props(styles.databaseIcon)}
+              />
+              <span {...stylex.props(styles.databaseName)}>
+                {state.database.selectedPath?.split(pathSeparator).at(-1) ??
+                  'Temporary database'}
+              </span>
+              <Cog6ToothIcon aria-hidden="true" {...stylex.props(styles.databaseIcon)} />
+            </Link>
           </div>
         )}
       </header>

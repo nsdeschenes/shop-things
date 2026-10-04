@@ -41,8 +41,8 @@ function launch(directory: string, seed = false) {
 }
 
 async function startRestore(page: Page) {
-  await page.getByRole('button', {name: 'Database', exact: true}).click();
-  await page.getByRole('menuitem', {name: 'Restore backup', exact: true}).click();
+  await page.getByRole('link', {name: 'Database settings', exact: true}).click();
+  await page.getByRole('button', {name: 'Restore backup', exact: true}).click();
 }
 
 async function restore(
@@ -103,15 +103,15 @@ test('Keyboard Restore opens source selection directly and returns focus after c
     await application.evaluate(() =>
       Reflect.get(globalThis, 'acceptanceFiles').push({hold: true})
     );
-    const trigger = page.getByRole('button', {name: 'Database', exact: true});
+    const trigger = page.getByRole('link', {name: 'Database settings', exact: true});
     await trigger.focus();
     await trigger.press('Enter');
-    const item = page.getByRole('menuitem', {name: 'Restore backup', exact: true});
-    await page.keyboard.press('r');
+    const item = page.getByRole('button', {name: 'Restore backup', exact: true});
+    await item.focus();
     await expect(item).toBeFocused();
     await item.press('Enter');
     await expect(page.getByRole('status', {name: 'Loading database'})).toBeVisible();
-    await expect(trigger).toBeDisabled();
+    await expect(item).toBeDisabled();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect
       .poll(() =>
@@ -124,16 +124,16 @@ test('Keyboard Restore opens source selection directly and returns focus after c
     await application.evaluate(() =>
       Reflect.get(globalThis, 'acceptanceReleasePicker')()
     );
-    await expect(trigger).toBeEnabled();
+    await expect(item).toBeEnabled();
     await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(0);
-    await expect(trigger).toBeFocused();
-    await expect(page.getByText('3 results', {exact: true})).toBeVisible();
+    await expect(item).toBeFocused();
+    await expect(page.getByRole('heading', {name: 'Database Settings'})).toBeVisible();
   } finally {
     await cleanup(application, directory);
   }
 });
 
-test('Restore directly protects dirty drafts and both picker cancellations preserve exact drafts and references', async () => {
+test('Settings navigation protects dirty drafts and restore cancellations preserve the saved database', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-restore-cancel-'));
   const application = await launch(directory, true);
   try {
@@ -149,29 +149,29 @@ test('Restore directly protects dirty drafts and both picker cancellations prese
     const balance = page.getByRole('textbox', {name: 'Balance ($)', exact: true});
     await balance.fill('-');
     const before = await stateAndRecord(page);
-    const hash = new URL(page.url()).hash;
     const pickers = await application.evaluate(
       () => Reflect.get(globalThis, 'acceptancePickers').length
     );
     // Stay refuses native preparation before either file picker.
-    await startRestore(page);
+    await page.getByRole('link', {name: 'Database settings'}).click();
     await expect(balance).toBeEnabled();
     expect(
       await application.evaluate(() =>
         Reflect.get(globalThis, 'acceptanceDialogs').at(-1)
       )
     ).toMatchObject({message: 'Discard unsaved changes?', defaultId: 0, cancelId: 0});
-    await expect(page.getByRole('button', {name: 'Database', exact: true})).toBeFocused();
+    await expect(balance).toHaveValue('-');
     expect(
       await application.evaluate(
         () => Reflect.get(globalThis, 'acceptancePickers').length
       )
     ).toBe(pickers);
     await application.evaluate(() => Reflect.set(globalThis, 'acceptanceDiscard', true));
+    await page.getByRole('link', {name: 'Database settings'}).click();
+    await expect(page.getByRole('heading', {name: 'Database Settings'})).toBeVisible();
+    const hash = new URL(page.url()).hash;
     await restore(application, page);
-    await expect(balance).toHaveValue('-');
     await restore(application, page, source);
-    await expect(balance).toHaveValue('-');
     expect(await stateAndRecord(page)).toEqual(before);
     expect(new URL(page.url()).hash).toBe(hash);
     expect(await readFile(source)).toEqual(original);
@@ -192,7 +192,7 @@ test('Restore directly protects dirty drafts and both picker cancellations prese
   }
 });
 
-test('Restore failures preserve source, working database, route and draft; held picker admission rejects BUSY', async () => {
+test('Restore failures preserve source, working database and settings; held picker admission rejects BUSY', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-restore-failure-'));
   const application = await launch(directory, true);
   try {
@@ -201,10 +201,8 @@ test('Restore failures preserve source, working database, route and draft; held 
     const source = join(directory, 'backup.sqlite');
     await backup(application, page, source);
     const sourceBytes = await readFile(source);
-    await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
-    const name = page.getByRole('textbox', {name: 'First name'});
-    await name.fill('Retained restore draft');
+    await page.getByRole('link', {name: 'Database settings'}).click();
+    const name = page.getByRole('button', {name: 'Open database', exact: true});
     const before = await stateAndRecord(page);
     const hash = new URL(page.url()).hash;
     await application.evaluate(() => Reflect.set(globalThis, 'acceptanceDiscard', true));
@@ -252,7 +250,7 @@ test('Restore failures preserve source, working database, route and draft; held 
     await expect(page.getByRole('status', {name: 'Loading database'})).toBeVisible();
     await expect(name).toBeDisabled();
     await expect(
-      page.getByRole('button', {name: 'Database', exact: true})
+      page.getByRole('button', {name: 'Restore backup', exact: true})
     ).toBeDisabled();
     expect(
       await page.evaluate(async () => {
@@ -267,7 +265,7 @@ test('Restore failures preserve source, working database, route and draft; held 
     );
     await expect(name).toBeEnabled();
     await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(0);
-    await expect(name).toHaveValue('Retained restore draft');
+    await expect(page.getByRole('heading', {name: 'Database Settings'})).toBeVisible();
     expect(await stateAndRecord(page)).toEqual(before);
     expect(new URL(page.url()).hash).toBe(hash);
     expect(await readFile(source)).toEqual(sourceBytes);
@@ -310,13 +308,7 @@ test('Restore migrates only a separate read-only backup copy, cleans failed migr
     );
     await chmod(source, 0o444);
     const sourceBytes = await readFile(source);
-    await page.getByRole('textbox', {name: 'Search customers'}).fill('Alpha');
-    await page.getByRole('textbox', {name: 'Search customers'}).press('Enter');
-    await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
-    await page
-      .getByRole('textbox', {name: 'First name'})
-      .fill('Retained migration draft');
+    await page.getByRole('link', {name: 'Database settings'}).click();
     const before = await stateAndRecord(page);
     const hash = new URL(page.url()).hash;
     await application.evaluate(async () => {
@@ -341,9 +333,7 @@ test('Restore migrates only a separate read-only backup copy, cleans failed migr
     await restore(application, page, source, failed);
     await expect(page.getByRole('alertdialog', {includeHidden: true})).toBeVisible();
     await expect(access(failed)).rejects.toThrow();
-    await expect(page.getByRole('textbox', {name: 'First name'})).toHaveValue(
-      'Retained migration draft'
-    );
+    await expect(page.getByRole('heading', {name: 'Database Settings'})).toBeVisible();
     expect(await stateAndRecord(page)).toEqual(before);
     expect(new URL(page.url()).hash).toBe(hash);
     expect(await readFile(source)).toEqual(sourceBytes);
@@ -388,9 +378,7 @@ test('Restore migrates only a separate read-only backup copy, cleans failed migr
     await application.close();
     application = await launch(directory);
     const reopened = await application.firstWindow();
-    await expect(
-      reopened.getByText('Active database: restored-working.sqlite')
-    ).toBeVisible();
+    await expect(reopened.getByText('restored-working.sqlite')).toBeVisible();
     await reopened.getByRole('link', {name: 'Restored pending'}).click();
     await expect(
       reopened.getByRole('textbox', {name: 'Balance ($)', exact: true})

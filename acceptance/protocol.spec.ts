@@ -36,8 +36,10 @@ test('actual stale and duplicate draft resolutions cannot clear or unfreeze a ne
       Reflect.get(globalThis, 'acceptanceFiles').push({hold: true});
     });
     async function prepareOpen() {
-      await page.getByRole('button', {name: 'Database', exact: true}).click();
-      await page.getByRole('menuitem', {name: 'Open database', exact: true}).click();
+      // Exercise native lifecycle messages against an active draft independently of settings navigation.
+      await page.evaluate(() => {
+        void Reflect.get(window, 'shopThings').database.open();
+      });
       await expect
         .poll(() =>
           application.evaluate(() => Reflect.get(globalThis, 'acceptancePickerHeld'))

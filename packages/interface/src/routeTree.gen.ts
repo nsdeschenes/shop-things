@@ -14,6 +14,7 @@ import { Route as CustomersRouteImport } from './routes/customers'
 import { Route as CustomersCustomerIdRouteImport } from './routes/customers_.$customerId'
 import { Route as CustomersImportRouteImport } from './routes/customers_.import'
 import { Route as CustomersNewRouteImport } from './routes/customers_.new'
+import { Route as SettingsDatabaseRouteImport } from './routes/settings.database'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -40,6 +41,11 @@ const CustomersNewRoute = CustomersNewRouteImport.update({
   path: '/customers/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsDatabaseRoute = SettingsDatabaseRouteImport.update({
+  id: '/settings/database',
+  path: '/settings/database',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -47,6 +53,7 @@ export interface FileRoutesByFullPath {
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/customers/import': typeof CustomersImportRoute
   '/customers/new': typeof CustomersNewRoute
+  '/settings/database': typeof SettingsDatabaseRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,6 +61,7 @@ export interface FileRoutesByTo {
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/customers/import': typeof CustomersImportRoute
   '/customers/new': typeof CustomersNewRoute
+  '/settings/database': typeof SettingsDatabaseRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -62,6 +70,7 @@ export interface FileRoutesById {
   '/customers_/$customerId': typeof CustomersCustomerIdRoute
   '/customers_/import': typeof CustomersImportRoute
   '/customers_/new': typeof CustomersNewRoute
+  '/settings/database': typeof SettingsDatabaseRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -71,6 +80,7 @@ export interface FileRouteTypes {
     | '/customers/$customerId'
     | '/customers/import'
     | '/customers/new'
+    | '/settings/database'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -78,6 +88,7 @@ export interface FileRouteTypes {
     | '/customers/$customerId'
     | '/customers/import'
     | '/customers/new'
+    | '/settings/database'
   id:
     | '__root__'
     | '/'
@@ -85,6 +96,7 @@ export interface FileRouteTypes {
     | '/customers_/$customerId'
     | '/customers_/import'
     | '/customers_/new'
+    | '/settings/database'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -93,6 +105,7 @@ export interface RootRouteChildren {
   CustomersCustomerIdRoute: typeof CustomersCustomerIdRoute
   CustomersImportRoute: typeof CustomersImportRoute
   CustomersNewRoute: typeof CustomersNewRoute
+  SettingsDatabaseRoute: typeof SettingsDatabaseRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -132,6 +145,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CustomersNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/database': {
+      id: '/settings/database'
+      path: '/settings/database'
+      fullPath: '/settings/database'
+      preLoaderRoute: typeof SettingsDatabaseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -141,6 +161,7 @@ const rootRouteChildren: RootRouteChildren = {
   CustomersCustomerIdRoute: CustomersCustomerIdRoute,
   CustomersImportRoute: CustomersImportRoute,
   CustomersNewRoute: CustomersNewRoute,
+  SettingsDatabaseRoute: SettingsDatabaseRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

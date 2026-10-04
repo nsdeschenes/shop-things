@@ -42,11 +42,11 @@ async function menu(
   page: Awaited<ReturnType<Awaited<ReturnType<typeof launch>>['firstWindow']>>,
   name: string
 ) {
-  await page.getByRole('button', {name: 'Database', exact: true}).click();
-  await page.getByRole('menuitem', {name, exact: true}).click();
+  await page.getByRole('link', {name: 'Database settings', exact: true}).click();
+  await page.getByRole('button', {name, exact: true}).click();
 }
 
-test('Backup and CSV include every saved row while searched editor draft, route, and session remain intact', async () => {
+test('Backup and CSV include every saved row from settings while route and session remain intact', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-saved-files-'));
   const application = await launch(directory);
   try {
@@ -63,13 +63,7 @@ test('Backup and CSV include every saved row while searched editor draft, route,
     await expect(
       page.getByRole('heading', {name: 'Customers', exact: true})
     ).toBeVisible();
-    await page.getByRole('link', {name: 'Alpha One', exact: true}).click();
-    await expect(
-      page.getByRole('heading', {name: 'Alpha One', exact: true})
-    ).toBeVisible();
-    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
-    await page.getByRole('textbox', {name: 'First name', exact: true}).fill('UNSAVED');
-    await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
+    await page.getByRole('link', {name: 'Database settings'}).click();
     const route = page.url();
     const before = await page.evaluate(() =>
       Reflect.get(window, 'shopThings').database.status()
@@ -92,12 +86,7 @@ test('Backup and CSV include every saved row while searched editor draft, route,
         Reflect.get(globalThis, 'acceptanceReleasePicker')()
       );
       await expect(page.getByText(`${message} ${path}`, {exact: true})).toBeVisible();
-      await expect(
-        page.getByRole('textbox', {name: 'First name', exact: true})
-      ).toHaveValue('UNSAVED');
-      await expect(
-        page.getByRole('textbox', {name: 'Balance ($)', exact: true})
-      ).toHaveValue('-');
+      await expect(page.getByRole('heading', {name: 'Database Settings'})).toBeVisible();
       expect(page.url()).toBe(route);
       expect(
         await page.evaluate(() => Reflect.get(window, 'shopThings').database.status())
@@ -156,14 +145,12 @@ test('Backup and CSV include every saved row while searched editor draft, route,
   }
 });
 
-test('saved-file cancellation, existing destinations, unwritable folders, and BUSY clear pending without losing draft', async () => {
+test('saved-file cancellation, existing destinations, unwritable folders, and BUSY clear pending on settings', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-saved-files-'));
   const application = await launch(directory);
   try {
     const page = await application.firstWindow();
-    await page.getByRole('link', {name: 'Alpha One', exact: true}).click();
-    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
-    await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
+    await page.getByRole('link', {name: 'Database settings'}).click();
     const route = page.url();
     for (const name of ['Back up database', 'Export all customers']) {
       await menu(page, name);
@@ -230,12 +217,7 @@ test('saved-file cancellation, existing destinations, unwritable folders, and BU
           })
       ).toBeVisible();
       await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(0);
-      await expect(
-        page.getByRole('textbox', {name: 'Balance ($)', exact: true})
-      ).toBeEnabled();
-      await expect(
-        page.getByRole('textbox', {name: 'Balance ($)', exact: true})
-      ).toHaveValue('-');
+      await expect(page.getByRole('button', {name, exact: true})).toBeEnabled();
       expect(page.url()).toBe(route);
       await page
         .getByRole('button', {name: 'Dismiss error', exact: true, includeHidden: true})
