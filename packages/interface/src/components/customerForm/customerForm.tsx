@@ -1,5 +1,6 @@
 import {Field} from '@base-ui/react/field';
 import {Form} from '@base-ui/react/form';
+import {ArrowLeftIcon} from '@heroicons/react/24/outline';
 import type {CustomerRecord} from '@shop-things/contract';
 import {createCustomerInputSchema} from '@shop-things/contract/schemas';
 import * as stylex from '@stylexjs/stylex';
@@ -97,6 +98,7 @@ const styles = stylex.create({
   },
   fieldHelp: {marginTop: 0},
   actions: {gap: spacing.space10, display: 'flex', flexWrap: 'wrap'},
+  backIcon: {height: 16, width: 16},
   saveStatus: {
     overflow: 'hidden',
     clipPath: 'inset(50%)',
@@ -396,6 +398,14 @@ export default function CustomerForm({
             : 'New Customer'
       }
       stickyHeader
+      back={
+        initialRecord && (
+          <Link to="/customers" {...stylex.props(buttonStyles.base)}>
+            <ArrowLeftIcon aria-hidden="true" {...stylex.props(styles.backIcon)} />
+            Back to customers
+          </Link>
+        )
+      }
       actions={
         <div {...stylex.props(styles.actions)}>
           <form.Subscribe selector={state => state.canSubmit}>
@@ -412,9 +422,11 @@ export default function CustomerForm({
             )}
           </form.Subscribe>
 
-          <Link to="/customers" {...stylex.props(buttonStyles.base)}>
-            {initialRecord ? 'Back to customers' : 'Cancel'}
-          </Link>
+          {!initialRecord && (
+            <Link to="/customers" {...stylex.props(buttonStyles.base)}>
+              Cancel
+            </Link>
+          )}
           {initialRecord && savedRecord && blocked !== 'deleted' && (
             <DeleteCustomer
               key={`${savedRecord.reference.session}:${savedRecord.reference.id}`}

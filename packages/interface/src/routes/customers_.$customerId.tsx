@@ -99,7 +99,7 @@ function RouteComponent() {
 
   if (missing) {
     return (
-      <PageShell title="Customer Not Found" actions={back}>
+      <PageShell title="Customer Not Found" back={back}>
         <p>This customer no longer exists.</p>
       </PageShell>
     );
@@ -107,7 +107,7 @@ function RouteComponent() {
 
   if (!available) {
     return (
-      <PageShell title="Customer" actions={back}>
+      <PageShell title="Customer" back={back}>
         <p role="alert">
           {state.error ??
             'The database is unavailable. Open or retry the database to continue.'}
@@ -122,7 +122,7 @@ function RouteComponent() {
     (!customer && !record.isError)
   ) {
     return (
-      <PageShell title="Customer" actions={back}>
+      <PageShell title="Customer" back={back}>
         <p role="status">Loading customer…</p>
       </PageShell>
     );
@@ -130,7 +130,7 @@ function RouteComponent() {
 
   if (record.isError) {
     return (
-      <PageShell title="Customer" actions={back}>
+      <PageShell title="Customer" back={back}>
         <section role="alert">
           <p>{record.error.message}</p>
           <Button

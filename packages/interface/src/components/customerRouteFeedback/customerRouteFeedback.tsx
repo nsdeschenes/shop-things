@@ -16,7 +16,7 @@ export function CustomerRouteError({error}: ErrorComponentProps) {
   return (
     <PageShell
       title={missing ? 'Customer Not Found' : 'Could Not Load Customers'}
-      actions={<Link to="/customers">Back to customers</Link>}
+      back={<Link to="/customers">Back to customers</Link>}
     >
       <section role="alert">
         <p>{missing ? 'This customer no longer exists.' : message}</p>
