@@ -9,6 +9,7 @@ import {typography} from '../../styles/typography.stylex';
 type Props = {
   title: string;
   actions?: ReactNode;
+  back?: ReactNode;
   notice?: ReactNode;
   stickyHeader?: boolean;
   children: ReactNode;
@@ -33,12 +34,14 @@ const styles = stylex.create({
     marginBottom: spacing.space18,
   },
   sticky: {position: 'sticky', zIndex: 1, top: 0},
+  back: {marginBottom: 20},
   title: {fontSize: 30, fontWeight: typography.fontWeightSemibold, letterSpacing: -0.6},
 });
 
 export default function PageShell({
   title,
   actions,
+  back,
   notice,
   stickyHeader = false,
   children,
@@ -46,6 +49,7 @@ export default function PageShell({
   return (
     <main {...stylex.props(styles.page)}>
       {notice}
+      {back && <div {...stylex.props(styles.back)}>{back}</div>}
       <header {...stylex.props(styles.header, stickyHeader && styles.sticky)}>
         <h1 {...stylex.props(styles.title)}>{title}</h1>
         {actions}
