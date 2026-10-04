@@ -217,8 +217,7 @@ export async function listCustomers(
         : undefined
     )
     .orderBy(
-      sql`coalesce(${customers.lastName}, '') collate nocase`,
-      sql`coalesce(${customers.firstName}, '') collate nocase`,
+      sql`${customers.customerNumber} is null`,
       customers.customerNumber,
       customers.id
     );

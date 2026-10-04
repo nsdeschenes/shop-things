@@ -128,7 +128,21 @@ test('preview searches names case-insensitively, treats punctuation literally, a
   expect(await list('missing')).toEqual([]);
 });
 
-test('preview orders names case-insensitively with stable ties', async () => {
-  const list = await previewNames(['Zoe', 'alice', 'Alice', 'Bob']);
-  expect(await list('')).toEqual(['alice', 'Alice', 'Bob', 'Zoe']);
+test('preview orders by numeric customer number rather than name', async () => {
+  const names = [
+    'Zoe',
+    'alice',
+    'Alice',
+    'Bob',
+    'Eve',
+    'Dan',
+    'Gus',
+    'Fred',
+    'Ian',
+    'Hal',
+    'Ken',
+    'Jay',
+  ];
+  const list = await previewNames(names);
+  expect(await list('')).toEqual(names);
 });

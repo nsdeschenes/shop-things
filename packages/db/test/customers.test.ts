@@ -131,7 +131,7 @@ test('invalid writes reject every field with no changes; nullable reads do not p
   });
 });
 
-test('SQL search treats wildcard characters literally and orders names/numbers deterministically', async () => {
+test('SQL search treats wildcard characters literally and orders by customer number', async () => {
   await fixture(async ({db}) => {
     await createCustomer(db, {firstName: 'Zed', lastName: 'smith'});
     const alice = await createCustomer(db, {firstName: 'Alice', lastName: 'Smith'});
@@ -139,10 +139,29 @@ test('SQL search treats wildcard characters literally and orders names/numbers d
 
     expect(
       (await listCustomers(db, '  SMITH  ')).map(row => row.firstName)
-    ).toStrictEqual(['Alice', 'Zed']);
+    ).toStrictEqual(['Zed', 'Alice']);
     expect((await listCustomers(db, '%_'))[0]?.firstName).toBe('100%_');
     expect((await listCustomers(db, String(alice.customerNumber)))[0]?.id).toBe(alice.id);
     expect(await listCustomers(db, 'Alice Smith')).toStrictEqual([]);
+  });
+});
+
+test('customer numbers sort numerically with unassigned customers last in stable order', async () => {
+  await fixture(async ({db}) => {
+    const first = await createCustomer(db, {firstName: 'Alice'});
+    const second = await createCustomer(db, {firstName: 'Zoe'});
+    const third = await createCustomer(db, {firstName: 'Bob'});
+    const fourth = await createCustomer(db, {firstName: 'Aaron'});
+    await updateCustomer(db, first, {customerNumber: 10});
+    await db.run(
+      'update customers set customerNumber = null where customerNumber in (3, 4)'
+    );
+    expect((await listCustomers(db)).map(row => [row.id, row.customerNumber])).toEqual([
+      [second.id, 2],
+      [first.id, 10],
+      [third.id, null],
+      [fourth.id, null],
+    ]);
   });
 });
 
@@ -157,8 +176,8 @@ test('Unicode search matches literal mixed-case first and last names without reg
     });
     const nul = await createCustomer(db, {firstName: 'Nul\0ÉMILIE', lastName: 'Nul'});
     expect((await listCustomers(db, ' éMi ')).map(row => row.id)).toStrictEqual([
-      nul.id,
       first.id,
+      nul.id,
     ]);
     expect((await listCustomers(db, 'ångström')).map(row => row.id)).toStrictEqual([
       first.id,

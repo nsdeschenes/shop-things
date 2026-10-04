@@ -21,12 +21,6 @@ export default function createPreviewClient(
     version: 1,
   };
   const customers: CustomerRecord[] = [];
-  function compareText(first: string, second: string) {
-    const a = first.toLowerCase();
-    const b = second.toLowerCase();
-    return a < b ? -1 : a > b ? 1 : 0;
-  }
-
   let nextId = 1;
 
   function error(code: ContractError['code'], message: string) {
@@ -92,8 +86,8 @@ export default function createPreviewClient(
           )
           .toSorted(
             (first, second) =>
-              compareText(first.customer.lastName, second.customer.lastName) ||
-              compareText(first.customer.firstName, second.customer.firstName) ||
+              (first.customer.customerNumber ?? Infinity) -
+                (second.customer.customerNumber ?? Infinity) ||
               first.customer.id - second.customer.id
           );
         return {status: 'success', value: structuredClone(value)};
