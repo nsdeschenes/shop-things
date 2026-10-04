@@ -80,16 +80,21 @@ test(`proves the shipped Linux glibc ${process.arch} backend and retains commit/
     const executable = join(bundle, 'shop-things');
     const resources = join(bundle, 'resources');
     const archive = join(resources, 'app.asar');
+    const license = join(resources, 'LICENSE');
     const addon = join(
       resources,
       `app.asar.unpacked/node_modules/@tursodatabase/database-linux-${process.arch}-gnu/turso.linux-${process.arch}-gnu.node`
     );
-    for (const path of [executable, archive, addon]) {
+    for (const path of [executable, archive, addon, license]) {
       expect(
         (await stat(path)).isFile(),
         `Missing packaged resource: ${path}`
       ).toBeTruthy();
     }
+
+    expect(await readFile(license)).toStrictEqual(
+      await readFile(join(projectRoot, 'LICENSE'))
+    );
 
     const installers = (await readdir(release)).filter(name =>
       name.endsWith(`_${debArchitecture}.deb`)
@@ -97,7 +102,7 @@ test(`proves the shipped Linux glibc ${process.arch} backend and retains commit/
     expect(installers.length, `Expected one Linux ${process.arch} installer`).toBe(1);
     const installer = join(release, installers[0]!);
     report.artifacts = await Promise.all(
-      [executable, archive, addon, installer].map(async path => ({
+      [executable, archive, addon, installer, license].map(async path => ({
         path: relative(release, path),
         sha256: await digest(path),
       }))
