@@ -56,8 +56,39 @@ permissions:
   contents: read
 
 jobs:
-  linux-arm64:
-    name: Linux arm64 build and acceptance
+  install:
+    name: Install and cache dependencies
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - name: Set dependency cache key
+        id: cache-key
+        run: echo "key=workspace-deps-v1-${{ runner.os }}-${{ runner.arch }}-node26-pnpm12.4.2-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'packages/*/package.json') }}" >> "$GITHUB_OUTPUT"
+      - name: Cache installed dependencies
+        id: dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+          key: ${{ steps.cache-key.outputs.key }}
+      - name: Install locked workspace and Electron runtime
+        if: steps.dependencies.outputs.cache-hit != 'true'
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter electron exec node -e 'require("electron/install.js")'
+
+  format:
+    name: Format check
+    needs: install
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -67,45 +98,218 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 26
-          cache: pnpm
-      - name: Install locked workspace and Chromium desktop dependencies
+      - name: Restore installed dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+          key: ${{ needs.install.outputs.cache-key }}
+          fail-on-cache-miss: true
+      - name: Format check
         run: |
-          pnpm install --frozen-lockfile
+          pnpm fmt:check
+
+  lint:
+    name: Lint
+    needs: install
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - name: Restore installed dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+          key: ${{ needs.install.outputs.cache-key }}
+          fail-on-cache-miss: true
+      - name: Lint
+        run: |
+          pnpm prepare:backend
+          pnpm lint
+
+  typecheck:
+    name: Type check
+    needs: install
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - name: Restore installed dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+          key: ${{ needs.install.outputs.cache-key }}
+          fail-on-cache-miss: true
+      - name: Type check
+        run: |
+          pnpm prepare:backend
+          pnpm typecheck
+
+  unit-tests:
+    name: Unit tests
+    needs: install
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - name: Restore installed dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+          key: ${{ needs.install.outputs.cache-key }}
+          fail-on-cache-miss: true
+      - name: Set acceptance report directory
+        run: |
+          echo "ACCEPTANCE_REPORT_DIR=$RUNNER_TEMP/shop-things-acceptance" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/shop-things-acceptance"
+      - name: Run package unit tests and record the checked commit
+        run: |
+          pnpm test --packages-only
+          git rev-parse HEAD > "$ACCEPTANCE_REPORT_DIR/source-checks.commit"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: source-checks-${{ github.sha }}
+          path: ${{ runner.temp }}/shop-things-acceptance
+          if-no-files-found: error
+
+  e2e:
+    name: Renderer and watcher E2E
+    needs: [install, format, lint, typecheck, unit-tests]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - name: Restore installed dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+          key: ${{ needs.install.outputs.cache-key }}
+          fail-on-cache-miss: true
+      - name: Set acceptance report directory
+        run: |
+          echo "ACCEPTANCE_REPORT_DIR=$RUNNER_TEMP/shop-things-acceptance" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/shop-things-acceptance"
+      - name: Install desktop dependencies and enable the Electron sandbox
+        run: |
           pnpm exec playwright install-deps chromium
           sudo apt-get update
           sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
-      - name: Check formatting
-        run: pnpm fmt:check
-      - name: Build shared package declarations for lint
-        run: pnpm prepare:backend
-      - name: Check lint
-        run: pnpm lint
-      - name: Check TypeScript
-        run: pnpm typecheck
-      - name: Run unit tests
-        run: |
-          mkdir -p "$ACCEPTANCE_REPORT_DIR"
-          pnpm --filter electron exec node -e 'require("electron/install.js")'
-          pnpm test --packages-only
-          git rev-parse HEAD > "$ACCEPTANCE_REPORT_DIR/source-checks.commit"
-        env:
-          ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
-      - name: Enable Electron namespace sandbox on the temporary runner
-        run: |
-          # Ubuntu 24.04 blocks unprivileged user namespaces for unpacked Electron binaries.
-          # Allow Chromium's namespace sandbox for direct packaged and watcher launches.
+          # Ubuntu 24.04 blocks unprivileged user namespaces for unpacked Electron.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           unshare --user --map-root-user true
-      - name: Build, renderer, packaged and watcher acceptance
-        run: xvfb-run -a node --experimental-strip-types scripts/acceptance.ts --reuse-source-checks
+      - name: Install Chromium
+        run: pnpm exec playwright install chromium
+      - name: Run renderer E2E
+        run: xvfb-run -a pnpm test:renderer
+      - name: Run development watcher acceptance
+        run: xvfb-run -a node acceptance/watcher.mjs
+      - name: Retain renderer results and the checked commit
+        run: |
+          cp acceptance-reports/renderer/results.json "$ACCEPTANCE_REPORT_DIR/renderer-results.json"
+          git rev-parse HEAD > "$ACCEPTANCE_REPORT_DIR/renderer-checks.commit"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-${{ github.sha }}
+          path: ${{ runner.temp }}/shop-things-acceptance
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: renderer-artifacts-${{ github.sha }}
+          path: acceptance-reports/renderer
+          if-no-files-found: warn
+
+  linux-arm64:
+    name: Linux arm64 build and acceptance
+    needs: [install, e2e]
+    if: always()
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Require dependencies and E2E checks to pass
+        env:
+          INSTALL_RESULT: ${{ needs.install.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          test "$INSTALL_RESULT" = success
+          test "$E2E_RESULT" = success
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - name: Restore installed dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+          key: ${{ needs.install.outputs.cache-key }}
+          fail-on-cache-miss: true
+      - name: Set acceptance report directory
+        run: |
+          echo "ACCEPTANCE_REPORT_DIR=$RUNNER_TEMP/shop-things-acceptance" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/shop-things-acceptance"
+      - name: Install desktop dependencies and enable the Electron sandbox
+        run: |
+          pnpm exec playwright install-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
+          # Ubuntu 24.04 blocks unprivileged user namespaces for unpacked Electron.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare --user --map-root-user true
+      - uses: actions/download-artifact@v4
+        with:
+          name: source-checks-${{ github.sha }}
+          path: ${{ runner.temp }}/shop-things-acceptance
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-${{ github.sha }}
+          path: ${{ runner.temp }}/shop-things-acceptance
+      - uses: actions/download-artifact@v4
+        with:
+          name: renderer-artifacts-${{ github.sha }}
+          path: ${{ runner.temp }}/shop-things-acceptance/renderer-artifacts
+      - name: Build Linux arm64 and smoke test the package
+        run: xvfb-run -a node --experimental-strip-types scripts/acceptance.ts --reuse-source-checks --reuse-renderer-checks
         env:
           ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
           SMOKE_EXECUTION_ENVIRONMENT: github-actions-ubuntu-24.04-arm-native-linux-arm64
       - name: Stage the tested Linux arm64 release
         if: github.event_name == 'push'
         run: node --experimental-strip-types scripts/stage-release.ts
-        env:
-          ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'push'
         with:
@@ -117,8 +321,6 @@ jobs:
         if: always()
         with:
           name: renderer-acceptance-linux-arm64-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/shop-things-acceptance
-            acceptance-reports/renderer
-          if-no-files-found: error
+          path: ${{ runner.temp }}/shop-things-acceptance
+          if-no-files-found: warn
           overwrite: true

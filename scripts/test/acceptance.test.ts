@@ -30,6 +30,12 @@ for (const scenario of [
   'stale source checks',
   'missing source checks',
   'skipped source test',
+  'reused renderer checks',
+  'stale renderer checks',
+  'missing renderer checks',
+  'failed watcher checks',
+  'stale watcher checks',
+  'flaky renderer checks',
 ]) {
   test(`acceptance command reports ${scenario} with current-run diagnostics`, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'shop-things-acceptance-command-'));
@@ -89,12 +95,16 @@ for (const scenario of [
         ]);
       }
 
-      const reuseSourceChecks = [
-        'reused checks',
-        'stale source checks',
-        'missing source checks',
-        'skipped source test',
-      ].includes(scenario);
+      const reuseRendererChecks =
+        scenario.includes('renderer checks') || scenario.includes('watcher checks');
+      const reuseSourceChecks =
+        reuseRendererChecks ||
+        [
+          'reused checks',
+          'stale source checks',
+          'missing source checks',
+          'skipped source test',
+        ].includes(scenario);
       if (reuseSourceChecks && scenario !== 'missing source checks') {
         const source = spawnSync(process.execPath, [fixture, 'test'], {
           encoding: 'utf8',
@@ -115,6 +125,47 @@ for (const scenario of [
         }
       }
 
+      if (reuseRendererChecks) {
+        const renderer = spawnSync(process.execPath, [fixture, 'test:renderer'], {
+          cwd: directory,
+          encoding: 'utf8',
+          env: {...process.env, ACCEPTANCE_REPORT_DIR: reports},
+        });
+        expect(renderer.status).toBe(0);
+        await cp(join(reports, 'renderer'), join(reports, 'renderer-artifacts'), {
+          recursive: true,
+        });
+        await cp(
+          join(reports, 'renderer/results.json'),
+          join(reports, 'renderer-results.json')
+        );
+        if (scenario !== 'missing renderer checks') {
+          await writeFile(
+            join(reports, 'renderer-checks.commit'),
+            scenario === 'stale renderer checks'
+              ? 'another-commit'
+              : git(['rev-parse', 'HEAD'])
+          );
+        }
+
+        await writeFile(
+          join(reports, 'watcher.json'),
+          JSON.stringify({
+            status: scenario === 'failed watcher checks' ? 'failed' : 'passed',
+            commit:
+              scenario === 'stale watcher checks'
+                ? 'another-commit'
+                : git(['rev-parse', 'HEAD']),
+          })
+        );
+        if (scenario === 'flaky renderer checks') {
+          await writeFile(
+            join(reports, 'renderer-results.json'),
+            JSON.stringify({stats: {expected: 1, unexpected: 0, skipped: 0, flaky: 1}})
+          );
+        }
+      }
+
       const result = spawnSync(
         process.execPath,
         [
@@ -122,6 +173,7 @@ for (const scenario of [
           'scripts/acceptance.ts',
           ...(process.platform === 'darwin' ? ['--supporting-macos'] : []),
           ...(reuseSourceChecks ? ['--reuse-source-checks'] : []),
+          ...(reuseRendererChecks ? ['--reuse-renderer-checks'] : []),
         ],
         {
           cwd: directory,
@@ -149,7 +201,11 @@ for (const scenario of [
       expect(report.finishedAt).toBeTruthy();
       expect(report).not.toHaveProperty('deferred');
       expect(report).not.toHaveProperty('acceptance');
-      if (scenario === 'passed' || scenario === 'reused checks') {
+      if (
+        scenario === 'passed' ||
+        scenario === 'reused checks' ||
+        scenario === 'reused renderer checks'
+      ) {
         expect(result.status).toBe(0);
         expect(report.status).toBe('passed');
         expect(report.commit).toBe(git(['rev-parse', 'HEAD']));
@@ -160,8 +216,21 @@ for (const scenario of [
             )
           : commands;
         expect(report.steps.map((step: {name: string}) => step.name)).toEqual(
-          expectedCommands
+          reuseRendererChecks
+            ? expectedCommands.filter(
+                name =>
+                  !['chromium-runtime', 'renderer', 'development-watcher'].includes(name)
+              )
+            : expectedCommands
         );
+        if (reuseRendererChecks) {
+          expect(report.rendererChecks).toEqual({
+            origin: 'prior-workflow-job',
+            commit: git(['rev-parse', 'HEAD']),
+          });
+          expect(report.developmentWatcher.status).toBe('passed');
+        }
+
         if (reuseSourceChecks) {
           expect(report.sourceChecks).toMatchObject({
             origin: 'prior-workflow-steps',
@@ -207,6 +276,18 @@ for (const scenario of [
           expect(await readFile(join(reports, 'build.log'), 'utf8')).toContain(
             'fixture child diagnostic'
           );
+        } else if (reuseRendererChecks) {
+          expect(report.steps.map((step: {name: string}) => step.name)).toEqual(
+            scenario === 'flaky renderer checks' ? ['build'] : []
+          );
+          const errors: Record<string, string> = {
+            'stale renderer checks': 'Renderer checks must use this commit',
+            'missing renderer checks': 'renderer-checks.commit',
+            'failed watcher checks': 'watcher.json must pass',
+            'stale watcher checks': 'watcher.json must use this commit',
+            'flaky renderer checks': 'Renderer flaky checks must be zero',
+          };
+          expect(report.error.message).toContain(errors[scenario]);
         } else {
           expect(report.steps).toEqual([]);
           const expectedMessage =
