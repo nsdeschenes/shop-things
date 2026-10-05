@@ -1,4 +1,24 @@
 # Changelog
+## 0.3.1
+
+### New Features ✨
+
+- (interface) Add a database settings overview by @nsdeschenes in [#128](https://github.com/nsdeschenes/shop-things/pull/128)
+
+### Bug Fixes 🐛
+
+- (customers) Sort customers by customer number by @nsdeschenes in [#126](https://github.com/nsdeschenes/shop-things/pull/126)
+- (electron) Include the GPL license in packaged applications by @nsdeschenes in [#146](https://github.com/nsdeschenes/shop-things/pull/146)
+- (interface) Place customer back navigation above the heading by @nsdeschenes in [#127](https://github.com/nsdeschenes/shop-things/pull/127)
+
+### Internal Changes 🔧
+
+- Run desktop checks in parallel after dependency caching by @nsdeschenes in [#147](https://github.com/nsdeschenes/shop-things/pull/147)
+
+### Other
+
+- Add GNU GPL v3 License by @nsdeschenes in [#144](https://github.com/nsdeschenes/shop-things/pull/144)
+
 ## 0.3.0
 
 ### Bug Fixes 🐛
