@@ -1,4 +1,4 @@
-// Automated phases are sequential: source checks and builds replace emitted resources.
+// Local phases remain sequential; CI can reuse checks from separate jobs.
 import assert from 'node:assert/strict';
 import {spawn, spawnSync} from 'node:child_process';
 import {cp, mkdir, readFile, writeFile} from 'node:fs/promises';
@@ -15,6 +15,7 @@ function git(args: string[]) {
 
 const supporting = process.argv.includes('--supporting-macos');
 const reuseSourceChecks = process.argv.includes('--reuse-source-checks');
+const reuseRendererChecks = process.argv.includes('--reuse-renderer-checks');
 const glibc = Reflect.get(
   Reflect.get(process.report.getReport(), 'header'),
   'glibcVersionRuntime'
@@ -199,30 +200,47 @@ try {
   }
 
   report.sourceTests = source;
-  await command('chromium-runtime', 'pnpm', [
-    'exec',
-    'playwright',
-    'install',
-    'chromium',
-  ]);
-  const {chromium} = await import('@playwright/test');
-  const browser = await chromium.launch();
-  report.chromium = browser.version();
-  await browser.close();
+  if (reuseRendererChecks) {
+    const rendererCommit = (
+      await readFile(join(directory, 'renderer-checks.commit'), 'utf8')
+    ).trim();
+    assert.equal(rendererCommit, report.commit, 'Renderer checks must use this commit');
+    report.developmentWatcher = await successfulReport('watcher.json');
+    report.rendererChecks = {origin: 'prior-workflow-job', commit: rendererCommit};
+  } else {
+    await command('chromium-runtime', 'pnpm', [
+      'exec',
+      'playwright',
+      'install',
+      'chromium',
+    ]);
+    const {chromium} = await import('@playwright/test');
+    const browser = await chromium.launch();
+    report.chromium = browser.version();
+    await browser.close();
+  }
+
   await command('build', 'pnpm', ['build']);
-  try {
-    await command('renderer', 'pnpm', ['test:renderer']);
-  } finally {
-    await cp('acceptance-reports/renderer', join(directory, 'renderer-artifacts'), {
-      recursive: true,
-      force: true,
-    }).catch(error => {
-      report.rendererArtifactError = String(error);
-    });
+  if (!reuseRendererChecks) {
+    try {
+      await command('renderer', 'pnpm', ['test:renderer']);
+    } finally {
+      await cp('acceptance-reports/renderer', join(directory, 'renderer-artifacts'), {
+        recursive: true,
+        force: true,
+      }).catch(error => {
+        report.rendererArtifactError = String(error);
+      });
+    }
   }
 
   const renderer = JSON.parse(
-    await readFile('acceptance-reports/renderer/results.json', 'utf8')
+    await readFile(
+      reuseRendererChecks
+        ? join(directory, 'renderer-results.json')
+        : 'acceptance-reports/renderer/results.json',
+      'utf8'
+    )
   );
   assert.ok(renderer.stats.expected > 0);
   for (const field of ['unexpected', 'skipped', 'flaky']) {
@@ -271,8 +289,11 @@ try {
     }
   );
   report.packagedRenderer = await successfulReport('packaged-renderer.json');
-  await command('development-watcher', process.execPath, ['acceptance/watcher.mjs']);
-  report.developmentWatcher = await successfulReport('watcher.json');
+  if (!reuseRendererChecks) {
+    await command('development-watcher', process.execPath, ['acceptance/watcher.mjs']);
+    report.developmentWatcher = await successfulReport('watcher.json');
+  }
+
   assert.equal(
     git(['status', '--porcelain', '--untracked-files=all']),
     '',
