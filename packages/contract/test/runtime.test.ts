@@ -138,6 +138,39 @@ test('strict schemas reject malformed arguments, writes and envelopes', () => {
       .success
   ).toBe(false);
 });
+test('saved customer responses require a positive safe integer number', () => {
+  for (const customerNumber of [
+    null,
+    undefined,
+    0,
+    -1,
+    1.5,
+    Number.MAX_SAFE_INTEGER + 1,
+    '1',
+  ]) {
+    expect(
+      customerRecordSchema.safeParse({
+        ...record,
+        customer: {...record.customer, customerNumber},
+      }).success
+    ).toBe(false);
+  }
+
+  expect(customerRecordSchema.safeParse(record).success).toBe(true);
+  expect(
+    actions['customers.update'].arguments.safeParse({
+      reference,
+      changes: {firstName: 'Partial'},
+    }).success
+  ).toBe(true);
+  expect(
+    actions['customers.update'].arguments.safeParse({
+      reference,
+      changes: {customerNumber: undefined},
+    }).success
+  ).toBe(false);
+});
+
 test('named calls preserve outcomes and contain rejected or malformed transport', async () => {
   const {bridge} = makeBridge();
   const client = createClient(bridge);

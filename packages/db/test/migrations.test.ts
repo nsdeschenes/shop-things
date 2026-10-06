@@ -5,7 +5,13 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 import type {AppDatabase, DatabaseHandle} from '@shop-things/db';
-import {openDatabase, openExistingDatabase, runMigrations} from '@shop-things/db';
+import {
+  openDatabase,
+  openExistingDatabase,
+  runMigrations,
+  listCustomers,
+  createCustomer,
+} from '@shop-things/db';
 import {expect, test} from 'vitest';
 
 const fixtureFolder = fileURLToPath(new URL('./fixtures', import.meta.url));
@@ -77,6 +83,7 @@ test.each([1, 2])(
           ).toStrictEqual([
             ...legacyMigrations.map(name => ({name})),
             {name: '20261001005150_rename_home_phone'},
+            {name: '20261006232551_required_customer_numbers'},
           ]);
         } finally {
           migrated.close();
@@ -200,4 +207,229 @@ test('local apply and exported runner produce the same database state', async ()
       commandHandle.close();
     }
   });
+});
+
+const legacyNames = [
+  '20260929093112_wealthy_hemingway',
+  '20260929120000_customer_integrity',
+  '20261001005150_rename_home_phone',
+];
+
+test.each([1, 2, 3])(
+  'opening legacy prefix %i assigns gaps in customer ID order and preserves data',
+  async count => {
+    const directory = await mkdtemp(join(tmpdir(), 'customer-numbers-'));
+    const path = join(directory, 'app.db');
+    const legacyFolder = join(directory, 'legacy');
+    try {
+      await mkdir(legacyFolder);
+      for (const name of legacyNames.slice(0, count)) {
+        await cp(join(checkedInFolder, name), join(legacyFolder, name), {
+          recursive: true,
+        });
+      }
+
+      const legacy = openDatabase(path);
+      const phone = count === 3 ? 'phone' : 'homePhone';
+      let before: Record<string, unknown>[];
+      try {
+        await runMigrations(legacy.db, {migrationsFolder: legacyFolder});
+        await legacy.db.run(
+          `insert into customers (id,customerNumber,firstName,lastName,address,city,province,postalCode,${phone},email,stock,balance,previousBalance,donate,comments) values (9,NULL,'Nine','Last','Street','City','NS','Code','555','a@example.test',7,12.34,-5.67,1,'Comment'),(3,NULL,'Three',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),(1,1,'One',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),(5,3,'Five',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),(10,1000000,'Sparse',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),(99,99,'Deleted',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)`
+        );
+        await legacy.db.run('delete from customers where id = 99');
+        before = await legacy.db.all('select * from customers order by id');
+      } finally {
+        legacy.close();
+      }
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const upgraded = await openExistingDatabase(path, {
+          migrationsFolder: checkedInFolder,
+        });
+        try {
+          const after = await upgraded.db.all<Record<string, unknown>>(
+            'select * from customers order by id'
+          );
+          expect(after).toEqual(
+            before.map(row => {
+              const {homePhone, ...fields} = row;
+              return {
+                ...fields,
+                ...(count < 3 ? {phone: homePhone} : {}),
+                customerNumber: row.id === 3 ? 2 : row.id === 9 ? 4 : row.customerNumber,
+                revision: row.customerNumber === null ? 2 : 1,
+              };
+            })
+          );
+          expect(
+            (await listCustomers(upgraded.db)).map(row => row.customerNumber)
+          ).toEqual([1, 2, 3, 4, 1000000]);
+          expect((await listCustomers(upgraded.db, '4')).map(row => row.id)).toEqual([9]);
+        } finally {
+          upgraded.close();
+        }
+      }
+
+      const upgraded = await openExistingDatabase(path, {
+        migrationsFolder: checkedInFolder,
+      });
+      try {
+        const created = await createCustomer(upgraded.db, {firstName: 'New'});
+        expect(created.customerNumber).toBe(5);
+        expect(created.id).toBe(100);
+      } finally {
+        upgraded.close();
+      }
+    } finally {
+      await rm(directory, {recursive: true, force: true});
+    }
+  }
+);
+
+test.each([
+  ...['0', '-1', '1.5', '9007199254740992', "'invalid'", '1'].map(invalid => ({
+    count: 1,
+    invalid,
+  })),
+  {count: 2, invalid: '0'},
+  {count: 3, invalid: '0'},
+])(
+  'invalid legacy assigned number $invalid in prefix $count fails without any migration or data change',
+  async ({count, invalid}) => {
+    const directory = await mkdtemp(join(tmpdir(), 'customer-number-failure-'));
+    const path = join(directory, 'app.db');
+    const legacyFolder = join(directory, 'legacy');
+    try {
+      await mkdir(legacyFolder);
+      for (const name of legacyNames.slice(0, count)) {
+        await cp(join(checkedInFolder, name), join(legacyFolder, name), {
+          recursive: true,
+        });
+      }
+
+      const legacy = openDatabase(path);
+      let before: unknown;
+      try {
+        await runMigrations(legacy.db, {migrationsFolder: legacyFolder});
+        await legacy.db.run(
+          `insert into customers (customerNumber,firstName) values (NULL,'Missing'),(1,'Assigned'),(${invalid},'Invalid')`
+        );
+        before = {
+          rows: await legacy.db.all('select * from customers order by id'),
+          schema: await legacy.db.all('select name,sql from sqlite_master order by name'),
+          history: await legacy.db.all('select * from __drizzle_migrations'),
+        };
+      } finally {
+        legacy.close();
+      }
+
+      await expect(
+        openExistingDatabase(path, {migrationsFolder: checkedInFolder})
+      ).rejects.toThrow();
+      const original = openDatabase(path);
+      try {
+        expect({
+          rows: await original.db.all('select * from customers order by id'),
+          schema: await original.db.all(
+            'select name,sql from sqlite_master order by name'
+          ),
+          history: await original.db.all('select * from __drizzle_migrations'),
+        }).toEqual(before);
+      } finally {
+        original.close();
+      }
+    } finally {
+      await rm(directory, {recursive: true, force: true});
+    }
+  }
+);
+
+test.each([true, false])(
+  'legacy customers with all numbers missing: %s keep valid assigned numbers or receive consecutive numbers',
+  async missing => {
+    const directory = await mkdtemp(join(tmpdir(), 'customer-number-all-'));
+    const path = join(directory, 'app.db');
+    const legacyFolder = join(directory, 'legacy');
+    try {
+      await mkdir(legacyFolder);
+      for (const name of legacyNames) {
+        await cp(join(checkedInFolder, name), join(legacyFolder, name), {
+          recursive: true,
+        });
+      }
+
+      const legacy = openDatabase(path);
+      try {
+        await runMigrations(legacy.db, {migrationsFolder: legacyFolder});
+        await legacy.db.run(
+          `insert into customers (id,customerNumber,firstName,revision) values (5,${missing ? 'NULL' : '10'},'Five',7),(2,${missing ? 'NULL' : '2'},'Two',3)`
+        );
+      } finally {
+        legacy.close();
+      }
+
+      const upgraded = await openExistingDatabase(path, {
+        migrationsFolder: checkedInFolder,
+      });
+      try {
+        expect(
+          (await listCustomers(upgraded.db)).map(row => [
+            row.id,
+            row.customerNumber,
+            row.revision,
+          ])
+        ).toEqual(
+          missing
+            ? [
+                [2, 1, '4'],
+                [5, 2, '8'],
+              ]
+            : [
+                [2, 2, '3'],
+                [5, 10, '7'],
+              ]
+        );
+      } finally {
+        upgraded.close();
+      }
+    } finally {
+      await rm(directory, {recursive: true, force: true});
+    }
+  }
+);
+
+test('upgrading an empty legacy database preserves deleted customer identity high-water mark', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'customer-number-empty-'));
+  const path = join(directory, 'app.db');
+  const legacyFolder = join(directory, 'legacy');
+  try {
+    await mkdir(legacyFolder);
+    for (const name of legacyNames) {
+      await cp(join(checkedInFolder, name), join(legacyFolder, name), {recursive: true});
+    }
+
+    const legacy = openDatabase(path);
+    try {
+      await runMigrations(legacy.db, {migrationsFolder: legacyFolder});
+      await legacy.db.run(
+        "insert into customers (id, customerNumber, firstName) values (99, 1, 'Deleted')"
+      );
+      await legacy.db.run('delete from customers');
+    } finally {
+      legacy.close();
+    }
+
+    const upgraded = await openExistingDatabase(path, {
+      migrationsFolder: checkedInFolder,
+    });
+    try {
+      const created = await createCustomer(upgraded.db, {firstName: 'New'});
+      expect([created.id, created.customerNumber]).toEqual([100, 1]);
+    } finally {
+      upgraded.close();
+    }
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
 });

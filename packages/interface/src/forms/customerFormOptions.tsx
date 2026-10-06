@@ -12,10 +12,7 @@ export default function customerFormOptions(customer?: Customer) {
       onSubmit: customerFormSchema(Boolean(customer)),
     },
     defaultValues: {
-      customerNumber:
-        customer?.customerNumber === null || customer?.customerNumber === undefined
-          ? ''
-          : String(customer.customerNumber),
+      customerNumber: customer ? String(customer.customerNumber) : '',
       firstName: customer?.firstName ?? '',
       lastName: customer?.lastName ?? '',
       address: customer?.address ?? '',

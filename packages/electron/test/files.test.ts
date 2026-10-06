@@ -125,7 +125,7 @@ test('pending migration restore migrates only the separate writable copy of a re
     try {
       await runMigrations(handle.db, {migrationsFolder: initialMigrations});
       await handle.db.run(
-        "insert into customers (customerNumber,firstName,balance,homePhone) values(7,'Pending',4.56,'+1 (902) 555-1234')"
+        "insert into customers (customerNumber,firstName,balance,homePhone) values(7,'Pending',4.56,'+1 (902) 555-1234'),(NULL,'Missing',1.23,NULL)"
       );
     } finally {
       handle.close();
@@ -145,13 +145,25 @@ test('pending migration restore migrates only the separate writable copy of a re
       balance: '4.56',
       phone: '+1 (902) 555-1234',
     });
+    const numbered = success(
+      await f.service.handlers['customers.get']({session: restored.session!, id: 2})
+    );
+    expect(numbered.customer).toMatchObject({
+      firstName: 'Missing',
+      customerNumber: 1,
+      balance: '1.23',
+    });
+    const created = success(
+      await f.service.handlers['customers.create']({session: restored.session!, values})
+    );
+    expect(created.customer.customerNumber).toBe(2);
     const migrated = await openExistingDatabase(restored.selectedPath!, {
       migrationsFolder,
     });
     try {
       expect(
         await migrated.db.all('select name from __drizzle_migrations order by id')
-      ).toHaveLength(3);
+      ).toHaveLength(4);
     } finally {
       migrated.close();
     }
