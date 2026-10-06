@@ -86,8 +86,7 @@ export default function createPreviewClient(
           )
           .toSorted(
             (first, second) =>
-              (first.customer.customerNumber ?? Infinity) -
-                (second.customer.customerNumber ?? Infinity) ||
+              first.customer.customerNumber - second.customer.customerNumber ||
               first.customer.id - second.customer.id
           );
         return {status: 'success', value: structuredClone(value)};

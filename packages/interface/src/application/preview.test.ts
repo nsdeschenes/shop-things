@@ -146,3 +146,76 @@ test('preview orders by numeric customer number rather than name', async () => {
   const list = await previewNames(names);
   expect(await list('')).toEqual(names);
 });
+
+test('preview rejects invalid and duplicate number edits without changing saved customers', async () => {
+  const client = createPreviewClient();
+  const state = await client.database.status();
+  if (state.status !== 'success' || !state.value.session) {
+    throw new Error('Missing session');
+  }
+
+  const session = state.value.session;
+  const values = {
+    firstName: 'Numbered',
+    lastName: '',
+    address: '',
+    city: '',
+    province: '',
+    postalCode: '',
+    phone: '',
+    email: '',
+    stock: 0,
+    balance: '0.00',
+    previousBalance: '0.00',
+    donate: false,
+    comments: '',
+  };
+  const first = await client.customers.create({session, values});
+  const second = await client.customers.create({session, values});
+  if (first.status !== 'success' || second.status !== 'success') {
+    throw new Error('Create failed');
+  }
+
+  for (const customerNumber of [
+    undefined,
+    null,
+    0,
+    -1,
+    1.5,
+    Number.MAX_SAFE_INTEGER + 1,
+    '3',
+    2,
+  ]) {
+    const result = await client.customers.update({
+      reference: first.value.reference,
+      // @ts-expect-error Invalid runtime input must be rejected.
+      changes: {customerNumber, firstName: 'Rejected'},
+    });
+    expect(result).toMatchObject({status: 'error', error: {code: 'VALIDATION'}});
+    expect(await client.customers.get({session, id: first.value.customer.id})).toEqual(
+      first
+    );
+  }
+
+  const renumbered = await client.customers.update({
+    reference: first.value.reference,
+    changes: {customerNumber: 10},
+  });
+  expect(renumbered).toMatchObject({
+    status: 'success',
+    value: {customer: {customerNumber: 10}},
+  });
+  const third = await client.customers.create({session, values});
+  expect(third).toMatchObject({
+    status: 'success',
+    value: {customer: {customerNumber: 1}},
+  });
+  expect(await client.customers.list({session, query: ''})).toMatchObject({
+    status: 'success',
+    value: [
+      {customer: {customerNumber: 1}},
+      {customer: {customerNumber: 2}},
+      {customer: {customerNumber: 10}},
+    ],
+  });
+});

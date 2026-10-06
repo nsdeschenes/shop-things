@@ -10,7 +10,7 @@ import {customerKeys} from '../../application/customers';
 import createPreviewClient from '../../application/preview';
 import DeleteCustomer from './deleteCustomer';
 
-async function fixture(remove: Client['customers']['delete'], number: number | null = 5) {
+async function fixture(remove: Client['customers']['delete'], number = 5) {
   const client = createPreviewClient();
   client.customers.delete = remove;
   const status = await client.database.status();
@@ -84,15 +84,15 @@ async function confirm(user: ReturnType<typeof userEvent.setup>) {
   );
 }
 
-test('identifies unassigned customers, defaults to Cancel and submits the retained reference only after confirmation', async () => {
+test('identifies numbered customers, defaults to Cancel and submits the retained reference only after confirmation', async () => {
   const references: unknown[] = [];
   const f = await fixture(async ({reference}) => {
     references.push(reference);
     return {status: 'success', value: {deleted: true}};
-  }, null);
+  }, 5);
   await f.user.click(screen.getByRole('button', {name: 'Delete customer'}));
   const dialog = screen.getByRole('dialog');
-  expect(dialog).toHaveTextContent('Alex Smith (# Unassigned)');
+  expect(dialog).toHaveTextContent('Alex Smith (# 5)');
   await waitFor(() =>
     expect(within(dialog).getByRole('button', {name: 'Cancel'})).toHaveFocus()
   );

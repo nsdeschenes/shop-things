@@ -546,7 +546,7 @@ export default function CustomerForm({
                       disabled
                       value={
                         savedRecord?.customer.customerNumber !== undefined
-                          ? String(savedRecord.customer.customerNumber ?? '')
+                          ? String(savedRecord.customer.customerNumber)
                           : nextCustomerNumber
                       }
                     />
