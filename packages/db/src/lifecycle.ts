@@ -11,7 +11,13 @@ import type {AppDatabase, DatabaseHandle} from './index.js';
 const initialMigration = '20260929093112_wealthy_hemingway';
 const integrityMigration = '20260929120000_customer_integrity';
 const phoneMigration = '20261001005150_rename_home_phone';
-const supportedMigrations = [initialMigration, integrityMigration, phoneMigration];
+const numberMigration = '20261006232551_required_customer_numbers';
+const supportedMigrations = [
+  initialMigration,
+  integrityMigration,
+  phoneMigration,
+  numberMigration,
+];
 const expectedColumns = [
   'id',
   'customerNumber',
@@ -114,6 +120,25 @@ export async function recognizeDatabase(db: AppDatabase): Promise<void> {
 
       if (triggers.length !== 1 || !triggers[0]?.sql.includes('OLD.revision + 1')) {
         throw new Error('Missing revision trigger');
+      }
+    }
+
+    if (names.includes(numberMigration)) {
+      const [table] = await db.all<{sql: string}>(
+        "select sql from sqlite_master where type = 'table' and name = 'customers'"
+      );
+      if (
+        columns.find(column => column.name === 'customerNumber')?.notnull !== 1 ||
+        !table?.sql.includes('customers_customer_number_valid') ||
+        !table.sql.includes('9007199254740991') ||
+        !table.sql
+          .replaceAll(/\s/g, '')
+          .toLowerCase()
+          .includes(
+            'typeof("customernumber")=\'integer\'and"customernumber"between1and9007199254740991'
+          )
+      ) {
+        throw new Error('Missing customer number constraint');
       }
     }
 

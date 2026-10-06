@@ -1,10 +1,18 @@
-import {sqliteTable, text, real, integer, uniqueIndex} from 'drizzle-orm/sqlite-core';
+import {sql} from 'drizzle-orm';
+import {
+  sqliteTable,
+  text,
+  real,
+  integer,
+  uniqueIndex,
+  check,
+} from 'drizzle-orm/sqlite-core';
 
 export const customers = sqliteTable(
   'customers',
   {
     id: integer().primaryKey({autoIncrement: true}),
-    customerNumber: integer(),
+    customerNumber: integer().notNull(),
     revision: integer().notNull().default(1),
     firstName: text(),
     lastName: text(),
@@ -20,5 +28,11 @@ export const customers = sqliteTable(
     donate: integer({mode: 'boolean'}),
     comments: text(),
   },
-  table => [uniqueIndex('customers_customer_number_unique').on(table.customerNumber)]
+  table => [
+    uniqueIndex('customers_customer_number_unique').on(table.customerNumber),
+    check(
+      'customers_customer_number_valid',
+      sql`typeof(${table.customerNumber}) = 'integer' and ${table.customerNumber} between 1 and 9007199254740991`
+    ),
+  ]
 );

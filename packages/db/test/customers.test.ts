@@ -102,20 +102,27 @@ test('invalid writes reject every field with no changes; nullable reads do not p
 
     expect(await listCustomers(db)).toStrictEqual([]);
 
-    await db.run("insert into customers (firstName) values ('Nullable')");
+    await db.run(
+      "insert into customers (firstName, customerNumber) values ('Nullable', 1)"
+    );
     const [row] = await listCustomers(db);
     assert.isOk(row);
-    expect(row.customerNumber).toBe(null);
+    expect(row.customerNumber).toBe(1);
     expect(row.balance).toBe('0.00');
     expect(row.donate).toBe(false);
     expect(
       await db.all('select lastName, donate, customerNumber from customers')
-    ).toStrictEqual([{lastName: null, donate: null, customerNumber: null}]);
+    ).toStrictEqual([{lastName: null, donate: null, customerNumber: 1}]);
 
     for (const invalid of [
       {firstName: '', lastName: ' '},
       {firstName: 'Altered', balance: 'no'},
       {customerNumber: 0},
+      {customerNumber: -1},
+      {customerNumber: 1.5},
+      {customerNumber: Number.MAX_SAFE_INTEGER + 1},
+      {customerNumber: undefined},
+      {customerNumber: '2'},
       {customerNumber: null},
       {stock: Number.MAX_SAFE_INTEGER + 1},
       {donate: 'true'},
@@ -146,21 +153,19 @@ test('SQL search treats wildcard characters literally and orders by customer num
   });
 });
 
-test('customer numbers sort numerically with unassigned customers last in stable order', async () => {
+test('customer numbers sort numerically', async () => {
   await fixture(async ({db}) => {
     const first = await createCustomer(db, {firstName: 'Alice'});
     const second = await createCustomer(db, {firstName: 'Zoe'});
     const third = await createCustomer(db, {firstName: 'Bob'});
     const fourth = await createCustomer(db, {firstName: 'Aaron'});
     await updateCustomer(db, first, {customerNumber: 10});
-    await db.run(
-      'update customers set customerNumber = null where customerNumber in (3, 4)'
-    );
+    await updateCustomer(db, third, {customerNumber: 1});
+    await deleteCustomer(db, fourth);
     expect((await listCustomers(db)).map(row => [row.id, row.customerNumber])).toEqual([
+      [third.id, 1],
       [second.id, 2],
       [first.id, 10],
-      [third.id, null],
-      [fourth.id, null],
     ]);
   });
 });
@@ -290,7 +295,7 @@ test('recognition rejects missing, unrelated, newer and read-only files and migr
     pending.close();
     const migrated = await openExistingDatabase(pendingPath, {migrationsFolder});
     try {
-      expect((await listCustomers(migrated.db))[0]?.revision).toBe('1');
+      expect((await listCustomers(migrated.db))[0]?.revision).toBe('2');
     } finally {
       migrated.close();
     }
@@ -312,5 +317,40 @@ test('stored-cent mismatch rolls back all fields and revision within the transac
     await db.run('drop trigger corrupt_money');
     const changed = await updateCustomer(db, row, {balance: '999999999999.99'});
     expect(changed.balance).toBe('999999999999.99');
+  });
+});
+
+test('storage rejects missing and invalid customer numbers on inserts and updates without changing records', async () => {
+  await fixture(async ({db}) => {
+    const customer = await createCustomer(db, {firstName: 'Valid'});
+    await expect(
+      db.run("insert into customers (firstName) values ('Missing')")
+    ).rejects.toThrow();
+    for (const number of ['NULL', '0', '-1', '1.5', '9007199254740992', "'nonnumeric'"]) {
+      await expect(
+        db.run(
+          `insert into customers (firstName,customerNumber) values ('Invalid',${number})`
+        )
+      ).rejects.toThrow();
+      await expect(
+        db.run(
+          `update customers set firstName = 'Changed', customerNumber = ${number} where id = ${customer.id}`
+        )
+      ).rejects.toThrow();
+      expect(await listCustomers(db)).toEqual([customer]);
+    }
+
+    await expect(
+      db.run("insert into customers (firstName,customerNumber) values ('Duplicate',1)")
+    ).rejects.toThrow();
+    const second = await createCustomer(db, {firstName: 'Second'});
+    await expect(
+      db.run(`update customers set customerNumber = 1 where id = ${second.id}`)
+    ).rejects.toThrow();
+    expect(await getCustomer(db, second.id)).toEqual(second);
+    await db.run(`update customers set firstName = 'External' where id = ${customer.id}`);
+    await expect(
+      updateCustomer(db, customer, {firstName: 'Stale'})
+    ).rejects.toMatchObject({code: 'STALE_CUSTOMER'});
   });
 });
