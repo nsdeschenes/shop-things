@@ -311,8 +311,7 @@ export default function CustomerImportRecord({
                                 ) : (
                                   <>
                                     <span>
-                                      Saved customer{' '}
-                                      {target.customerNumber ?? '(no number)'}:{' '}
+                                      Saved customer {target.customerNumber}:{' '}
                                       {target.firstName} {target.lastName}
                                     </span>
                                     <span {...stylex.props(styles.matchValue)}>
