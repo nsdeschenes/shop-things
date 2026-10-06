@@ -1,20 +1,32 @@
-import {access, writeFile} from 'node:fs/promises';
+import {access, cp, mkdir, writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
 
-import {openDatabase, listCustomers, type AppDatabase} from '@shop-things/db';
+import {
+  openDatabase,
+  runMigrations,
+  listCustomers,
+  type AppDatabase,
+} from '@shop-things/db';
 import {afterEach, expect, it, vi} from 'vitest';
 
 import {databaseOperations, type ActionServiceOptions} from '../src/actionService.js';
 import {DraftCoordinator} from '../src/draftCoordinator.js';
-import {fixture, success, values} from './backendFixture.js';
+import {fixture, migrationsFolder, success, values} from './backendFixture.js';
 
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => {
   await cleanup?.();
 });
-async function setup(overrides: Partial<ActionServiceOptions> = {}) {
+async function setup(
+  overrides: Partial<ActionServiceOptions> = {},
+  initialize?: (f: Awaited<ReturnType<typeof fixture>>) => Promise<void>
+) {
   const f = await fixture(overrides);
   cleanup = f.cleanup;
-  const session = success(await f.service.handlers['database.create']()).session!;
+  await initialize?.(f);
+  const session = success(
+    await f.service.handlers[initialize ? 'database.open' : 'database.create']()
+  ).session!;
   return {
     ...f,
     session,
@@ -100,6 +112,93 @@ it('adds included rows with planned numbers, fresh IDs/revisions, and preserves 
     error: {code: 'STALE_SESSION'},
   });
   expect(await f.list()).toHaveLength(3);
+});
+
+it('imports into an opened legacy database using upgraded numbers for matches and allocation', async () => {
+  const f = await setup({}, async fixture => {
+    const legacyFolder = join(fixture.directory, 'legacy');
+    await mkdir(legacyFolder);
+    for (const name of [
+      '20260929093112_wealthy_hemingway',
+      '20260929120000_customer_integrity',
+      '20261001005150_rename_home_phone',
+    ]) {
+      await cp(join(migrationsFolder, name), join(legacyFolder, name), {recursive: true});
+    }
+
+    fixture.choices.open = fixture.choices.create;
+    const legacy = openDatabase(fixture.choices.open!);
+    try {
+      await runMigrations(legacy.db, {migrationsFolder: legacyFolder});
+      await legacy.db.run(
+        "INSERT INTO customers (customerNumber,firstName,email,phone,stock,balance,comments) VALUES (1,'Assigned one','','',1,12.34,'Keep one'),(NULL,'Backfilled two','shared@example.test','555-1234',2,23.45,'Keep two'),(3,'Assigned three','','',3,34.56,'Keep three'),(NULL,'Backfilled four','','',4,45.67,'Keep four')"
+      );
+    } finally {
+      legacy.close();
+    }
+  });
+  const existing = await f.list();
+  expect(existing.map(row => [row.customer.id, row.customer.customerNumber])).toEqual([
+    [1, 1],
+    [2, 2],
+    [3, 3],
+    [4, 4],
+  ]);
+  expect(existing[1]?.customer).toMatchObject({
+    firstName: 'Backfilled two',
+    email: 'shared@example.test',
+    phone: '555-1234',
+    stock: 2,
+    balance: '23.45',
+    comments: 'Keep two',
+  });
+  const initial = await f.prepare([
+    {customerNumber: '', ...values, email: 'shared@example.test'},
+    {customerNumber: '', ...values, firstName: 'Blank'},
+    {customerNumber: 3, ...values, firstName: 'Collision'},
+    {customerNumber: 6, ...values, firstName: 'Reserved'},
+  ]);
+  expect(initial.rows[0]).toMatchObject({
+    sourceCustomerNumber: null,
+    assignedCustomerNumber: null,
+    choice: 'unresolved',
+  });
+  expect(initial.matchGroups.flatMap(group => group.targets)).toContainEqual({
+    kind: 'customer',
+    id: 2,
+    customerNumber: 2,
+    firstName: 'Backfilled two',
+    lastName: '',
+  });
+  const args = {session: f.session, importId: initial.importId};
+  expect(await f.service.handlers['imports.commit'](args)).toMatchObject({
+    status: 'error',
+  });
+  expect(await f.list()).toEqual(existing);
+  const review = success(
+    await f.service.handlers['imports.resolve']({
+      ...args,
+      recordNumber: 1,
+      choice: 'skip',
+    })
+  );
+  expect(review.rows.map(row => row.assignedCustomerNumber)).toEqual([null, 5, 7, 6]);
+  expect(success(await f.service.handlers['imports.commit'](args))).toMatchObject({
+    kind: 'committed',
+    addedCount: 3,
+    skippedCount: 1,
+  });
+  const saved = await f.list();
+  expect(saved.filter(row => row.customer.id <= 4)).toEqual(existing);
+  expect(saved.map(row => row.customer.customerNumber)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  const backup = openDatabase(f.choices.backup!);
+  try {
+    expect(await listCustomers(backup.db)).toEqual(
+      existing.map(row => ({...row.customer, revision: row.reference.revision}))
+    );
+  } finally {
+    backup.close();
+  }
 });
 
 it.each([

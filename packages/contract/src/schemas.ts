@@ -126,7 +126,7 @@ export const importMatchGroupSchema = z.strictObject({
       z.strictObject({
         kind: z.literal('customer'),
         id: positiveInteger,
-        customerNumber: positiveInteger.nullable(),
+        customerNumber: positiveInteger,
         firstName: z.string(),
         lastName: z.string(),
       }),

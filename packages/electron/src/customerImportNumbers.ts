@@ -3,7 +3,7 @@ import type {ImportRow} from '@shop-things/contract';
 
 export function numberCustomerImportRows(
   rows: ImportRow[],
-  savedNumbers: Iterable<number | null>,
+  savedNumbers: Iterable<number>,
   includedRecordNumbers?: ReadonlySet<number>
 ): {rows: ImportRow[]; numberChangeCount: number} {
   const usedNumbers = new Set(savedNumbers);
