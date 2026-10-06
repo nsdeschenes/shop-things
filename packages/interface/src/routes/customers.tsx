@@ -295,7 +295,7 @@ function RouteComponent() {
                         id={`customer-number-${customer.id}`}
                         {...stylex.props(styles.detail)}
                       >
-                        Customer {customer.customerNumber ?? 'Unassigned'}
+                        Customer {customer.customerNumber}
                       </span>
                     </span>
                     <span
