@@ -161,8 +161,9 @@ if (
 ) {
   globalThis.acceptanceDatabase = await import('../packages/db/dist/index.js');
   const {ActionService} = await import('../packages/electron/dist/actionService.js');
-  // Capture the real method and apply it to the production instance below.
-  // oxlint-disable-next-line typescript/unbound-method
+  // Capture before replacing start; the production instance is only available below.
+  // Keep it unbound so start.apply(this, args) uses that instance, not the prototype.
+  // oxlint-disable-next-line typescript/unbound-method -- Invoked only with an explicit receiver via apply.
   const start = ActionService.prototype.start;
   ActionService.prototype.start = async function (...args) {
     globalThis.acceptanceService = this;
