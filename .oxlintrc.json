@@ -174,8 +174,7 @@
     {
       "files": ["packages/db/src/*.ts"],
       "rules": {
-        "import/no-named-export": "off",
-        "no-restricted-imports": "off"
+        "import/no-named-export": "off"
       }
     },
     {
