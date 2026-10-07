@@ -386,26 +386,35 @@ test.each([true, false])(
   }
 );
 
-test('upgrading an empty legacy database preserves deleted customer identity high-water mark', async () => {
-  await withLegacyDatabase(3, async path => {
-    const legacy = openDatabase(path);
-    try {
-      await legacy.db.run(
-        "insert into customers (id, customerNumber, firstName) values (99, 1, 'Deleted')"
-      );
-      await legacy.db.run('delete from customers');
-    } finally {
-      legacy.close();
-    }
+test.each(['wal', 'mvcc'])(
+  'upgrading an empty legacy database preserves deleted customer identity high-water mark in %s mode',
+  async journalMode => {
+    await withLegacyDatabase(3, async path => {
+      const legacy = openDatabase(path);
+      try {
+        await legacy.db.run(`pragma journal_mode = '${journalMode}'`);
+        await legacy.db.run(
+          "insert into customers (id, customerNumber, firstName) values (99, 1, 'Deleted')"
+        );
+        await legacy.db.run('delete from customers');
+      } finally {
+        legacy.close();
+      }
 
-    const upgraded = await openExistingDatabase(path, {
-      migrationsFolder: checkedInFolder,
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const upgraded = await openExistingDatabase(path, {
+          migrationsFolder: checkedInFolder,
+        });
+        try {
+          const created = await createCustomer(upgraded.db, {firstName: 'New'});
+          expect([created.id, created.customerNumber]).toEqual([
+            100 + attempt,
+            1 + attempt,
+          ]);
+        } finally {
+          upgraded.close();
+        }
+      }
     });
-    try {
-      const created = await createCustomer(upgraded.db, {firstName: 'New'});
-      expect([created.id, created.customerNumber]).toEqual([100, 1]);
-    } finally {
-      upgraded.close();
-    }
-  });
-});
+  }
+);

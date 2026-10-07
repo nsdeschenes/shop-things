@@ -36,6 +36,8 @@ DROP TABLE `customers`;--> statement-breakpoint
 ALTER TABLE `__new_customers` RENAME TO `customers`;--> statement-breakpoint
 UPDATE sqlite_sequence SET seq = max(seq, coalesce((SELECT seq FROM __customer_sequence), 0)) WHERE name = 'customers';
 --> statement-breakpoint
+SELECT setval('__turso_internal_autoincrement_customers', max(seq, coalesce((SELECT max(id) FROM customers), 0))) FROM __customer_sequence WHERE seq > 0;
+--> statement-breakpoint
 DROP TABLE __customer_sequence;
 --> statement-breakpoint
 CREATE TRIGGER customers_revision AFTER UPDATE ON customers
