@@ -75,6 +75,9 @@
         }
       ]
     },
+    "deb": {
+      "packageName": "shop-things"
+    },
     "linux": {
       "category": "Utility",
       "target": [
