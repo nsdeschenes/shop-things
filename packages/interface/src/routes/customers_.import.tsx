@@ -1,4 +1,3 @@
-/* oxlint-disable @tanstack/query/exhaustive-deps -- Navigation scope controls admission, not review identity. */
 import * as stylex from '@stylexjs/stylex';
 import {queryOptions, useQuery} from '@tanstack/react-query';
 import {createFileRoute, redirect} from '@tanstack/react-router';
@@ -61,11 +60,12 @@ function importReviewOptions(
     // Navigation scope controls admission, not the session-bound review identity.
     queryKey: ['imports', session, importId],
     staleTime: Infinity,
-    queryFn: async () => {
+    meta: {requestScope: readScope},
+    queryFn: async ({meta}) => {
       const result = await application.read(
         session,
         client => client.imports.review({session, importId}),
-        readScope
+        meta?.requestScope
       );
       if (result.status === 'error') {
         throw new CustomerRequestError(result.error);

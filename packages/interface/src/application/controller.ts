@@ -35,6 +35,12 @@ export interface RequestScope {
   navigationReadToken?: string;
 }
 
+declare module '@tanstack/react-query' {
+  interface Register {
+    queryMeta: Record<string, unknown> & {requestScope?: RequestScope};
+  }
+}
+
 export const obsolete = {status: 'obsolete'} as const;
 const unavailable = {
   status: 'error',
