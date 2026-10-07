@@ -142,6 +142,16 @@ test('Edit requires valid contacts and retains the original revision across back
   expect(number).toHaveValue('-');
   expect(number).toBeInvalid();
   expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
+  for (const invalidNumber of ['', '0', '-1', '1.5', '9007199254740992']) {
+    await user.clear(number);
+    if (invalidNumber) {
+      await user.type(number, invalidNumber);
+    }
+
+    expect(number).toBeInvalid();
+    expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
+  }
+
   await user.clear(number);
   await user.type(number, '11');
   expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();

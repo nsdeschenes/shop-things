@@ -15,6 +15,8 @@ import {
   draftReplySchema,
   draftResolutionSchema,
   customerRecordSchema,
+  importMatchGroupSchema,
+  importRowSchema,
 } from '@shop-things/contract/schemas';
 
 const unavailableBridge = /bridge is unavailable/;
@@ -138,6 +140,39 @@ test('strict schemas reject malformed arguments, writes and envelopes', () => {
       .success
   ).toBe(false);
 });
+test('saved customer responses require a positive safe integer number', () => {
+  for (const customerNumber of [
+    null,
+    undefined,
+    0,
+    -1,
+    1.5,
+    Number.MAX_SAFE_INTEGER + 1,
+    '1',
+  ]) {
+    expect(
+      customerRecordSchema.safeParse({
+        ...record,
+        customer: {...record.customer, customerNumber},
+      }).success
+    ).toBe(false);
+  }
+
+  expect(customerRecordSchema.safeParse(record).success).toBe(true);
+  expect(
+    actions['customers.update'].arguments.safeParse({
+      reference,
+      changes: {firstName: 'Partial'},
+    }).success
+  ).toBe(true);
+  expect(
+    actions['customers.update'].arguments.safeParse({
+      reference,
+      changes: {customerNumber: undefined},
+    }).success
+  ).toBe(false);
+});
+
 test('named calls preserve outcomes and contain rejected or malformed transport', async () => {
   const {bridge} = makeBridge();
   const client = createClient(bridge);
@@ -239,4 +274,54 @@ test('validated payload-only subscriptions unsubscribe and reject invalid drafts
   await expect(
     fixture.protection.prepare({requestId: 'r', documentId: 'd'})
   ).rejects.toThrow(mismatchedReply);
+});
+
+test('import matches require saved numbers while source and unresolved numbers remain nullable', () => {
+  const target = {
+    kind: 'customer',
+    id: 1,
+    customerNumber: 99,
+    firstName: 'Saved',
+    lastName: '',
+  };
+  const group = {id: 'email', reason: 'email', targets: [target]};
+  expect(importMatchGroupSchema.safeParse(group).success).toBe(true);
+  for (const customerNumber of [
+    null,
+    undefined,
+    0,
+    -1,
+    1.5,
+    Number.MAX_SAFE_INTEGER + 1,
+    '99',
+  ]) {
+    expect(
+      importMatchGroupSchema.safeParse({...group, targets: [{...target, customerNumber}]})
+        .success
+    ).toBe(false);
+  }
+
+  for (const choice of ['skip', 'unresolved']) {
+    expect(
+      importRowSchema.safeParse({
+        recordNumber: 1,
+        sourceCustomerNumber: null,
+        assignedCustomerNumber: null,
+        values,
+        matches: ['email'],
+        choice,
+      }).success
+    ).toBe(true);
+  }
+
+  expect(
+    importRowSchema.safeParse({
+      recordNumber: 1,
+      sourceCustomerNumber: null,
+      assignedCustomerNumber: 1,
+      values,
+      matches: [],
+      choice: 'include',
+    }).success
+  ).toBe(true);
 });

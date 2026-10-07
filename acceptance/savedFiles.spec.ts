@@ -97,19 +97,17 @@ test('Backup and CSV include every saved row from settings while route and sessi
     expect(records).toHaveLength(3);
     expect(records.map(row => row.firstName).toSorted()).toEqual([
       'Alpha',
-      'Unnumbered',
+      'Numbered',
       'Zed',
     ]);
     expect(records.find(row => row.firstName === 'Alpha')).toMatchObject({
       balance: '-1.23',
       comments: savedComments,
     });
-    expect(
-      records.find(row => row.firstName === 'Unnumbered')?.customerNumber
-    ).toBeNull();
+    expect(records.find(row => row.firstName === 'Numbered')?.customerNumber).toBe(3);
     const text = await readFile(csv, 'utf8');
     expect(text).toContain('"Zed"');
-    expect(text).toContain('"Unnumbered"');
+    expect(text).toContain('"Numbered"');
     expect(text).toContain('"Saved, ""quoted""\nsecond line"');
     expect(text).toContain('"-1.23","10.00"');
     expect(text).not.toContain('UNSAVED');

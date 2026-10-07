@@ -25,12 +25,17 @@ export const createCustomerInputSchema = z.strictObject(editableFields);
 
 export const updateCustomerInputSchema = z
   .strictObject({...editableFields, customerNumber: positiveInteger})
-  .partial();
+  .partial()
+  .refine(
+    value =>
+      !Object.hasOwn(value, 'customerNumber') || value.customerNumber !== undefined,
+    {path: ['customerNumber'], message: 'Customer number is required.'}
+  );
 
 export const customerSchema = z.strictObject({
   ...editableFields,
   id: positiveInteger,
-  customerNumber: positiveInteger.nullable(),
+  customerNumber: positiveInteger,
   balance: moneyOutput,
   previousBalance: moneyOutput,
 });
@@ -121,7 +126,7 @@ export const importMatchGroupSchema = z.strictObject({
       z.strictObject({
         kind: z.literal('customer'),
         id: positiveInteger,
-        customerNumber: positiveInteger.nullable(),
+        customerNumber: positiveInteger,
         firstName: z.string(),
         lastName: z.string(),
       }),

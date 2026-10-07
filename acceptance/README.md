@@ -75,7 +75,7 @@ controlled; no operator settings or application processes are used.
   trusted development/bundled URLs, blocked external navigation/new windows.
 - `customers.spec.ts`, `create.spec.ts`, `edit.spec.ts`, `deletion.spec.ts`:
   canonical saved CRUD, defaults/validation/decimal/contact text, immutable IDs,
-  nullable numbers, search, retained opaque revisions, persistence after reopen,
+  required numbers, search, retained opaque revisions, persistence after reopen,
   delayed search/detail/write results, disabled pending-save inputs and lifecycle races.
 - `recovery.spec.ts`: explicit stale reload with Stay/error/held-read/success,
   deleted copyable drafts, stale Delete, unavailable recovery and protected Retry.

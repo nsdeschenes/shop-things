@@ -215,8 +215,7 @@ export default function DeleteCustomer({
               <strong>
                 {selected?.customer.firstName} {selected?.customer.lastName}
               </strong>{' '}
-              (# {selected?.customer.customerNumber ?? 'Unassigned'})? This cannot be
-              undone.
+              (# {selected?.customer.customerNumber})? This cannot be undone.
             </Dialog.Description>
             <div {...stylex.props(styles.actions)}>
               <Button id="delete-cancel" onClick={() => setSelected(null)}>

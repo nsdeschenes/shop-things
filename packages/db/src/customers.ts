@@ -216,11 +216,7 @@ export async function listCustomers(
         ? sql`coalesce(${customers.firstName}, '') regexp ${pattern} or coalesce(${customers.lastName}, '') regexp ${pattern} or ${customers.customerNumber} = ${number}`
         : undefined
     )
-    .orderBy(
-      sql`${customers.customerNumber} is null`,
-      customers.customerNumber,
-      customers.id
-    );
+    .orderBy(customers.customerNumber, customers.id);
   return rows.map(normalize);
 }
 
@@ -320,6 +316,7 @@ export async function importCustomerBatch(
           previousBalance: 0,
           donate: false,
           ...parsed,
+          customerNumber: value.customerNumber,
         })
         .returning();
       if (!row) {

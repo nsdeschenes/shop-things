@@ -113,8 +113,7 @@ ipcMain.handle = (channel, listener) =>
     return result;
   });
 if (process.env.SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS) {
-  const {createDatabase, createCustomer, schema} =
-    await import('../packages/db/dist/index.js');
+  const {createDatabase, createCustomer} = await import('../packages/db/dist/index.js');
   const databasePath = join(app.getPath('userData'), 'customers.sqlite');
   const handle = await createDatabase(databasePath, {
     migrationsFolder: new URL('../packages/db/migrations', import.meta.url).pathname,
@@ -143,10 +142,10 @@ if (process.env.SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS) {
     balance: '-1.23',
     previousBalance: '10.00',
   });
-  await handle.db.insert(schema.customers).values({
-    firstName: 'Unnumbered',
+  await createCustomer(handle.db, {
+    ...values,
+    firstName: 'Numbered',
     lastName: 'Three',
-    customerNumber: null,
     donate: false,
   });
   handle.close();

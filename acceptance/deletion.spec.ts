@@ -120,11 +120,11 @@ test('real stale revision fails safely and late prior-session deletion cannot na
   try {
     const page = await application.firstWindow();
     await expect(page.getByText('3 results', {exact: true})).toBeVisible();
-    await page.getByRole('link', {name: 'Unnumbered Three'}).click();
+    await page.getByRole('link', {name: 'Numbered Three'}).click();
     await page.getByRole('button', {name: 'Delete customer'}).click();
     await expect(
       page.getByRole('dialog', {name: 'Delete Customer?', exact: true})
-    ).toContainText('Unnumbered Three (# Unassigned)');
+    ).toContainText('Numbered Three (# 3)');
     await page
       .getByRole('dialog', {name: 'Delete Customer?', exact: true})
       .getByRole('button', {name: 'Cancel'})
@@ -142,7 +142,7 @@ test('real stale revision fails safely and late prior-session deletion cannot na
     await confirm(page);
     await expect(page.getByRole('alert')).toContainText('Reload before editing');
     await expect(
-      page.getByRole('heading', {name: 'Unnumbered Three', exact: true})
+      page.getByRole('heading', {name: 'Numbered Three', exact: true})
     ).toBeVisible();
     await expect(
       page.getByRole('main').getByRole('button', {name: 'Delete customer'})

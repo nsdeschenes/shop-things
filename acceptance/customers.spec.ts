@@ -24,7 +24,7 @@ test('saved customer list/search/detail through actual bundled hash renderer IPC
   try {
     const page = await application.firstWindow();
     await expect(page.getByText('3 results', {exact: true})).toBeVisible();
-    await expectCustomerOrder(page, ['Zed Two', 'Alpha One', 'Unnumbered Three']);
+    await expectCustomerOrder(page, ['Zed Two', 'Alpha One', 'Numbered Three']);
     await expect(page.getByRole('link', {name: 'Add customer'})).toBeVisible();
     const search = page.getByRole('textbox', {name: 'Search customers'});
     await search.fill('Alpha');
@@ -62,10 +62,10 @@ test('saved customer list/search/detail through actual bundled hash renderer IPC
     await expect(page.getByRole('link', {name: 'Zed Two'})).toBeVisible();
     await page.getByRole('button', {name: 'Clear'}).click();
     await expect(page.getByText('3 results', {exact: true})).toBeVisible();
-    await page.getByRole('link', {name: 'Unnumbered Three'}).click();
+    await page.getByRole('link', {name: 'Numbered Three'}).click();
     await expect(
       page.getByRole('textbox', {name: 'Customer number', exact: true})
-    ).toHaveValue('');
+    ).toHaveValue('3');
     await expect(
       page.getByRole('textbox', {name: 'Balance ($)', exact: true})
     ).toHaveValue('0.00');
@@ -165,7 +165,7 @@ test('superseded reads stay loading for new targets and cannot paint obsolete su
     await expect(page.getByText('Wait and try again.', {exact: true})).toBeVisible();
     await page.getByRole('button', {name: 'Retry', exact: true}).click();
     await expect(
-      page.getByRole('heading', {name: 'Unnumbered Three', exact: true})
+      page.getByRole('heading', {name: 'Numbered Three', exact: true})
     ).toBeVisible();
     await page.evaluate(() => {
       location.hash = '/customers/999?q=Zed';
