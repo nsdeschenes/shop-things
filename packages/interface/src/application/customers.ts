@@ -1,4 +1,3 @@
-/* oxlint-disable @tanstack/query/exhaustive-deps -- Scope controls request lifetime, not cache identity. */
 /* oxlint-disable import/no-named-export -- Shared canonical query and mutation options. */
 import type {
   ContractError,
@@ -65,12 +64,17 @@ export function customerListOptions(
     ...readOptions,
     // Scope controls request lifetime, not saved customer cache identity.
     queryKey: customerKeys.list(session, query),
-    queryFn: async ({signal}) =>
+    meta: {requestScope: scope},
+    queryFn: async ({signal, meta}) =>
       unwrap(
         await application.read(
           session,
           client => client.customers.list({session, query}),
-          {...scope, signal, coalesceKey: scope.coalesceKey ?? 'customers:list'}
+          {
+            ...meta?.requestScope,
+            signal,
+            coalesceKey: meta?.requestScope?.coalesceKey ?? 'customers:list',
+          }
         )
       ),
   });
@@ -86,10 +90,11 @@ export function customerDetailOptions(
     ...readOptions,
     // Scope controls request lifetime, not saved customer cache identity.
     queryKey: customerKeys.detail(session, id),
-    queryFn: async ({signal}) =>
+    meta: {requestScope: scope},
+    queryFn: async ({signal, meta}) =>
       unwrap(
         await application.read(session, client => client.customers.get({session, id}), {
-          ...scope,
+          ...meta?.requestScope,
           signal,
         })
       ),
