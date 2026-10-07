@@ -6,7 +6,7 @@ import {expect, test} from '@playwright/test';
 
 import launchElectron from './launchElectron';
 
-test('Edit validates duplicate and unassigned numbers and persists exact text after reopening', async () => {
+test('Edit validates duplicate, missing and invalid numbers and persists exact text after reopening', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-edit-'));
   const application = await launchElectron(directory, {
     SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
@@ -52,11 +52,12 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
     expect(new URL(page.url()).hash).toBe('#/customers/2');
     await page.getByRole('link', {name: 'Back to customers'}).click();
     await expect(page.getByRole('link', {name: 'Alpha Edited'})).toBeVisible();
-    await page.getByRole('link', {name: 'Unnumbered Three'}).click();
+    await page.getByRole('link', {name: 'Numbered Three'}).click();
     await expect(
       page.getByRole('textbox', {name: 'Customer number', exact: true})
-    ).toHaveValue('');
+    ).toHaveValue('3');
     await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+    await number.fill('');
     await expect(number).toHaveValue('');
     await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
     await number.press('Enter');
@@ -74,9 +75,9 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
     await expect(
       page.getByRole('heading', {name: 'Customers', exact: true})
     ).toBeVisible();
-    await page.getByRole('link', {name: 'Unnumbered Three', exact: true}).click();
+    await page.getByRole('link', {name: 'Numbered Three', exact: true}).click();
     await expect(
-      page.getByRole('heading', {name: 'Unnumbered Three', exact: true})
+      page.getByRole('heading', {name: 'Numbered Three', exact: true})
     ).toBeVisible();
     await application.evaluate(
       ({dialog}, path) => {
@@ -99,7 +100,7 @@ test('Edit validates duplicate and unassigned numbers and persists exact text af
       page.getByRole('textbox', {name: 'Balance ($)', exact: true})
     ).toHaveValue('-12.30');
     await page.getByRole('link', {name: 'Back to customers'}).click();
-    await page.getByRole('link', {name: 'Unnumbered Three'}).click();
+    await page.getByRole('link', {name: 'Numbered Three'}).click();
     await expect(
       page.getByRole('textbox', {name: 'Customer number', exact: true})
     ).toHaveValue('7');

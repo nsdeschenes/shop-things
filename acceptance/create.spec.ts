@@ -20,7 +20,7 @@ test('Create persists exact contacts and decimal balances across guarded reload 
     await page.getByRole('link', {name: 'Add customer'}).click();
     const number = page.getByRole('textbox', {name: 'Customer number'});
     await expect(number).toBeDisabled();
-    await expect(number).toHaveValue('3');
+    await expect(number).toHaveValue('4');
     await expect(number).toHaveAccessibleDescription(
       'Automatically assigned when you save.'
     );
@@ -44,7 +44,7 @@ test('Create persists exact contacts and decimal balances across guarded reload 
     ).toBeVisible();
     await page.getByRole('link', {name: 'Ada', exact: true}).click();
     await expect(page.getByRole('heading', {name: 'Ada', exact: true})).toBeVisible();
-    await expect(number).toHaveValue('3');
+    await expect(number).toHaveValue('4');
     await expect(page.getByText('Customer saved', {exact: true})).toBeVisible();
     await expect(page.getByRole('textbox', {name: 'Postal code'})).toHaveValue('AB CD');
     await expect(page.getByRole('textbox', {name: 'Email'})).toHaveValue(
