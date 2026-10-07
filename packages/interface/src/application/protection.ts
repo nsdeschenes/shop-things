@@ -44,12 +44,20 @@ export function createDraftProtection(getClient: () => Client | null) {
   let pendingAction: PendingAction | null = null;
   let previewPrompt: ((approved: boolean) => void) | null = null;
   let saving: Promise<unknown> | null = null;
-  let state = {
+  let state: {
+    registeredEditor: DraftEditor | null;
+    confirmingDiscard: boolean;
+    frozen: boolean;
+    saving: boolean;
+    dirty: boolean;
+    error: string | null;
+  } = {
+    registeredEditor: editor,
     confirmingDiscard: false,
     frozen: false,
     saving: false,
     dirty: false,
-    error: null as string | null,
+    error: null,
   };
   const listeners = new Set<() => void>();
 
@@ -67,6 +75,7 @@ export function createDraftProtection(getClient: () => Client | null) {
 
   function publish(error: string | null = state.error) {
     state = {
+      registeredEditor: editor,
       confirmingDiscard: previewPrompt !== null,
       frozen: pendingAction !== null,
       saving: saving !== null,
