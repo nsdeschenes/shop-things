@@ -10,6 +10,11 @@ export default defineConfig({
     tanstackRouter({
       target: 'react',
       autoCodeSplitting: true,
+      // Keep generated routes type-checked; the default header includes @ts-nocheck.
+      routeTreeFileHeader: [
+        '/* oxlint-disable */',
+        '// noinspection JSUnusedGlobalSymbols',
+      ],
     }),
     stylex.vite({
       useCSSLayers: {

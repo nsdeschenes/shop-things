@@ -1,6 +1,4 @@
-/* eslint-disable */
-
-// @ts-nocheck
+/* oxlint-disable */
 
 // noinspection JSUnusedGlobalSymbols
 
