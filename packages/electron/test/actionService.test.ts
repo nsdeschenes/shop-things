@@ -1,10 +1,12 @@
-import {chmod, readFile} from 'node:fs/promises';
+import {chmod, cp, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
-import {createDatabase, openDatabase} from '@shop-things/db';
+import {createDatabase, openDatabase, runMigrations} from '@shop-things/db';
 import {expect, test} from 'vitest';
 
 import {ActionService, databaseOperations} from '../src/actionService.js';
+import {DraftCoordinator} from '../src/draftCoordinator.js';
+import type {DraftParticipant} from '../src/draftCoordinator.js';
 import {fixture, migrationsFolder, success, values} from './backendFixture.js';
 
 test('remembered missing file recovery never creates a replacement and Retry recovers', async () => {
@@ -198,3 +200,72 @@ test('placeholder shutdown waits admitted work and closes once without renderer 
     await f.cleanup();
   }
 });
+
+test.each([true, false])(
+  'migration snapshot failure recovers startup=%s and retains an unaffected session',
+  async startup => {
+    const f = await fixture();
+    const backupDirectory = join(f.directory, 'migration-backups');
+    const drafts = new DraftCoordinator();
+    const participant: DraftParticipant = {
+      documentId: 'backup-test-document',
+      prepare(request) {
+        drafts.reply(participant, {...request, hasUnsavedDraft: false});
+      },
+      resolve() {},
+    };
+    drafts.register(participant);
+    const service = new ActionService({
+      ...f.options,
+      drafts,
+      migrationBackupDirectory: backupDirectory,
+    });
+    try {
+      const legacyFolder = join(f.directory, 'legacy');
+      await mkdir(legacyFolder);
+      const name = '20260929093112_wealthy_hemingway';
+      await cp(join(migrationsFolder, name), join(legacyFolder, name), {recursive: true});
+      const candidatePath = join(f.directory, 'legacy.db');
+      const legacy = openDatabase(candidatePath);
+      await runMigrations(legacy.db, {migrationsFolder: legacyFolder});
+      await legacy.db.run(
+        "insert into customers(customerNumber,firstName) values(1,'Retained')"
+      );
+      legacy.close();
+      await writeFile(backupDirectory, 'storage failure');
+      let failure: unknown;
+      let retainedState: unknown;
+      if (startup) {
+        await f.settings.write(candidatePath);
+        await service.start();
+        failure = {status: 'error', error: service.status().recoveryError};
+        retainedState = service.status();
+      } else {
+        success(await service.handlers['database.create']());
+        retainedState = service.status();
+        f.choices.open = candidatePath;
+        failure = await service.handlers['database.open']();
+      }
+
+      expect(failure).toMatchObject({
+        status: 'error',
+        error: {
+          code: 'DATABASE_UNAVAILABLE',
+          message: expect.stringContaining('verified migration backup'),
+        },
+      });
+      expect(service.status()).toEqual(retainedState);
+      expect(service.status().available).toBe(!startup);
+
+      await rm(backupDirectory);
+      f.choices.open = candidatePath;
+      const recovered = success(
+        await service.handlers[startup ? 'database.retry' : 'database.open']()
+      );
+      expect(recovered).toMatchObject({available: true, selectedPath: candidatePath});
+    } finally {
+      service.closeUnprotected();
+      await f.cleanup();
+    }
+  }
+);

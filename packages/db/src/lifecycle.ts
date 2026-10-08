@@ -7,6 +7,7 @@ import {sql} from 'drizzle-orm';
 import {DatabaseError} from './customers.js';
 import {openDatabase, runMigrations} from './index.js';
 import type {AppDatabase, DatabaseHandle} from './index.js';
+import {snapshotBeforeMigrations} from './migrationBackup.js';
 
 const initialMigration = '20260929093112_wealthy_hemingway';
 const integrityMigration = '20260929120000_customer_integrity';
@@ -183,13 +184,14 @@ async function writableFile(path: string) {
 
 export async function openExistingDatabase(
   path: string,
-  options: {migrationsFolder: string}
+  options: {migrationsFolder: string; migrationBackupDirectory?: string}
 ): Promise<DatabaseHandle> {
   await writableFile(path);
   const handle = openDatabase(path);
 
   try {
     await recognizeDatabase(handle.db);
+    await snapshotBeforeMigrations(handle.db, path, options);
     await runMigrations(handle.db, options);
     // A transaction that writes and rolls back tests driver-level writability without changing data.
     await handle.db.run('begin immediate');
