@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Shared workspace task helpers. */
 import {buildAll} from './build.ts';
 import {testElectron, testInterface, testReportArguments} from './testHelpers.ts';
 import {pnpm, runIfMain} from './workspace.ts';

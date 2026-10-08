@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Shared customer route admission and request scope. */
 import {redirect} from '@tanstack/react-router';
 
 import type {Application, RequestScope} from './controller';

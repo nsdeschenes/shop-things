@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Backend APIs are consumed by IPC and packaged runners. */
 import {mkdtemp, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';

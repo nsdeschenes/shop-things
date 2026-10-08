@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Shared route feedback components. */
 import {Link, useRouter, type ErrorComponentProps} from '@tanstack/react-router';
 
 import {CustomerRequestError} from '../../application/customers';

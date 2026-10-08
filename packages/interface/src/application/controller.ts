@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Application bootstrap and shared state owner. */
 import type {ToastManager} from '@base-ui/react/toast';
 import type {
   Client,

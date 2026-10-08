@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Main consumes the native dialog factory as a backend boundary. */
 import {parse} from 'node:path';
 
 import {dialog} from 'electron';

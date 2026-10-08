@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Shared workspace task helpers. */
 import {readFile} from 'node:fs/promises';
 import {createRequire, builtinModules} from 'node:module';
 import {join} from 'node:path';

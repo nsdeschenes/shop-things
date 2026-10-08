@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Private IPC transport shared by main and bundled preload. */
 export const controls = {
   handshake: 'shop-things:document',
   stateSubscribe: 'shop-things:state-subscribe',

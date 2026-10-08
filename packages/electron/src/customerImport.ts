@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Backend CSV preparation boundary. */
 import {randomUUID} from 'node:crypto';
 import {open} from 'node:fs/promises';
 import {basename} from 'node:path';

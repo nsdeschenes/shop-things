@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Saved-file operations are shared by the action service and tests. */
 import {randomUUID} from 'node:crypto';
 import {constants} from 'node:fs';
 import {chmod, copyFile, rm, stat, writeFile} from 'node:fs/promises';

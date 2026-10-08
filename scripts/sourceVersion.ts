@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Shared workspace task helpers. */
 import {createHash} from 'node:crypto';
 import {readFile, readdir, realpath} from 'node:fs/promises';
 import {createRequire} from 'node:module';

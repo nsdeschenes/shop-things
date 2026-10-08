@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Trusted renderer document policy. */
 import {randomUUID} from 'node:crypto';
 
 import type {ApprovedDocument} from './ipc.js';

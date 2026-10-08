@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Shared canonical query and mutation options. */
 import type {
   ContractError,
   CreateCustomerInput,

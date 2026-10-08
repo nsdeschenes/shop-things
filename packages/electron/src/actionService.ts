@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Backend APIs are consumed by IPC and packaged runners. */
 import {randomUUID} from 'node:crypto';
 import {constants} from 'node:fs';
 import {copyFile} from 'node:fs/promises';

@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Shared workspace task helpers. */
 import {join} from 'node:path';
 
 import {pnpm} from './workspace.ts';
