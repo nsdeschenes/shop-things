@@ -1,4 +1,4 @@
-/* eslint-disable */
+/* oxlint-disable */
 
 // noinspection JSUnusedGlobalSymbols
 

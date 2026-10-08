@@ -12,7 +12,7 @@ export default defineConfig({
       autoCodeSplitting: true,
       // Keep generated routes type-checked; the default header includes @ts-nocheck.
       routeTreeFileHeader: [
-        '/* eslint-disable */',
+        '/* oxlint-disable */',
         '// noinspection JSUnusedGlobalSymbols',
       ],
     }),
