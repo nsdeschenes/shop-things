@@ -24,8 +24,15 @@ import {
   deleteCustomer,
   DatabaseError,
   backupDatabase,
+  listMigrationSnapshots,
+  restoreMigrationSnapshot,
 } from '@shop-things/db';
-import type {CustomerChanges, CustomerData, DatabaseHandle} from '@shop-things/db';
+import type {
+  CustomerChanges,
+  CustomerData,
+  DatabaseHandle,
+  MigrationSnapshot,
+} from '@shop-things/db';
 
 import {readCustomerImport} from './customerImport.js';
 import {numberCustomerImportRows} from './customerImportNumbers.js';
@@ -60,6 +67,8 @@ export const databaseOperations = {
   updateCustomer,
   deleteCustomer,
   backupDatabase,
+  listMigrationSnapshots,
+  restoreMigrationSnapshot,
 };
 
 export type DatabaseOperations = typeof databaseOperations;
@@ -122,6 +131,7 @@ export class ActionService {
   private readonly database: DatabaseOperations;
   private readonly imports = new Map<string, ImportReview>();
   private active: DatabaseHandle | null = null;
+  private migrationSnapshots = new Map<string, MigrationSnapshot>();
   private state: DatabaseState = {
     available: false,
     selectedPath: null,
@@ -361,6 +371,11 @@ export class ActionService {
       'database.backup': args => this.admit(() => this.backup(args.session)),
       'database.restore': () =>
         this.admit(() => this.transition(lease => this.restore(lease))),
+      'database.listMigrationSnapshots': () => this.admit(() => this.listSnapshots()),
+      'database.restoreMigrationSnapshot': args =>
+        this.admit(() =>
+          this.transition(lease => this.restoreSnapshot(args.snapshotId, lease))
+        ),
       'exports.csv': args => this.admit(() => this.exportCsv(args.session)),
       'drafts.confirmDiscard': async () => {
         try {
@@ -802,6 +817,65 @@ export class ActionService {
     return this.status();
   }
 
+  private async listSnapshots() {
+    if (!this.options.migrationBackupDirectory) {
+      return {snapshots: [], unavailableCount: 0};
+    }
+
+    const {snapshots, unavailableCount} = await listMigrationSnapshots(
+      this.options.migrationBackupDirectory
+    );
+    const refreshed = new Map<string, MigrationSnapshot>();
+    const summaries = snapshots.map(snapshot => {
+      const retained = [...this.migrationSnapshots].find(
+        ([, previous]) =>
+          previous.snapshotPath === snapshot.snapshotPath &&
+          previous.metadataDigest === snapshot.metadataDigest
+      );
+      const snapshotId = retained?.[0] ?? randomUUID();
+      refreshed.set(snapshotId, snapshot);
+      return {
+        snapshotId,
+        sourcePath: snapshot.canonicalSource,
+        createdAt: snapshot.createdAt,
+        sourceHistory: snapshot.sourceHistory.map(row => row.name),
+        targetHistory: snapshot.targetMigrations.map(row => row.name),
+      };
+    });
+    this.migrationSnapshots = refreshed;
+    return {snapshots: summaries, unavailableCount};
+  }
+
+  private async restoreSnapshot(
+    snapshotId: string,
+    lease?: DraftLease
+  ): Promise<DatabaseState | null> {
+    const snapshot = this.migrationSnapshots.get(snapshotId);
+    if (!snapshot) {
+      throw new ActionError(
+        'VALIDATION',
+        'This snapshot is no longer selected. Refresh snapshots and choose it again.'
+      );
+    }
+
+    const destination = await this.options.dialogs.restoreDestination();
+    if (destination === null) {
+      return null;
+    }
+
+    lease?.assertCurrent();
+    const path = resolve(destination);
+    await restoreMigrationSnapshot(snapshot, path);
+    try {
+      await this.prepareCandidate(path, false, lease);
+    } catch (error) {
+      await removeDatabaseFile(path);
+      throw error;
+    }
+
+    return this.status();
+  }
+
   private record(row: CustomerData): CustomerRecord {
     const {revision, ...customer} = row;
     if (!this.state.session) {
@@ -866,6 +940,8 @@ export class ActionService {
             code: 'DATABASE_UNAVAILABLE',
             message: 'The database is read-only. Choose a writable copy.',
           };
+        case 'SNAPSHOT_UNAVAILABLE':
+          return {code: 'DATABASE_UNAVAILABLE', message: error.message};
         case 'MIGRATION_BACKUP_FAILED':
           return {
             code: 'DATABASE_UNAVAILABLE',
@@ -876,7 +952,7 @@ export class ActionService {
           return {
             code: 'DATABASE_UNAVAILABLE',
             message:
-              'Choose a supported Shop Things database. Legacy or unrelated files cannot be opened.',
+              'This database uses an unsupported schema or newer history. Open it with a compatible app, or restore an earlier snapshot into a new copy.',
           };
       }
     }

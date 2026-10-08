@@ -58,6 +58,11 @@ function makeBridge() {
       open: async () => ({status: 'cancelled'}),
       backup: async () => ({status: 'success', value: {path: '/backup'}}),
       restore: async () => ({status: 'cancelled'}),
+      listMigrationSnapshots: async () => ({
+        status: 'success',
+        value: {snapshots: [], unavailableCount: 0},
+      }),
+      restoreMigrationSnapshot: async () => ({status: 'cancelled'}),
       onStateChanged(callback) {
         listeners.add(callback);
         return () => listeners.delete(callback);
@@ -326,4 +331,19 @@ test('import matches require saved numbers while source and unresolved numbers r
       choice: 'include',
     }).success
   ).toBe(true);
+});
+
+test('snapshot restoration accepts only bounded opaque IDs and no renderer paths', () => {
+  const schema = actions['database.restoreMigrationSnapshot'].arguments;
+  expect(
+    schema.safeParse({snapshotId: 'a36ce376-0b4f-48ab-97e1-31c60413742e'}).success
+  ).toBe(true);
+  for (const input of [
+    {snapshotId: '/tmp/backup.db'},
+    {snapshotId: 'x'.repeat(1000)},
+    {snapshotId: 'a36ce376-0b4f-48ab-97e1-31c60413742e', destination: '/tmp/restored.db'},
+    {path: '/tmp/backup.db'},
+  ]) {
+    expect(schema.safeParse(input).success).toBe(false);
+  }
 });

@@ -11,6 +11,7 @@ import type {
   customerTargetSchema,
   customerReferenceSchema,
   databaseStateSchema,
+  migrationSnapshotSchema,
   errorCodeSchema,
   errorSchema,
   draftRequestSchema,
@@ -25,6 +26,7 @@ export type CreateCustomerInput = z.infer<typeof createCustomerInputSchema>;
 export type UpdateCustomerInput = z.infer<typeof updateCustomerInputSchema>;
 export type CustomerTarget = z.infer<typeof customerTargetSchema>;
 export type CustomerReference = z.infer<typeof customerReferenceSchema>;
+export type MigrationSnapshot = z.infer<typeof migrationSnapshotSchema>;
 export type DatabaseState = z.infer<typeof databaseStateSchema>;
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 export type ContractError = z.infer<typeof errorSchema>;

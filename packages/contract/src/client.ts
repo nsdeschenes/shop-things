@@ -73,6 +73,14 @@ export function createClient(bridge: ShopThingsBridge): Client {
         validatedCall(actions['database.restore'], () => bridge.database.restore())(
           undefined
         ),
+      listMigrationSnapshots: validatedCall(
+        actions['database.listMigrationSnapshots'],
+        args => bridge.database.listMigrationSnapshots(args)
+      ),
+      restoreMigrationSnapshot: validatedCall(
+        actions['database.restoreMigrationSnapshot'],
+        args => bridge.database.restoreMigrationSnapshot(args)
+      ),
       onStateChanged(callback) {
         let subscribed = true;
         const unsubscribe = bridge.database.onStateChanged(payload => {
@@ -186,6 +194,8 @@ function isBridge(value: unknown): value is ShopThingsBridge {
       'open',
       'backup',
       'restore',
+      'listMigrationSnapshots',
+      'restoreMigrationSnapshot',
       'onStateChanged',
     ],
     imports: ['prepare', 'review', 'resolve', 'commit'],

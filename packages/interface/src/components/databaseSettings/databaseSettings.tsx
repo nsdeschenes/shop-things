@@ -14,6 +14,7 @@ import type {Application} from '../../application/controller';
 import {colors} from '../../styles/colors.stylex';
 import Button from '../button/button';
 import buttonStyles from '../button/buttonStyles';
+import MigrationSnapshots from '../migrationSnapshots/migrationSnapshots';
 
 const pathSeparator = /[\\/]/;
 const styles = stylex.create({
@@ -308,6 +309,7 @@ export default function DatabaseSettings({application}: {application: Applicatio
           </button>
         </section>
       </div>
+      <MigrationSnapshots application={application} />
     </main>
   );
 }

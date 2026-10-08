@@ -42,3 +42,4 @@ export async function runMigrations(
 
 export * from './customers.js';
 export * from './lifecycle.js';
+export * from './migrationSnapshots.js';

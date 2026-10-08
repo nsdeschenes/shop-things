@@ -230,6 +230,18 @@ export function registerIpc(options: IpcOptions): () => void {
       registerAction('database.restore', actions['database.restore'], () =>
         handlers['database.restore']()
       ),
+    'database.listMigrationSnapshots': () =>
+      registerAction(
+        'database.listMigrationSnapshots',
+        actions['database.listMigrationSnapshots'],
+        args => handlers['database.listMigrationSnapshots'](args)
+      ),
+    'database.restoreMigrationSnapshot': () =>
+      registerAction(
+        'database.restoreMigrationSnapshot',
+        actions['database.restoreMigrationSnapshot'],
+        args => handlers['database.restoreMigrationSnapshot'](args)
+      ),
     'exports.csv': () =>
       registerAction('exports.csv', actions['exports.csv'], args =>
         handlers['exports.csv'](args)
