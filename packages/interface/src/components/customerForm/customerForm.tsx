@@ -143,7 +143,6 @@ export default function CustomerForm({
   );
   const [error, setError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState<'stale' | 'deleted' | null>(null);
-  const [registered, setRegistered] = useState(false);
   const [defaults, setDefaults] = useState(
     customerFormOptions(initialRecord?.customer).defaultValues
   );
@@ -280,9 +279,6 @@ export default function CustomerForm({
   );
   const protection = useDraftProtection(application, editor);
   useEffect(() => {
-    // Registration is an external protection capability; inputs wait for its effect.
-    // oxlint-disable-next-line react/set-state-in-effect
-    setRegistered(true);
     const subscription = form.store.subscribe(() => application.protection.changed());
     return () => subscription.unsubscribe();
   }, [application, form]);
@@ -315,7 +311,7 @@ export default function CustomerForm({
   const disabled =
     pending ||
     state.refreshingCustomers ||
-    !registered ||
+    !protection.registered ||
     protection.frozen ||
     unavailable ||
     state.reconciling ||

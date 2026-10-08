@@ -8,6 +8,42 @@ import {createApplication} from '../../application/controller';
 import {customerKeys} from '../../application/customers';
 import createPreviewClient from '../../application/preview';
 
+test('inputs wait for draft protection and release it when leaving the form', async () => {
+  const user = userEvent.setup();
+  const application = createApplication('http://localhost/?preview=true', false);
+  const registerEditor = application.protection.registerEditor;
+  const completeRegistration = vi.fn<() => void>();
+  const cleanup = vi.fn<() => void>();
+  const registration = vi
+    .spyOn(application.protection, 'registerEditor')
+    .mockImplementation(editor => {
+      completeRegistration.mockImplementation(() => {
+        cleanup.mockImplementation(registerEditor(editor));
+      });
+
+      return cleanup;
+    });
+  const {router} = renderRoute('/customers/new', application);
+  const name = await screen.findByRole('textbox', {name: 'First name'});
+  expect(registration).toHaveBeenCalledOnce();
+  expect(name).toBeDisabled();
+  expect(screen.getByRole('textbox', {name: 'Comments'})).toBeDisabled();
+  act(() => completeRegistration());
+  await waitFor(() => expect(name).toBeEnabled());
+  await user.type(name, 'Protected draft');
+  await user.click(screen.getByRole('link', {name: 'Cancel'}));
+  await user.click(await screen.findByRole('button', {name: 'Stay'}));
+  expect(name).toHaveValue('Protected draft');
+  expect(router.state.location.pathname).toBe('/customers/new');
+  await user.click(screen.getByRole('link', {name: 'Cancel'}));
+  await user.click(await screen.findByRole('button', {name: 'Discard'}));
+  await screen.findByRole('heading', {name: 'Customers'});
+  expect(cleanup).toHaveBeenCalledOnce();
+  registration.mockRestore();
+  await user.click(screen.getByRole('link', {name: 'Add customer'}));
+  expect(await screen.findByRole('textbox', {name: 'First name'})).toBeEnabled();
+});
+
 test('restores contact validation, province selection, and uppercase postal codes when saving', async () => {
   const user = userEvent.setup();
   const {application} = renderRoute('/customers/new');

@@ -9,8 +9,9 @@ export default function useDraftProtection(
   editor: DraftEditor
 ) {
   useEffect(() => application.protection.registerEditor(editor), [application, editor]);
-  return useSyncExternalStore(
+  const state = useSyncExternalStore(
     application.protection.subscribe,
     application.protection.getState
   );
+  return {...state, registered: state.registeredEditor === editor};
 }
