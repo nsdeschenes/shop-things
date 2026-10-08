@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "lib": ["es2024"],
+    "lib": ["es2024", "DOM"],
     "types": [],
     "noEmit": false,
     "allowImportingTsExtensions": false,

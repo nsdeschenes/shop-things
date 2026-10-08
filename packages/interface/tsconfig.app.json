@@ -6,6 +6,7 @@
     "module": "esnext",
     "types": ["vite/client"],
     "allowArbitraryExtensions": true,
+    // jest-dom / Vitest 5 declaration mismatch; see docs/agents/declarationChecking.md.
     "skipLibCheck": true,
 
     /* Bundler mode */

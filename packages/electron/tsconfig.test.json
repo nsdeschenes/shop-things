@@ -1,4 +1,8 @@
 {
   "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    // Drizzle declaration errors; see docs/agents/declarationChecking.md.
+    "skipLibCheck": true
+  },
   "include": ["test", "smoke", "scripts/smokePackaged.ts", "vitest*.config.ts"]
 }

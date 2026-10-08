@@ -12,6 +12,7 @@
     "noUncheckedSideEffectImports": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
+    // Drizzle declarations; see docs/agents/declarationChecking.md.
     "skipLibCheck": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,

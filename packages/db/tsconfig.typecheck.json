@@ -1,4 +1,8 @@
 {
   "extends": ["../../tsconfig.json", "../../tsconfig.typecheck.json"],
+  "compilerOptions": {
+    // Drizzle declaration errors; see docs/agents/declarationChecking.md.
+    "skipLibCheck": true
+  },
   "include": ["src", "test", "*.config.ts"]
 }
