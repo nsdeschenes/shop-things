@@ -19,7 +19,7 @@
     "curly": "error",
     "func-style": ["error", "declaration"],
     "import/no-named-export": "error",
-    "typescript/no-misused-spread": "off",
+    "typescript/no-misused-spread": "error",
     "@stylistic/padding-line-between-statements": [
       "error",
       {
