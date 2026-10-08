@@ -163,6 +163,14 @@ export function createPreloadBridge(
       open: () => call('database.open', actions['database.open'])(undefined),
       backup: call('database.backup', actions['database.backup']),
       restore: () => call('database.restore', actions['database.restore'])(undefined),
+      listMigrationSnapshots: call(
+        'database.listMigrationSnapshots',
+        actions['database.listMigrationSnapshots']
+      ),
+      restoreMigrationSnapshot: call(
+        'database.restoreMigrationSnapshot',
+        actions['database.restoreMigrationSnapshot']
+      ),
       onStateChanged(callback) {
         const subscriptionId = nextId();
         let active = true;
