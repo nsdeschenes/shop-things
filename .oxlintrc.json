@@ -73,26 +73,6 @@
   "ignorePatterns": ["node_modules", "packages/interface/src/routeTree.gen.ts"],
   "overrides": [
     {
-      "files": ["packages/contract/**/*.ts"],
-      "rules": {
-        "typescript/ban-ts-comment": ["error", {"ts-expect-error": true}]
-      }
-    },
-    {
-      // These negative tests intentionally cross the typed contract boundary.
-      // See packages/contract/test/README.md for the reviewed exceptions.
-      "files": [
-        "packages/contract/test/conformance.ts",
-        "packages/contract/test/runtime.test.ts"
-      ],
-      "rules": {
-        "typescript/ban-ts-comment": [
-          "error",
-          {"ts-expect-error": "allow-with-description", "minimumDescriptionLength": 10}
-        ]
-      }
-    },
-    {
       "files": ["**/*.test.{ts,tsx,js,jsx,mjs}"],
       "rules": {
         "vitest-js/expect-expect": [
