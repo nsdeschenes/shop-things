@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Shared toast manager and notification presets. */
 import {Toast} from '@base-ui/react/toast';
 import type {ToastManager, ToastManagerAddOptions} from '@base-ui/react/toast';
 

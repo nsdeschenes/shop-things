@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Shared workspace task helpers. */
 import {pnpm, runIfMain} from './workspace.ts';
 
 export async function prepare() {

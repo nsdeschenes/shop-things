@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Development entrypoints are shared by development and test-watch scripts. */
 import {spawn} from 'node:child_process';
 import type {ChildProcess} from 'node:child_process';
 import {createRequire} from 'node:module';

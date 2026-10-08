@@ -18,7 +18,6 @@
     // custom/stylistic rules
     "curly": "error",
     "func-style": ["error", "declaration"],
-    "import/no-named-export": "error",
     "typescript/no-misused-spread": "error",
     "@stylistic/padding-line-between-statements": [
       "error",
@@ -74,21 +73,6 @@
   },
   "ignorePatterns": ["node_modules", "packages/interface/src/routeTree.gen.ts"],
   "overrides": [
-    {
-      "files": [
-        "packages/contract/src/*.ts",
-        "packages/contract/scripts/*.mjs",
-        "packages/contract/test/conformance.ts"
-      ],
-      "rules": {"import/no-named-export": "off"}
-    },
-    {
-      // StyleX variable and constant groups require named exports.
-      "files": ["**/*.stylex.ts"],
-      "rules": {
-        "import/no-named-export": "off"
-      }
-    },
     {
       "files": ["**/*.test.{ts,tsx,js,jsx,mjs}"],
       "rules": {
@@ -167,14 +151,7 @@
     {
       "files": ["packages/interface/src/routes/**/*.tsx"],
       "rules": {
-        "import/no-named-export": "off",
         "react/only-export-components": "off"
-      }
-    },
-    {
-      "files": ["packages/db/src/*.ts"],
-      "rules": {
-        "import/no-named-export": "off"
       }
     }
   ],

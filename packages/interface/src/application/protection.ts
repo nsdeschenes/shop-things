@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Shared document-owned draft protection. */
 import type {Client, DraftRequest, DraftResolution} from '@shop-things/contract';
 
 export type DraftValues = Readonly<Record<string, string | boolean | number>>;

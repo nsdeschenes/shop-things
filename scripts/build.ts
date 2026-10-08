@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Shared workspace task helpers. */
 import {rm} from 'node:fs/promises';
 import {join} from 'node:path';
 

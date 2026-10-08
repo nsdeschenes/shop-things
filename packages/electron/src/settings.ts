@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Backend APIs are consumed by IPC and packaged runners. */
 import {randomUUID} from 'node:crypto';
 import {mkdir, readFile, rename, rm, writeFile} from 'node:fs/promises';
 import {dirname, isAbsolute} from 'node:path';

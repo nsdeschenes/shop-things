@@ -1,5 +1,4 @@
 import type {ActionHandlers, ActionName, DraftRequest} from '@shop-things/contract';
-/* oxlint-disable import/no-named-export -- Main adapter used by entrypoint and controlled boundary tests. */
 import {
   actions,
   databaseStateSchema,

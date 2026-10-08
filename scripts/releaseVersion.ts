@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Shared release version helpers. */
 import assert from 'node:assert/strict';
 import {globSync, readFileSync} from 'node:fs';
 

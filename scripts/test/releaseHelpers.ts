@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Shared release script test fixtures. */
 import {spawnSync} from 'node:child_process';
 import {mkdir, mkdtemp, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';

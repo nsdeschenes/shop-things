@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Backend import planning API. */
 import type {ImportRow} from '@shop-things/contract';
 
 export function numberCustomerImportRows(

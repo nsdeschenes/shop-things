@@ -1,5 +1,4 @@
 import type {SpawnOptions} from 'node:child_process';
-/* oxlint-disable import/no-named-export -- Shared workspace task helpers. */
 import {createRequire} from 'node:module';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';

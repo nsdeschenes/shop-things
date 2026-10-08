@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Shared build/development process boundaries. */
 import {spawn} from 'node:child_process';
 import type {ChildProcess, SpawnOptions} from 'node:child_process';
 

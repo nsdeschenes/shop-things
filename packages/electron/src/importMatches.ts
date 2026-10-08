@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Import planning is shared by backend actions. */
 import type {ImportReview, ImportRow} from '@shop-things/contract';
 import type {CustomerData} from '@shop-things/db';
 

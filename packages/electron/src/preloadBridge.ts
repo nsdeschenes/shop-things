@@ -1,5 +1,4 @@
 import type {ShopThingsBridge, DraftRequest} from '@shop-things/contract';
-/* oxlint-disable import/no-named-export -- Named preload adapter tested without attaching it to a renderer. */
 import {
   actions,
   databaseStateSchema,

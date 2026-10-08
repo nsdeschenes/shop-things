@@ -1,4 +1,3 @@
-/* oxlint-disable import/no-named-export -- Protected lifecycle APIs are shared with the IPC adapter. */
 import {randomUUID} from 'node:crypto';
 
 import type {DraftRequest, DraftResolution} from '@shop-things/contract';
