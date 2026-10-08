@@ -201,3 +201,68 @@ test('database settings navigation protects unsaved edits and preview file actio
 
   expect(application.protection.isDirty()).toBe(false);
 });
+
+test('update control checks on open, shows availability and capability reasons, and dismisses without downloading', async () => {
+  const {user, client, application} = await fixture();
+  let finish!: (value: Awaited<ReturnType<typeof client.update.check>>) => void;
+  const check = vi.spyOn(client.update, 'check').mockImplementation(
+    () =>
+      new Promise(resolve => {
+        finish = resolve;
+      })
+  );
+  const start = vi.spyOn(client.update, 'start');
+  await user.click(screen.getByRole('button', {name: 'Check for updates'}));
+  expect(screen.getByRole('status')).toHaveTextContent('Checking…');
+  await act(async () =>
+    finish({
+      status: 'success',
+      value: {
+        revision: 1,
+        phase: 'available',
+        candidateId: 'candidate',
+        targetVersion: '0.4.0',
+        capabilityReasons: ['Installation is not available yet.'],
+        nextActions: ['check'],
+      },
+    })
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Version 0.4.0 is available');
+  expect(screen.getByRole('button', {name: 'Update'})).toBeDisabled();
+  expect(screen.getByText('Installation is not available yet.')).toBeVisible();
+  expect(screen.getByLabelText('Update available')).toBeVisible();
+  await user.click(screen.getByRole('button', {name: 'Close'}));
+  expect(screen.queryByRole('button', {name: 'Update'})).not.toBeInTheDocument();
+  expect(screen.getByRole('button', {name: 'Check for updates'})).toBeVisible();
+  expect(check).toHaveBeenCalledTimes(1);
+  expect(start).not.toHaveBeenCalled();
+  application.dispose();
+});
+
+test('update check failure offers an explicit retry and then reports current', async () => {
+  const {user, client, application} = await fixture();
+  vi.spyOn(client.update, 'check')
+    .mockResolvedValueOnce({
+      status: 'success',
+      value: {
+        revision: 1,
+        phase: 'check-failed',
+        errorCode: 'NETWORK',
+        capabilityReasons: [],
+        nextActions: ['check'],
+      },
+    })
+    .mockResolvedValueOnce({
+      status: 'success',
+      value: {
+        revision: 2,
+        phase: 'current',
+        capabilityReasons: [],
+        nextActions: ['check'],
+      },
+    });
+  await user.click(screen.getByRole('button', {name: 'Check for updates'}));
+  await user.click(await screen.findByRole('button', {name: 'Retry'}));
+  expect(await screen.findByRole('status')).toHaveTextContent("You're up to date");
+  application.dispose();
+});

@@ -10,6 +10,8 @@ afterEach(() => vi.unstubAllGlobals());
 import {createClient, getClient} from '@shop-things/contract/client';
 import {
   actions,
+  updateActions,
+  updateStateSchema,
   databaseStateSchema,
   draftRequestSchema,
   draftReplySchema,
@@ -44,6 +46,14 @@ function makeBridge() {
   const listeners = new Set<(state: DatabaseState) => void>();
   let protection: DraftProtection | undefined;
   const bridge: ShopThingsBridge = {
+    app: {ready: async () => ({status: 'success', value: {acknowledged: true}})},
+    update: {
+      check: async () => ({status: 'cancelled'}),
+      getState: async () => ({status: 'cancelled'}),
+      start: async () => ({status: 'cancelled'}),
+      retry: async () => ({status: 'cancelled'}),
+      onStateChanged: () => () => {},
+    },
     customers: {
       list: async () => ({status: 'success', value: [record]}),
       get: async () => ({status: 'success', value: record}),
@@ -326,4 +336,36 @@ test('import matches require saved numbers while source and unresolved numbers r
       choice: 'include',
     }).success
   ).toBe(true);
+});
+
+test('update intents and state reject native authority and unbounded values', () => {
+  for (const name of ['update.check', 'update.getState'] as const) {
+    expect(
+      updateActions[name].arguments.safeParse({url: 'https://example.com'}).success
+    ).toBe(false);
+  }
+
+  for (const candidateId of ['', '../file', 'a'.repeat(129)]) {
+    expect(updateActions['update.start'].arguments.safeParse({candidateId}).success).toBe(
+      false
+    );
+  }
+
+  const value = {
+    revision: 1,
+    phase: 'available',
+    candidateId: 'opaque',
+    targetVersion: '0.4.0',
+    capabilityReasons: [],
+    nextActions: ['check'],
+  };
+  expect(updateStateSchema.safeParse(value).success).toBe(true);
+  for (const extra of [
+    {url: 'https://example.com'},
+    {progress: 2},
+    {errorCode: 'UNKNOWN'},
+    {revision: -1},
+  ]) {
+    expect(updateStateSchema.safeParse({...value, ...extra}).success).toBe(false);
+  }
 });

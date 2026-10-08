@@ -1,5 +1,7 @@
+import {execFile} from 'node:child_process';
 import {dirname, join} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
+import {promisify} from 'node:util';
 
 import {app, BrowserWindow, ipcMain, Menu, dialog} from 'electron';
 
@@ -9,7 +11,10 @@ import {DraftCoordinator} from './draftCoordinator.js';
 import {registerIpc} from './ipc.js';
 import {createNativeDialogs} from './nativeDialogs.js';
 import {FileDatabaseSettings} from './settings.js';
+import {UpdateDiscovery} from './updateDiscovery.js';
+import {loadInstalledUpdatePolicy} from './updatePolicy.js';
 
+let updates: UpdateDiscovery | null = null;
 let window: BrowserWindow | null = null;
 let service: ActionService | null = null;
 let stopIpc: (() => void) | null = null;
@@ -152,7 +157,47 @@ void app.whenReady().then(async () => {
     },
   });
 
+  let trustedKeys: string[] = [];
+  let packageVersion = app.getVersion();
+  const capabilityReasons = ['Installation is not available yet.'];
+  if (process.platform !== 'linux' || process.arch !== 'arm64' || !app.isPackaged) {
+    capabilityReasons.push('Updates require a system-installed Linux ARM64 package.');
+  }
+
+  if (process.platform === 'linux' && app.isPackaged) {
+    try {
+      trustedKeys = (await loadInstalledUpdatePolicy()).trustedKeys;
+      const result = await promisify(execFile)(
+        '/usr/bin/dpkg-query',
+        ['--show', '--showformat=${Status}\t${Architecture}\t${Version}', 'shop-things'],
+        {timeout: 30000, maxBuffer: 4096, env: {PATH: '/usr/bin:/bin', LC_ALL: 'C'}}
+      );
+      const [status, architecture, installedVersion] = result.stdout.split('\t');
+      if (
+        status !== 'install ok installed' ||
+        architecture !== 'arm64' ||
+        !installedVersion
+      ) {
+        throw new Error('Unsupported installed package identity.');
+      }
+
+      packageVersion = installedVersion;
+    } catch {
+      capabilityReasons.push(
+        'Installed publisher trust or package identity is unavailable.'
+      );
+    }
+  }
+
+  updates = new UpdateDiscovery({
+    appVersion: app.getVersion(),
+    packageVersion,
+    trustedKeys,
+    capabilityReasons,
+  });
+
   stopIpc = registerIpc({
+    updates,
     ipc: ipcMain,
     service,
     drafts,
@@ -169,6 +214,7 @@ void app.whenReady().then(async () => {
     console.error(error);
   });
   createWindow();
+  updates.startChecking();
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       ...(process.platform === 'darwin' ? [{role: 'appMenu' as const}] : []),
@@ -194,6 +240,7 @@ void app.whenReady().then(async () => {
   app.on('activate', () => {
     if (!shuttingDown && BrowserWindow.getAllWindows().length === 0) {
       createWindow();
+      updates?.startChecking();
     }
   });
 });
@@ -207,6 +254,7 @@ function closeBackend(quit: boolean): Promise<void> {
       backendClosed = true;
       if (quitRequested) {
         shuttingDown = true;
+        updates?.stop();
         stopIpc?.();
         stopIpc = null;
         app.quit();
@@ -233,6 +281,7 @@ app.on('before-quit', event => {
 });
 
 app.on('window-all-closed', () => {
+  updates?.stop();
   if (process.platform !== 'darwin') {
     app.quit();
   }

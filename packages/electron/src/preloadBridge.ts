@@ -1,6 +1,9 @@
 import type {ShopThingsBridge, DraftRequest} from '@shop-things/contract';
 import {
   actions,
+  appReadyAction,
+  updateActions,
+  updateStateSchema,
   databaseStateSchema,
   draftRequestSchema,
   draftReplySchema,
@@ -100,6 +103,52 @@ export function createPreloadBridge(
   }
 
   return {
+    app: {ready: call('app.ready', appReadyAction)},
+    update: {
+      check: call('update.check', updateActions['update.check']),
+      getState: call('update.getState', updateActions['update.getState']),
+      start: call('update.start', updateActions['update.start']),
+      retry: call('update.retry', updateActions['update.retry']),
+      onStateChanged(callback) {
+        const subscriptionId = nextId();
+        let active = true;
+        function listener(_event: unknown, payload: unknown) {
+          if (
+            !active ||
+            !isRecord(payload, ['subscriptionId', 'state']) ||
+            payload.subscriptionId !== subscriptionId
+          ) {
+            return;
+          }
+
+          const state = updateStateSchema.safeParse(payload.state);
+          if (state.success) {
+            callback(state.data);
+          }
+        }
+
+        ipc.on(controls.updateChanged, listener);
+        const stopRegistration = register(
+          controls.updateSubscribe,
+          {subscriptionId},
+          () => active
+        );
+        return () => {
+          if (!active) {
+            return;
+          }
+
+          active = false;
+          stopRegistration();
+          ipc.removeListener(controls.updateChanged, listener);
+          void getDocument()
+            .then(documentId =>
+              ipc.send(controls.updateUnsubscribe, {documentId, subscriptionId})
+            )
+            .catch(() => {});
+        };
+      },
+    },
     customers: {
       list: call('customers.list', actions['customers.list']),
       get: call('customers.get', actions['customers.get']),
