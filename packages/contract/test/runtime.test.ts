@@ -205,10 +205,12 @@ test('named calls preserve outcomes and contain rejected or malformed transport'
     return {status: 'success', value: record};
   };
 
+  // Structural typing permits extra properties on a non-literal value; the
+  // runtime schema must still reject generated identity before calling transport.
+  const valuesWithIdentity = {...values, id: 2};
   const invalid = await client.customers.create({
     session: 's',
-    // @ts-expect-error Generated identity must be rejected at runtime too.
-    values: {...values, id: 2},
+    values: valuesWithIdentity,
   });
   expect(invalid).toMatchObject({status: 'error', error: {code: 'VALIDATION'}});
   expect(calls).toBe(0);
