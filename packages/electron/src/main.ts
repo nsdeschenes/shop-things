@@ -146,6 +146,7 @@ void app.whenReady().then(async () => {
   const drafts = new DraftCoordinator();
   service = new ActionService({
     settings: new FileDatabaseSettings(join(app.getPath('userData'), 'database.json')),
+    migrationBackupDirectory: join(app.getPath('userData'), 'migration-backups'),
     migrationsFolder: app.isPackaged
       ? join(process.resourcesPath, 'migrations')
       : join(dirname(fileURLToPath(import.meta.url)), '../../db/migrations'),
