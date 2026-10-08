@@ -1,16 +1,10 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {
-  copyFileSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import {mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 
 import {checkReleaseVersions} from './releaseVersion.ts';
+import {debianIdentity, validateAcceptance} from './updateRelease.ts';
 
 const version = checkReleaseVersions();
 const reportDirectory = process.env.ACCEPTANCE_REPORT_DIR;
@@ -29,9 +23,33 @@ assert.ok(
 );
 const filename = `shop-things-${version}-linux-arm64.deb`;
 const installerPath = join('release', installer);
-const checksum = createHash('sha256').update(readFileSync(installerPath)).digest('hex');
+const identity = debianIdentity(installerPath);
+const installerBytes = readFileSync(installerPath);
+assert.ok(installerBytes.byteLength > 0 && installerBytes.byteLength <= 1073741824);
+const checksum = createHash('sha256').update(installerBytes).digest('hex');
+validateAcceptance(report, commit, checksum);
 const outputDirectory = join('release', 'assets');
 rmSync(outputDirectory, {recursive: true, force: true});
 mkdirSync(outputDirectory, {recursive: true});
-copyFileSync(installerPath, join(outputDirectory, filename));
+writeFileSync(join(outputDirectory, filename), installerBytes);
 writeFileSync(join(outputDirectory, 'SHA256SUMS'), `${checksum}  ${filename}\n`);
+writeFileSync(
+  join(outputDirectory, 'shop-things-update-v1.json'),
+  JSON.stringify({
+    schemaVersion: 1,
+    applicationId: 'com.shopthings.app',
+    repository: 'nsdeschenes/shop-things',
+    channel: 'stable',
+    appVersion: version,
+    packageName: 'shop-things',
+    packageVersion: identity.packageVersion,
+    platform: 'linux',
+    architecture: 'arm64',
+    helperProtocol: {min: 1, max: 1},
+    artifact: {
+      filename,
+      byteLength: installerBytes.byteLength,
+      sha256: checksum,
+    },
+  }) + '\n'
+);

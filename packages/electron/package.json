@@ -57,6 +57,13 @@
       {
         "from": "update/restart-supervisor.py",
         "to": "update/restart-supervisor.py"
+      },
+      {
+        "from": "update",
+        "to": "update",
+        "filter": [
+          "policy.json"
+        ]
       }
     ],
     "mac": {

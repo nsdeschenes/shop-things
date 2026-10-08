@@ -10,3 +10,6 @@ packages/contract/dist
 packages/db/dist
 
 acceptance-reports
+
+# Approved public publisher policy is supplied before build/acceptance.
+packages/electron/update/policy.json

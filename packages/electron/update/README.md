@@ -8,7 +8,7 @@ updater until the complete installation transaction gate is wired.
 
 Package the source as `resources/update/restart-supervisor.py`. The bootstrap
 package hook must install it root-owned, mode 0755, at
-`/usr/lib/shop-things/update/restart-supervisor.py`; each containing directory must
+`/usr/lib/shop-things/update-supervisor`; each containing directory must
 be root-owned and not writable by ordinary users. Invoke it with the fixed
 `/usr/bin/python3 -I` argument vector. Declare `python3`, `python3-gi`, and
 `gir1.2-gtk-3.0` dependencies. A working GTK3 desktop session is checked before the

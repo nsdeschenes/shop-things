@@ -69,7 +69,7 @@ jobs:
 
           Synchronizes the root and all workspace package versions and updates CHANGELOG.md through Craft.
 
-          Review and squash-merge this PR after Desktop application and Script tooling pass. Then wait for both workflows on the resulting main commit and run Publish release with version $VERSION and that full commit SHA. Publication uses its tested installer and SHA256SUMS.
+          Review and squash-merge this PR after Desktop application and Script tooling pass. Then wait for both workflows on the resulting main commit and run Publish release with version $VERSION and that full commit SHA. Publication additionally requires completed device qualification, approved installed public trust and independent update-signing environment approval. It signs and verifies the installer, SHA256SUMS, exact-byte update manifest and detached signature before publishing the complete immutable release.
           EOF
           gh pr create --base main --head "$RELEASE_BRANCH" --title "chore(release): $VERSION" --body-file "$BODY_FILE"
           # GITHUB_TOKEN-created branches/PRs do not trigger push/pull_request workflows.
