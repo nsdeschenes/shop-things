@@ -408,3 +408,87 @@ test('recovery with no active database still requires explicit participant and p
     await f.cleanup();
   }
 });
+
+test('held lifecycle defers discard, rejects admissions and restores the same session on abort', async () => {
+  const drafts = new DraftCoordinator();
+  const participant = simulatedEditor(drafts);
+  const f = await fixture({drafts});
+  try {
+    const state = success(await f.service.handlers['database.create']());
+    success(
+      await f.service.handlers['customers.create']({session: state.session!, values})
+    );
+    participant.edit();
+    const lease = success(await f.service.holdLifecycle());
+    expect(participant.editor).toMatchObject({frozen: true, draft: 'unsaved'});
+    expect(participant.editor.resolutions).toEqual([]);
+    expect(await f.service.holdLifecycle()).toMatchObject({
+      status: 'error',
+      error: {code: 'BUSY'},
+    });
+    expect(await f.service.requestClose()).toMatchObject({
+      status: 'error',
+      error: {code: 'BUSY'},
+    });
+    expect(
+      await f.service.handlers['customers.create']({session: state.session!, values})
+    ).toMatchObject({status: 'error', error: {code: 'BUSY'}});
+    expect(success(await lease.abort()).session).toBe(state.session);
+    expect(participant.editor).toMatchObject({frozen: false, draft: 'unsaved'});
+    expect(
+      success(await f.service.handlers['customers.get']({session: state.session!, id: 1}))
+        .customer.firstName
+    ).toBe('Anne');
+    const next = success(await f.service.holdLifecycle());
+    expect(await lease.abort()).toMatchObject({status: 'error'});
+    expect(participant.editor.frozen).toBe(true);
+    expect(success(await next.commit())).toEqual({closed: true});
+    expect(participant.editor).toMatchObject({frozen: false, draft: ''});
+    expect(f.service.status().available).toBe(false);
+  } finally {
+    participant.unregister();
+    await f.cleanup();
+  }
+});
+
+test('stale document cannot release a held lease and failed reopen exposes retained-draft recovery', async () => {
+  const drafts = new DraftCoordinator();
+  const participant = simulatedEditor(drafts);
+  const f = await fixture({drafts});
+  try {
+    const state = success(await f.service.handlers['database.create']());
+    participant.edit();
+    const lease = success(await f.service.holdLifecycle());
+    participant.unregister();
+    expect(() => lease.assertCurrent()).toThrow('document changed');
+    expect(await lease.commit()).toMatchObject({status: 'error'});
+    expect(
+      await f.service.handlers['customers.list']({session: state.session!, query: ''})
+    ).toMatchObject({status: 'error', error: {code: 'BUSY'}});
+    success(await lease.abort());
+    expect(
+      await f.service.handlers['customers.list']({session: state.session!, query: ''})
+    ).toMatchObject({status: 'success'});
+    expect(participant.editor.draft).toBe('unsaved');
+    drafts.register(participant.participant);
+    const next = success(await f.service.holdLifecycle());
+    // Remove the selected file after closing its only connection.
+    const {rename} = await import('node:fs/promises');
+    await rename(state.selectedPath!, state.selectedPath! + '.saved');
+    expect(await next.abort()).toMatchObject({
+      status: 'error',
+      error: {code: 'DATABASE_UNAVAILABLE'},
+    });
+    expect(f.service.status()).toMatchObject({
+      available: false,
+      session: null,
+      recoveryError: {code: 'DATABASE_UNAVAILABLE'},
+    });
+    expect(participant.editor).toMatchObject({frozen: false, draft: 'unsaved'});
+    await rename(state.selectedPath! + '.saved', state.selectedPath!);
+    success(await f.service.handlers['database.retry']());
+  } finally {
+    participant.unregister();
+    await f.cleanup();
+  }
+});

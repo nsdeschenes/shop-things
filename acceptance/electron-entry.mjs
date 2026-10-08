@@ -157,6 +157,7 @@ if (process.env.SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS) {
 
 if (
   process.env.SHOP_THINGS_ACCEPTANCE_RECOVERY ||
+  process.env.SHOP_THINGS_ACCEPTANCE_LIFECYCLE ||
   process.env.SHOP_THINGS_ACCEPTANCE_DELAY_STARTUP
 ) {
   globalThis.acceptanceDatabase = await import('../packages/db/dist/index.js');
