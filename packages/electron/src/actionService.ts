@@ -102,6 +102,7 @@ function definedChanges(changes: UpdateCustomerInput): CustomerChanges {
 
 export interface ActionServiceOptions {
   migrationsFolder: string;
+  migrationBackupDirectory?: string;
   settings: DatabaseSettings;
   dialogs: BackendDialogs;
   database?: DatabaseOperations;
@@ -487,6 +488,9 @@ export class ActionService {
               original.selectedPath,
               {
                 migrationsFolder: this.options.migrationsFolder,
+                ...(this.options.migrationBackupDirectory
+                  ? {migrationBackupDirectory: this.options.migrationBackupDirectory}
+                  : {}),
               }
             );
           }
@@ -862,6 +866,12 @@ export class ActionService {
             code: 'DATABASE_UNAVAILABLE',
             message: 'The database is read-only. Choose a writable copy.',
           };
+        case 'MIGRATION_BACKUP_FAILED':
+          return {
+            code: 'DATABASE_UNAVAILABLE',
+            message:
+              'A verified migration backup could not be saved. Check free disk space and backup folder permissions, then retry or open a writable copy.',
+          };
         case 'UNSUPPORTED_DATABASE':
           return {
             code: 'DATABASE_UNAVAILABLE',
@@ -999,7 +1009,12 @@ export class ActionService {
       const open = creation
         ? this.database.createDatabase
         : this.database.openExistingDatabase;
-      candidate = await open(path, {migrationsFolder: this.options.migrationsFolder});
+      candidate = await open(path, {
+        migrationsFolder: this.options.migrationsFolder,
+        ...(this.options.migrationBackupDirectory
+          ? {migrationBackupDirectory: this.options.migrationBackupDirectory}
+          : {}),
+      });
       lease?.assertCurrent();
       await this.options.settings.write(path);
       try {
