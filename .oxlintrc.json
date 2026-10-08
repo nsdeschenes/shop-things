@@ -153,10 +153,6 @@
       "rules": {
         "react/only-export-components": "off"
       }
-    },
-    {
-      "files": ["packages/contract/test/*.test.mjs"],
-      "rules": {"vitest-js/no-import-node-test": "off"}
     }
   ],
   "options": {
