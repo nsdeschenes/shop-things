@@ -1,6 +1,14 @@
-import type {ActionHandlers, ActionName, DraftRequest} from '@shop-things/contract';
+import type {
+  ActionHandlers,
+  ActionName,
+  DraftRequest,
+  UpdateBridge,
+} from '@shop-things/contract';
 import {
   actions,
+  appReadyAction,
+  updateActions,
+  updateStateSchema,
   databaseStateSchema,
   draftRequestSchema,
   draftResolutionSchema,
@@ -9,7 +17,7 @@ import {
 import type {ActionService} from './actionService.js';
 import type {DraftCoordinator, DraftParticipant} from './draftCoordinator.js';
 import type {Validator} from './ipcWire.js';
-import {controls, isRecord, isToken} from './ipcWire.js';
+import {controls, isRecord, isToken, isUpdateToken} from './ipcWire.js';
 
 export interface IpcSender {
   sender: unknown;
@@ -47,6 +55,8 @@ export interface IpcOptions {
   ipc: MainIpc;
   service: Pick<ActionService, 'handlers' | 'onStateChanged'>;
   drafts: DraftCoordinator;
+  updates?: UpdateBridge;
+  onRendererReady?: () => Promise<void>;
   currentDocument(): ApprovedDocument | null;
   onDocumentChanged(callback: () => void): () => void;
   logError?: (error: unknown) => void;
@@ -73,6 +83,7 @@ export function registerIpc(options: IpcOptions): () => void {
   const handlerChannels: string[] = [];
   const listeners = new Map<string, (event: IpcSender, ...payloads: unknown[]) => void>();
   const subscriptions = new Map<string, ApprovedDocument>();
+  const updateSubscriptions = new Map<string, ApprovedDocument>();
   let registration: {
     id: string;
     document: ApprovedDocument;
@@ -243,6 +254,27 @@ export function registerIpc(options: IpcOptions): () => void {
     register();
   }
 
+  registerAction('app.ready', appReadyAction, async () => {
+    await options.onRendererReady?.();
+    return {status: 'success', value: {acknowledged: true}};
+  });
+
+  if (options.updates) {
+    const updates = options.updates;
+    registerAction('update.check', updateActions['update.check'], args =>
+      updates.check(args)
+    );
+    registerAction('update.getState', updateActions['update.getState'], args =>
+      updates.getState(args)
+    );
+    registerAction('update.start', updateActions['update.start'], args =>
+      updates.start(args)
+    );
+    registerAction('update.retry', updateActions['update.retry'], args =>
+      updates.retry(args)
+    );
+  }
+
   handle(controls.handshake, (event, ...payloads) =>
     payloads.length === 0 ? (authorized(event)?.documentId ?? null) : null
   );
@@ -287,10 +319,41 @@ export function registerIpc(options: IpcOptions): () => void {
     }
   });
 
+  function subscribeUpdates(event: IpcSender, ...payloads: unknown[]) {
+    const input = control(event, payloads, ['documentId', 'subscriptionId']);
+    if (
+      input &&
+      isUpdateToken(input.payload.subscriptionId) &&
+      (updateSubscriptions.has(input.payload.subscriptionId) ||
+        updateSubscriptions.size < 16)
+    ) {
+      updateSubscriptions.set(input.payload.subscriptionId, input.document);
+      return true;
+    }
+
+    return false;
+  }
+
+  listen(controls.updateSubscribe, subscribeUpdates);
+  handle(controls.updateSubscribe, subscribeUpdates);
+
+  listen(controls.updateUnsubscribe, (event, ...payloads) => {
+    const input = control(event, payloads, ['documentId', 'subscriptionId']);
+    if (
+      input &&
+      isUpdateToken(input.payload.subscriptionId) &&
+      updateSubscriptions.get(input.payload.subscriptionId)?.documentId ===
+        input.document.documentId
+    ) {
+      updateSubscriptions.delete(input.payload.subscriptionId);
+    }
+  });
+
   const stopDocument = options.onDocumentChanged(() => {
     registration?.stop();
     registration = null;
     subscriptions.clear();
+    updateSubscriptions.clear();
   });
 
   const stopState = service.onStateChanged(payload => {
@@ -313,6 +376,31 @@ export function registerIpc(options: IpcOptions): () => void {
         });
       } catch (error) {
         subscriptions.delete(subscriptionId);
+        options.logError?.(error);
+      }
+    }
+  });
+
+  const stopUpdates = options.updates?.onStateChanged(payload => {
+    const state = updateStateSchema.safeParse(payload);
+    if (!state.success) {
+      options.logError?.(state.error);
+      return;
+    }
+
+    for (const [subscriptionId, document] of updateSubscriptions) {
+      if (!current(document)) {
+        updateSubscriptions.delete(subscriptionId);
+        continue;
+      }
+
+      try {
+        document.webContents.send(controls.updateChanged, {
+          subscriptionId,
+          state: state.data,
+        });
+      } catch (error) {
+        updateSubscriptions.delete(subscriptionId);
         options.logError?.(error);
       }
     }
@@ -411,8 +499,10 @@ export function registerIpc(options: IpcOptions): () => void {
     registration?.stop();
     registration = null;
     stopState();
+    stopUpdates?.();
     stopDocument();
     subscriptions.clear();
+    updateSubscriptions.clear();
     for (const channel of handlerChannels) {
       ipc.removeHandler(channel);
     }

@@ -8,10 +8,11 @@ import {registerIpc} from '../src/ipc.js';
 import type {ApprovedDocument, IpcSender, MainIpc} from '../src/ipc.js';
 import {controls} from '../src/ipcWire.js';
 import {createPreloadBridge} from '../src/preloadBridge.js';
+import {UpdateDiscovery} from '../src/updateDiscovery.js';
 const editorFailure = /editor/;
 import type {DraftRequest, DatabaseState} from '@shop-things/contract';
 
-function fixture() {
+function fixture(updates?: UpdateDiscovery, onRendererReady?: () => Promise<void>) {
   const handlers = new Map<
     string,
     (event: IpcSender, ...payloads: unknown[]) => unknown
@@ -77,6 +78,8 @@ function fixture() {
   });
   const stop = registerIpc({
     ipc,
+    ...(updates ? {updates} : {}),
+    ...(onRendererReady ? {onRendererReady} : {}),
     service,
     drafts,
     currentDocument: () => document,
@@ -160,7 +163,7 @@ test('complete named action surface denies wrong sender/frame/document and malfo
     return original(args);
   };
 
-  expect(f.handlers.size).toBe(Object.keys(actions).length + 3);
+  expect(f.handlers.size).toBe(Object.keys(actions).length + 5);
   const payload = {documentId: 'document-1', arguments: {session: 's', query: ''}};
   for (const event of [
     {sender: {}, senderFrame: f.frame},
@@ -355,5 +358,68 @@ test('preload draft callbacks receive validated payloads and rejected preparatio
   });
   await settle();
   await expect(f.drafts.prepare()).rejects.toThrow(editorFailure);
+  f.stop();
+});
+
+test('update preload and IPC validate intents, authorize the current document, and scope subscriptions', async () => {
+  const updates = new UpdateDiscovery({
+    appVersion: '0.3.1',
+    packageVersion: '0.3.1',
+    trustedKeys: [],
+    capabilityReasons: ['Installation is not available yet.'],
+  });
+  let readiness = 0;
+  const f = fixture(updates, async () => {
+    readiness++;
+  });
+  const bridge = createPreloadBridge(f.renderer, () => 'update-subscription');
+  const received: unknown[] = [];
+  const stop = bridge.update.onStateChanged(state => received.push(state));
+  await settle();
+  expect(await bridge.app.ready({})).toMatchObject({
+    status: 'success',
+    value: {acknowledged: true},
+  });
+  expect(readiness).toBe(1);
+  const readyHandler = f.handlers.get('shop-things:app.ready')!;
+  expect(
+    await readyHandler(
+      {sender: {}, senderFrame: f.frame},
+      {documentId: 'document-1', arguments: {}}
+    )
+  ).toMatchObject({error: {code: 'UNAUTHORIZED'}});
+  expect(readiness).toBe(1);
+  expect(await bridge.update.getState({})).toMatchObject({
+    status: 'success',
+    value: {phase: 'idle'},
+  });
+  const handler = f.handlers.get('shop-things:update.start')!;
+  for (const args of [
+    {candidateId: '../file'},
+    {candidateId: 'candidate', command: 'install'},
+    {candidateId: 'a'.repeat(129)},
+  ]) {
+    expect(
+      await handler(f.event, {documentId: 'document-1', arguments: args})
+    ).toMatchObject({error: {code: 'VALIDATION'}});
+  }
+
+  expect(
+    await handler(
+      {sender: {}, senderFrame: f.frame},
+      {documentId: 'document-1', arguments: {candidateId: 'candidate'}}
+    )
+  ).toMatchObject({error: {code: 'UNAUTHORIZED'}});
+  expect(await bridge.update.check({})).toMatchObject({
+    status: 'success',
+    value: {phase: 'check-failed', errorCode: 'TRUST_UNAVAILABLE'},
+  });
+  expect(received).toHaveLength(2);
+  expect(received[1]).toMatchObject({phase: 'check-failed'});
+  f.replaceDocument();
+  await updates.check({});
+  expect(received).toHaveLength(2);
+  expect(await bridge.update.getState({})).toMatchObject({error: {code: 'UNAUTHORIZED'}});
+  stop();
   f.stop();
 });

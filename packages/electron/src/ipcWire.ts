@@ -1,4 +1,7 @@
 export const controls = {
+  updateSubscribe: 'shop-things:update-subscribe',
+  updateUnsubscribe: 'shop-things:update-unsubscribe',
+  updateChanged: 'shop-things:update-changed',
   handshake: 'shop-things:document',
   stateSubscribe: 'shop-things:state-subscribe',
   stateUnsubscribe: 'shop-things:state-unsubscribe',
@@ -30,4 +33,14 @@ export function isToken(value: unknown): value is string {
 
 export interface Validator<T> {
   safeParse(value: unknown): {success: true; data: T} | {success: false; error: unknown};
+}
+
+const updateToken = /^[A-Za-z0-9_-]+$/;
+export function isUpdateToken(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 128 &&
+    updateToken.test(value)
+  );
 }

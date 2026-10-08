@@ -99,6 +99,14 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
     target: InstanceType<BackendModule['ActionService']>
   ): ShopThingsBridge {
     return {
+      app: {ready: async () => ({status: 'success', value: {acknowledged: true}})},
+      update: {
+        check: async () => ({status: 'cancelled'}),
+        getState: async () => ({status: 'cancelled'}),
+        start: async () => ({status: 'cancelled'}),
+        retry: async () => ({status: 'cancelled'}),
+        onStateChanged: () => () => {},
+      },
       customers: {
         list: target.handlers['customers.list'],
         get: target.handlers['customers.get'],
