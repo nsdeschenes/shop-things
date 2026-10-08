@@ -134,3 +134,102 @@ test('actual IPC protects invalid controlled drafts, reversion, native close/qui
     await rm(directory, {recursive: true, force: true});
   }
 });
+
+test('held main lifecycle lease freezes real IPC draft until abort or commit', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-held-lifecycle-'));
+  const application = await _electron.launch({
+    executablePath: createRequire(
+      new URL('../packages/electron/package.json', import.meta.url)
+    )('electron'),
+    args: [join(root, 'acceptance/electron-entry.mjs')],
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '',
+      SHOP_THINGS_ACCEPTANCE_DATA: directory,
+      SHOP_THINGS_ACCEPTANCE_LIFECYCLE: '1',
+      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: '1',
+      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/',
+    },
+  });
+  try {
+    const page = await application.firstWindow();
+    await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
+    await page.addScriptTag({
+      path: join(root, 'acceptance-reports/harness/controlled-editor.mjs'),
+      type: 'module',
+    });
+    await page.waitForFunction(
+      () => Reflect.get(window, 'acceptanceEditorReady') === true
+    );
+    const input = page.getByRole('textbox', {name: 'Controlled balance'});
+    await input.fill('-');
+    await application.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceDiscard', true);
+    });
+    async function hold() {
+      return application.evaluate(async () => {
+        const result = await Reflect.get(globalThis, 'acceptanceService').holdLifecycle();
+        if (result.status === 'success') {
+          Reflect.set(globalThis, 'acceptanceLifecycleLease', result.value);
+        }
+
+        return result.status;
+      });
+    }
+
+    expect(await hold()).toBe('success');
+    await expect(input).toBeDisabled();
+    await expect(input).toHaveValue('-');
+    expect(
+      await page.evaluate(async () => {
+        const bridge = Reflect.get(window, 'shopThings');
+        const state = await bridge.database.status();
+        return await bridge.customers.list({session: state.value.session, query: ''});
+      })
+    ).toMatchObject({status: 'error', error: {code: 'BUSY'}});
+    expect(
+      await application.evaluate(
+        async () =>
+          (await Reflect.get(globalThis, 'acceptanceService').requestClose()).status
+      )
+    ).toBe('error');
+    expect(
+      await application.evaluate(
+        async () =>
+          (await Reflect.get(globalThis, 'acceptanceLifecycleLease').abort()).status
+      )
+    ).toBe('success');
+    await expect(input).toBeEnabled();
+    await expect(input).toHaveValue('-');
+    // Recovered database remains usable through the actual preload and IPC.
+    expect(
+      await page.evaluate(async () => {
+        const bridge = Reflect.get(window, 'shopThings');
+        const state = await bridge.database.status();
+        return (await bridge.customers.list({session: state.value.session, query: ''}))
+          .status;
+      })
+    ).toBe('success');
+    expect(await hold()).toBe('success');
+    expect(
+      await application.evaluate(
+        async () =>
+          (await Reflect.get(globalThis, 'acceptanceLifecycleLease').commit()).status
+      )
+    ).toBe('success');
+    await expect(input).toHaveValue('0.00');
+  } finally {
+    await application.evaluate(async () => {
+      await Reflect.get(globalThis, 'acceptanceLifecycleLease')?.abort();
+    });
+    const page = application.windows()[0];
+    if (page) {
+      await page.evaluate(() => Reflect.get(window, 'acceptanceEditor')?.stop());
+    }
+
+    await application.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});

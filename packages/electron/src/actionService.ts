@@ -110,6 +110,13 @@ export interface ActionServiceOptions {
   drafts?: DraftCoordinator;
 }
 
+// Main-process ownership only: never expose this lease through the renderer bridge.
+export interface LifecycleLease {
+  assertCurrent(): void;
+  commit(): Promise<Outcome<{closed: true}>>;
+  abort(): Promise<Outcome<DatabaseState>>;
+}
+
 export class ActionService {
   readonly handlers: ActionHandlers;
   private readonly database: DatabaseOperations;
@@ -125,6 +132,7 @@ export class ActionService {
   private busy = false;
   private activeOperation: Promise<void> | null = null;
   private closePending = false;
+  private lifecycleHeld = false;
   private pendingUnprotectedClose: Promise<void> | null = null;
   private pendingClose: Promise<Outcome<{closed: true}>> | null = null;
 
@@ -384,7 +392,7 @@ export class ActionService {
   }
 
   closeUnprotected(): void {
-    if (this.busy) {
+    if (this.busy || this.lifecycleHeld) {
       throw new Error('Wait for the current database operation');
     }
 
@@ -403,6 +411,12 @@ export class ActionService {
       return this.pendingUnprotectedClose;
     }
 
+    if (this.closePending) {
+      return Promise.reject(
+        new Error('A protected lifecycle operation is already running')
+      );
+    }
+
     this.closePending = true;
     this.pendingUnprotectedClose = (async () => {
       await this.activeOperation;
@@ -412,6 +426,130 @@ export class ActionService {
       this.pendingUnprotectedClose = null;
     });
     return this.pendingUnprotectedClose;
+  }
+
+  // The owner must explicitly abort only after proving the external transition is
+  // reversible. Losing a renderer must not reopen a database during package mutation.
+  async holdLifecycle(): Promise<Outcome<LifecycleLease>> {
+    if (this.closePending) {
+      return {
+        status: 'error',
+        error: {
+          code: 'BUSY',
+          message: 'A protected lifecycle operation is already running.',
+        },
+      };
+    }
+
+    this.closePending = true;
+    let draft: DraftLease | undefined;
+    let held = false;
+    try {
+      await this.activeOperation;
+      if (!this.options.drafts) {
+        throw new ActionError(
+          'DATABASE_UNAVAILABLE',
+          'Protected draft coordination is unavailable. Keep the application open.'
+        );
+      }
+
+      draft = await this.options.drafts.prepare();
+      if (draft.hasUnsavedDraft && !(await this.options.dialogs.confirmDiscard())) {
+        return {status: 'cancelled'};
+      }
+
+      draft.assertCurrent();
+      // Keep the session identity stable during this temporary closure so an abort
+      // can restore the existing editor without replacing its unsaved draft.
+      const original = this.status();
+      this.active?.close();
+      this.active = null;
+      held = true;
+      this.lifecycleHeld = true;
+      let settled = false;
+      const currentDraft = draft;
+      function assertOwned() {
+        if (settled) {
+          throw new ActionError('BUSY', 'This lifecycle lease has already finished.');
+        }
+      }
+
+      const abort = async (): Promise<Outcome<DatabaseState>> => {
+        try {
+          assertOwned();
+        } catch (error) {
+          return {status: 'error', error: this.safeError(error)};
+        }
+
+        settled = true;
+        try {
+          if (original.available && original.selectedPath) {
+            this.active = await this.database.openExistingDatabase(
+              original.selectedPath,
+              {
+                migrationsFolder: this.options.migrationsFolder,
+              }
+            );
+          }
+
+          return {status: 'success', value: this.status()};
+        } catch (error) {
+          const recoveryError = {
+            code: 'DATABASE_UNAVAILABLE' as const,
+            message: 'The database could not be reopened. Retry or choose Create/Open.',
+          };
+          this.options.logError?.(error);
+          this.publish({
+            available: false,
+            selectedPath: original.selectedPath,
+            session: null,
+            recoveryError,
+          });
+          return {status: 'error', error: recoveryError};
+        } finally {
+          currentDraft.finish('aborted');
+          this.lifecycleHeld = false;
+          this.closePending = false;
+        }
+      };
+
+      return {
+        status: 'success',
+        value: {
+          assertCurrent: () => {
+            assertOwned();
+            currentDraft.assertCurrent();
+          },
+          abort,
+          commit: async () => {
+            try {
+              assertOwned();
+              currentDraft.assertCurrent();
+            } catch (error) {
+              return {status: 'error', error: this.safeError(error)};
+            }
+
+            settled = true;
+            this.publish({
+              available: false,
+              selectedPath: original.selectedPath,
+              session: null,
+            });
+            currentDraft.finish('committed');
+            this.lifecycleHeld = false;
+            this.closePending = false;
+            return {status: 'success', value: {closed: true}};
+          },
+        },
+      };
+    } catch (error) {
+      return {status: 'error', error: this.safeError(error)};
+    } finally {
+      if (!held) {
+        draft?.finish('aborted');
+        this.closePending = false;
+      }
+    }
   }
 
   async requestReload(
@@ -466,7 +604,6 @@ export class ActionService {
       });
     }
 
-    this.closePending = true;
     this.pendingClose = this.closeProtected().finally(() => {
       this.closePending = false;
       this.pendingClose = null;
@@ -475,17 +612,17 @@ export class ActionService {
   }
 
   private async closeProtected(): Promise<Outcome<{closed: true}>> {
-    try {
-      await this.activeOperation;
-      const closed = await this.transition(async lease => {
-        lease?.assertCurrent();
-        this.closeUnprotected();
-        return {closed: true as const};
-      }, true);
-      return closed === null ? {status: 'cancelled'} : {status: 'success', value: closed};
-    } catch (error) {
-      return {status: 'error', error: this.safeError(error)};
+    const result = await this.holdLifecycle();
+    if (result.status !== 'success') {
+      return result;
     }
+
+    const committed = await result.value.commit();
+    if (committed.status !== 'success') {
+      await result.value.abort();
+    }
+
+    return committed;
   }
 
   private async transition<T>(
