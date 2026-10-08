@@ -242,3 +242,60 @@ export const actions = {
     z.strictObject({approved: z.literal(true)})
   ),
 };
+
+const updateToken = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9_-]+$/);
+export const updateStateSchema = z.strictObject({
+  revision: nonnegativeInteger,
+  phase: z.enum([
+    'idle',
+    'checking',
+    'current',
+    'available',
+    'check-failed',
+    'downloading',
+    'verifying',
+    'preparing',
+    'quiescent',
+    'authenticating',
+    'installing',
+    'reconciling',
+    'restarting',
+    'retryable-failure',
+    'package-recovery',
+  ]),
+  candidateId: updateToken.optional(),
+  attemptId: updateToken.optional(),
+  targetVersion: z.string().min(1).max(128).optional(),
+  progress: z.number().min(0).max(1).optional(),
+  capabilityReasons: z.array(z.string().min(1).max(256)).max(16),
+  errorCode: z
+    .enum([
+      'NETWORK',
+      'RATE_LIMIT',
+      'DISCOVERY_LIMIT',
+      'TRUST_UNAVAILABLE',
+      'INSTALL_UNAVAILABLE',
+      'VERIFICATION',
+      'AUTHENTICATION',
+      'PACKAGE_LOCK',
+      'PACKAGE_UNCERTAIN',
+      'LAUNCH_FAILED',
+    ])
+    .optional(),
+  nextActions: z.array(z.enum(['check', 'update', 'retry', 'repair', 'launch'])).max(5),
+});
+export const updateActions = {
+  'update.check': action(z.strictObject({}), updateStateSchema),
+  'update.getState': action(z.strictObject({}), updateStateSchema),
+  'update.start': action(z.strictObject({candidateId: updateToken}), updateStateSchema),
+  'update.retry': action(z.strictObject({attemptId: updateToken}), updateStateSchema),
+};
+
+export const appReadyAction = action(
+  z.strictObject({}),
+  z.strictObject({acknowledged: z.literal(true)})
+);

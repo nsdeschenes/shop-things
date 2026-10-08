@@ -14,6 +14,7 @@ import {typography} from '../../styles/typography.stylex';
 import Button from '../button/button';
 import DatabaseActions from '../databaseActions/databaseActions';
 import LoadingOverlay from '../loadingOverlay/loadingOverlay';
+import UpdateControl from '../updateControl/updateControl';
 
 interface ApplicationShellProps {
   application: Application;
@@ -107,6 +108,11 @@ export default function ApplicationShell({application, children}: ApplicationShe
     application.protection.subscribe,
     application.protection.getState
   );
+  useEffect(() => {
+    if (state.phase === 'ready') {
+      void application.getClient()?.app.ready({});
+    }
+  }, [application, state.phase]);
   const refreshDisabled =
     state.phase !== 'ready' ||
     !state.database?.available ||
@@ -222,48 +228,54 @@ export default function ApplicationShell({application, children}: ApplicationShe
           <p {...stylex.props(styles.eyebrow)}>Customer records</p>
           <p {...stylex.props(styles.title)}>Shop Things</p>
         </Link>
-        {state.phase === 'ready' && state.database?.available && (
-          <div {...stylex.props(styles.headerActions)}>
-            <Button
-              aria-label="Refresh customers"
-              title={
-                protection.dirty
-                  ? 'Save or discard your edits before refreshing'
-                  : 'Refresh customers'
-              }
-              disabled={refreshDisabled}
-              onClick={() => {
-                void application.refreshCustomers();
-              }}
-            >
-              <ArrowPathIcon aria-hidden="true" {...stylex.props(styles.refreshIcon)} />
-            </Button>
-            <Link
-              to="/settings/database"
-              disabled={
-                Boolean(state.pendingFile || state.refreshingCustomers) ||
-                protection.frozen ||
-                protection.saving
-              }
-              aria-label="Database settings"
-              title={
-                state.database.selectedPath?.split(pathSeparator).at(-1) ??
-                'Temporary database'
-              }
-              {...stylex.props(styles.databaseLink)}
-            >
-              <CircleStackIcon
-                aria-hidden="true"
-                {...stylex.props(styles.databaseIcon)}
-              />
-              <span {...stylex.props(styles.databaseName)}>
-                {state.database.selectedPath?.split(pathSeparator).at(-1) ??
-                  'Temporary database'}
-              </span>
-              <Cog6ToothIcon aria-hidden="true" {...stylex.props(styles.databaseIcon)} />
-            </Link>
-          </div>
-        )}
+        <div {...stylex.props(styles.headerActions)}>
+          <UpdateControl updates={application.getClient()?.update ?? null} />
+          {state.phase === 'ready' && state.database?.available && (
+            <div {...stylex.props(styles.headerActions)}>
+              <Button
+                aria-label="Refresh customers"
+                title={
+                  protection.dirty
+                    ? 'Save or discard your edits before refreshing'
+                    : 'Refresh customers'
+                }
+                disabled={refreshDisabled}
+                onClick={() => {
+                  void application.refreshCustomers();
+                }}
+              >
+                <ArrowPathIcon aria-hidden="true" {...stylex.props(styles.refreshIcon)} />
+              </Button>
+              <Link
+                to="/settings/database"
+                disabled={
+                  Boolean(state.pendingFile || state.refreshingCustomers) ||
+                  protection.frozen ||
+                  protection.saving
+                }
+                aria-label="Database settings"
+                title={
+                  state.database.selectedPath?.split(pathSeparator).at(-1) ??
+                  'Temporary database'
+                }
+                {...stylex.props(styles.databaseLink)}
+              >
+                <CircleStackIcon
+                  aria-hidden="true"
+                  {...stylex.props(styles.databaseIcon)}
+                />
+                <span {...stylex.props(styles.databaseName)}>
+                  {state.database.selectedPath?.split(pathSeparator).at(-1) ??
+                    'Temporary database'}
+                </span>
+                <Cog6ToothIcon
+                  aria-hidden="true"
+                  {...stylex.props(styles.databaseIcon)}
+                />
+              </Link>
+            </div>
+          )}
+        </div>
       </header>
       {state.mode !== 'live' && (
         <p {...stylex.props(styles.database)}>

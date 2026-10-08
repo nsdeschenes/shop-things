@@ -2,6 +2,9 @@ import type {z} from 'zod';
 
 import type {
   actions,
+  appReadyAction,
+  updateActions,
+  updateStateSchema,
   importReviewSchema,
   importRowSchema,
   customerSchema,
@@ -53,6 +56,12 @@ export type DraftProtection = {
 };
 
 export type ShopThingsBridge = {
+  app: {
+    ready: (
+      args: z.infer<typeof appReadyAction.arguments>
+    ) => Promise<z.infer<typeof appReadyAction.result>>;
+  };
+  update: UpdateBridge;
   customers: Group<'customers'>;
   database: Group<'database'> & {
     onStateChanged: (callback: (state: DatabaseState) => void) => () => void;
@@ -63,5 +72,12 @@ export type ShopThingsBridge = {
     registerProtection: (protection: DraftProtection) => () => void;
   };
 };
+
+export type UpdateState = z.infer<typeof updateStateSchema>;
+export type UpdateBridge = {
+  [K in keyof typeof updateActions as K extends `update.${infer M}` ? M : never]: (
+    args: z.infer<(typeof updateActions)[K]['arguments']>
+  ) => Promise<z.infer<(typeof updateActions)[K]['result']>>;
+} & {onStateChanged(callback: (state: UpdateState) => void): () => void};
 
 export type Client = ShopThingsBridge;

@@ -69,6 +69,14 @@ export default function createPreviewClient(
   }
 
   const client: Client = {
+    app: {ready: async () => ({status: 'success', value: {acknowledged: true}})},
+    update: {
+      check: unsupported,
+      getState: unsupported,
+      start: unsupported,
+      retry: unsupported,
+      onStateChanged: () => () => {},
+    },
     customers: {
       list: async ({session, query}) => {
         if (!current(session)) {

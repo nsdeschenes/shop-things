@@ -3,6 +3,9 @@ import type {z} from 'zod';
 import type {ShopThingsBridge, Client, DatabaseState, DraftRequest} from './index.js';
 import {
   actions,
+  appReadyAction,
+  updateActions,
+  updateStateSchema,
   databaseStateSchema,
   draftRequestSchema,
   draftReplySchema,
@@ -38,6 +41,34 @@ function validatedCall<A, R extends z.ZodType>(
 
 export function createClient(bridge: ShopThingsBridge): Client {
   return {
+    app: {ready: validatedCall(appReadyAction, args => bridge.app.ready(args))},
+    update: {
+      check: validatedCall(updateActions['update.check'], args =>
+        bridge.update.check(args)
+      ),
+      getState: validatedCall(updateActions['update.getState'], args =>
+        bridge.update.getState(args)
+      ),
+      start: validatedCall(updateActions['update.start'], args =>
+        bridge.update.start(args)
+      ),
+      retry: validatedCall(updateActions['update.retry'], args =>
+        bridge.update.retry(args)
+      ),
+      onStateChanged(callback) {
+        let active = true;
+        const stop = bridge.update.onStateChanged(payload => {
+          const parsed = updateStateSchema.safeParse(payload);
+          if (active && parsed.success) {
+            callback(parsed.data);
+          }
+        });
+        return () => {
+          active = false;
+          stop();
+        };
+      },
+    },
     customers: {
       list: validatedCall(actions['customers.list'], args => bridge.customers.list(args)),
       get: validatedCall(actions['customers.get'], args => bridge.customers.get(args)),
@@ -186,6 +217,8 @@ function isBridge(value: unknown): value is ShopThingsBridge {
   }
 
   const groups = {
+    app: ['ready'],
+    update: ['check', 'getState', 'start', 'retry', 'onStateChanged'],
     customers: ['list', 'get', 'create', 'update', 'delete'],
     database: [
       'status',
