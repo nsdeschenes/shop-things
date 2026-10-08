@@ -9,6 +9,7 @@ import {radii} from '../../styles/radii.stylex';
 import {spacing} from '../../styles/spacing.stylex';
 import {typography} from '../../styles/typography.stylex';
 import Button from '../button/button';
+import MigrationSnapshots from '../migrationSnapshots/migrationSnapshots';
 
 const pathSeparator = /[\\/]/;
 const styles = stylex.create({
@@ -135,6 +136,7 @@ export default function DatabaseActions({application}: {application: Application
               </Button>
             )}
           </div>
+          <MigrationSnapshots application={application} />
         </section>
       )}
     </section>

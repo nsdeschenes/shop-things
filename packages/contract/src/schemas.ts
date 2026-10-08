@@ -84,6 +84,14 @@ export const databaseStateSchema = z
     'Available state requires a path and session; unavailable state cannot have a session'
   );
 
+export const migrationSnapshotSchema = z.strictObject({
+  snapshotId: z.string().uuid(),
+  sourcePath: z.string().min(1).max(4096),
+  createdAt: z.string().datetime(),
+  sourceHistory: z.array(z.string().min(1).max(255)).min(1).max(256),
+  targetHistory: z.array(z.string().min(1).max(255)).min(1).max(256),
+});
+
 export const draftRequestSchema = z.strictObject({requestId: token, documentId: token});
 
 export const draftReplySchema = draftRequestSchema.extend({hasUnsavedDraft: z.boolean()});
@@ -217,6 +225,17 @@ export const actions = {
   'database.open': action(z.undefined(), databaseStateSchema),
   'database.backup': action(sessionArguments, z.strictObject({path: token})),
   'database.restore': action(z.undefined(), databaseStateSchema),
+  'database.listMigrationSnapshots': action(
+    z.strictObject({}),
+    z.strictObject({
+      snapshots: z.array(migrationSnapshotSchema),
+      unavailableCount: nonnegativeInteger,
+    })
+  ),
+  'database.restoreMigrationSnapshot': action(
+    z.strictObject({snapshotId: z.string().uuid()}),
+    databaseStateSchema
+  ),
   'exports.csv': action(sessionArguments, z.strictObject({path: token})),
   'drafts.confirmDiscard': action(
     z.undefined(),

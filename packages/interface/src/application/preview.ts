@@ -211,6 +211,11 @@ export default function createPreviewClient(
       open: unsupported,
       backup: unsupported,
       restore: unsupported,
+      listMigrationSnapshots: async () => ({
+        status: 'success',
+        value: {snapshots: [], unavailableCount: 0},
+      }),
+      restoreMigrationSnapshot: unsupported,
       onStateChanged: () => () => {},
     },
     imports: {

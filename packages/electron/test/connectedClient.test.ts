@@ -130,6 +130,8 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
         open: target.handlers['database.open'],
         backup: target.handlers['database.backup'],
         restore: target.handlers['database.restore'],
+        listMigrationSnapshots: target.handlers['database.listMigrationSnapshots'],
+        restoreMigrationSnapshot: target.handlers['database.restoreMigrationSnapshot'],
         onStateChanged: callback => target.onStateChanged(callback),
       },
       imports: {
