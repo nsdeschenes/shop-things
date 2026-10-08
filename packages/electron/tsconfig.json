@@ -12,6 +12,7 @@
     "noUncheckedSideEffectImports": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
+    // Drizzle 1.0.0-rc.4 declaration errors via @shop-things/db; recheck on upgrade. (#143)
     "skipLibCheck": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,

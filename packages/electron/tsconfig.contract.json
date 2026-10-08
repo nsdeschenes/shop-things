@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.json",
-  "compilerOptions": {"strict": true},
+  "compilerOptions": {"strict": true, "skipLibCheck": false},
   "include": ["../contract/test/conformance.ts"]
 }

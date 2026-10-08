@@ -4,6 +4,8 @@
     "target": "es2023",
     "lib": ["ES2023"],
     "types": ["node"],
+    // StyleX 0.19.1/unplugin 2.3.11 lack Babel/optional bundler types; router needs DOM.
+    // Recheck compatible plugin releases; unplugin 3 exceeds StyleX's peer range. (#143)
     "skipLibCheck": true,
 
     /* Bundler mode */

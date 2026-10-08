@@ -1,4 +1,8 @@
 {
   "extends": ["../../tsconfig.json", "../../tsconfig.typecheck.json"],
+  "compilerOptions": {
+    // Drizzle 1.0.0-rc.4 declaration errors (TS2339/2636/2344); recheck on upgrade. (#143)
+    "skipLibCheck": true
+  },
   "include": ["src", "test", "*.config.ts"]
 }

@@ -6,6 +6,8 @@
     "module": "esnext",
     "types": ["vite/client"],
     "allowArbitraryExtensions": true,
+    // jest-dom 7.0.1 augments Assertion with one parameter; Vitest 5 expects two (TS2428).
+    // Recheck when jest-dom supports Vitest 5; 5.0.3 still has the mismatch. (#143)
     "skipLibCheck": true,
 
     /* Bundler mode */
