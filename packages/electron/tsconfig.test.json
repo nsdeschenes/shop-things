@@ -1,7 +1,8 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    // Drizzle declaration errors; see docs/agents/declarationChecking.md.
+    // Drizzle declaration errors and Electron 44 DOM types in Node-only tests. (#143)
+    // Recheck after Drizzle fixes; evaluate DOM types for automation tests separately.
     "skipLibCheck": true
   },
   "include": ["test", "smoke", "scripts/smokePackaged.ts", "vitest*.config.ts"]

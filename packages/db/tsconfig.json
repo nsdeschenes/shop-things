@@ -1,7 +1,8 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    // Drizzle declaration errors; see docs/agents/declarationChecking.md.
+    // Drizzle 1.0.0-rc.4 has invalid config/variance/select declarations (TS2339/2636/2344).
+    // Recheck on a compatible release; 0.45.4 lacks defineRelations. (#143)
     "skipLibCheck": true,
     "noEmit": false,
     "allowImportingTsExtensions": false,
