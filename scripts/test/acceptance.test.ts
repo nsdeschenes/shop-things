@@ -1,4 +1,3 @@
-/* oxlint-disable vitest-js/no-conditional-expect -- Fixed scenarios select their own outcome assertions. */
 import {spawnSync} from 'node:child_process';
 import {chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -21,6 +20,10 @@ const commands = [
   'packaged-renderer',
   'development-watcher',
 ];
+
+function assertFixturePassed(status: number | null) {
+  expect(status).toBe(0);
+}
 
 for (const scenario of [
   'passed',
@@ -110,7 +113,7 @@ for (const scenario of [
           encoding: 'utf8',
           env: {...process.env, ACCEPTANCE_REPORT_DIR: reports},
         });
-        expect(source.status).toBe(0);
+        assertFixturePassed(source.status);
         await writeFile(
           join(reports, 'source-checks.commit'),
           scenario === 'stale source checks'
@@ -131,7 +134,7 @@ for (const scenario of [
           encoding: 'utf8',
           env: {...process.env, ACCEPTANCE_REPORT_DIR: reports},
         });
-        expect(renderer.status).toBe(0);
+        assertFixturePassed(renderer.status);
         await cp(join(reports, 'renderer'), join(reports, 'renderer-artifacts'), {
           recursive: true,
         });
