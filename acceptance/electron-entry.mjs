@@ -161,9 +161,12 @@ if (
 ) {
   globalThis.acceptanceDatabase = await import('../packages/db/dist/index.js');
   const {ActionService} = await import('../packages/electron/dist/actionService.js');
-  // Capture the real method and apply it to the production instance below.
-  // oxlint-disable-next-line typescript/unbound-method
-  const start = ActionService.prototype.start;
+  // Snapshot the original implementation before installing the startup wrapper.
+  const start = Object.getOwnPropertyDescriptor(ActionService.prototype, 'start')?.value;
+  if (typeof start !== 'function') {
+    throw new TypeError('Expected ActionService.prototype.start to be a method');
+  }
+
   ActionService.prototype.start = async function (...args) {
     globalThis.acceptanceService = this;
     if (process.env.SHOP_THINGS_ACCEPTANCE_DELAY_STARTUP) {
@@ -172,7 +175,7 @@ if (
       });
     }
 
-    return start.apply(this, args);
+    return Reflect.apply(start, this, args);
   };
 }
 
