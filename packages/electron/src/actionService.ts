@@ -488,6 +488,9 @@ export class ActionService {
               original.selectedPath,
               {
                 migrationsFolder: this.options.migrationsFolder,
+                ...(this.options.migrationBackupDirectory
+                  ? {migrationBackupDirectory: this.options.migrationBackupDirectory}
+                  : {}),
               }
             );
           }
