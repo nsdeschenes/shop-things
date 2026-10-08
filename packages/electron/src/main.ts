@@ -10,6 +10,7 @@ import {isTrustedRendererUrl, trackAuthorizedDocument} from './document.js';
 import {DraftCoordinator} from './draftCoordinator.js';
 import {registerIpc} from './ipc.js';
 import {createNativeDialogs} from './nativeDialogs.js';
+import {acknowledgeRestartReady} from './restartSupervisor.js';
 import {FileDatabaseSettings} from './settings.js';
 import {UpdateDiscovery} from './updateDiscovery.js';
 import {loadInstalledUpdatePolicy} from './updatePolicy.js';
@@ -203,6 +204,10 @@ void app.whenReady().then(async () => {
     drafts,
     currentDocument: () => documentTracker?.currentDocument() ?? null,
     onDocumentChanged,
+    onRendererReady: async () => {
+      await starting;
+      await acknowledgeRestartReady();
+    },
     ready: async () => {
       await starting;
     },
