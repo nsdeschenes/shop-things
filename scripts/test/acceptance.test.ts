@@ -36,7 +36,7 @@ for (const scenario of [
   'failed watcher checks',
   'stale watcher checks',
   'flaky renderer checks',
-]) {
+] as const) {
   test(`acceptance command reports ${scenario} with current-run diagnostics`, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'shop-things-acceptance-command-'));
     const reports = join(directory, 'acceptance-reports');
@@ -201,11 +201,7 @@ for (const scenario of [
       expect(report.finishedAt).toBeTruthy();
       expect(report).not.toHaveProperty('deferred');
       expect(report).not.toHaveProperty('acceptance');
-      if (
-        scenario === 'passed' ||
-        scenario === 'reused checks' ||
-        scenario === 'reused renderer checks'
-      ) {
+      async function assertPassed() {
         expect(result.status).toBe(0);
         expect(report.status).toBe('passed');
         expect(report.commit).toBe(git(['rev-parse', 'HEAD']));
@@ -223,29 +219,8 @@ for (const scenario of [
               )
             : expectedCommands
         );
-        if (reuseRendererChecks) {
-          expect(report.rendererChecks).toEqual({
-            origin: 'prior-workflow-job',
-            commit: git(['rev-parse', 'HEAD']),
-          });
-          expect(report.developmentWatcher.status).toBe('passed');
-        }
-
-        if (reuseSourceChecks) {
-          expect(report.sourceChecks).toMatchObject({
-            origin: 'prior-workflow-steps',
-            commit: git(['rev-parse', 'HEAD']),
-          });
-          expect(report.sourceTests.contract).toEqual({passed: 1, total: 1, skipped: 0});
-        }
 
         expect(report.sourceTests).not.toHaveProperty('scripts');
-        if (!reuseSourceChecks) {
-          expect(
-            report.steps.find((step: {name: string}) => step.name === 'source-tests')
-              .command
-          ).toEqual(['pnpm', 'test', '--packages-only']);
-        }
 
         for (const step of report.steps) {
           expect(step.status).toBe('passed');
@@ -258,48 +233,101 @@ for (const scenario of [
         expect(
           await readFile(join(reports, 'renderer-artifacts/results.json'), 'utf8')
         ).toContain('expected');
-        if (process.platform === 'darwin') {
-          expect(report.shippedBackend.applicable).toBe(false);
-          expect(report.shippedBackend.reason).toContain('Linux release artifact');
-        }
-      } else {
+      }
+
+      function assertReusedRendererChecks() {
+        expect(report.rendererChecks).toEqual({
+          origin: 'prior-workflow-job',
+          commit: git(['rev-parse', 'HEAD']),
+        });
+        expect(report.developmentWatcher.status).toBe('passed');
+      }
+
+      function assertReusedSourceChecks() {
+        expect(report.sourceChecks).toMatchObject({
+          origin: 'prior-workflow-steps',
+          commit: git(['rev-parse', 'HEAD']),
+        });
+        expect(report.sourceTests.contract).toEqual({passed: 1, total: 1, skipped: 0});
+      }
+
+      function assertFreshSourceChecks() {
+        expect(
+          report.steps.find((step: {name: string}) => step.name === 'source-tests')
+            .command
+        ).toEqual(['pnpm', 'test', '--packages-only']);
+      }
+
+      function assertSupportingMacos() {
+        expect(report.shippedBackend.applicable).toBe(false);
+        expect(report.shippedBackend.reason).toContain('Linux release artifact');
+      }
+
+      function assertFailed() {
         expect(result.status).toBe(1);
         expect(report.status).toBe('failed');
         expect(report.error.stack).toBeTruthy();
-        if (scenario === 'child failure') {
-          expect(report.error.message).toContain('build failed: 23');
-          expect(report.steps.at(-1)).toMatchObject({
-            name: 'build',
-            status: 'failed',
-            exitCode: 23,
-          });
-          expect(await readFile(join(reports, 'build.log'), 'utf8')).toContain(
-            'fixture child diagnostic'
-          );
-        } else if (reuseRendererChecks) {
-          expect(report.steps.map((step: {name: string}) => step.name)).toEqual(
-            scenario === 'flaky renderer checks' ? ['build'] : []
-          );
-          const errors: Record<string, string> = {
-            'stale renderer checks': 'Renderer checks must use this commit',
-            'missing renderer checks': 'renderer-checks.commit',
-            'failed watcher checks': 'watcher.json must pass',
-            'stale watcher checks': 'watcher.json must use this commit',
-            'flaky renderer checks': 'Renderer flaky checks must be zero',
-          };
-          expect(report.error.message).toContain(errors[scenario]);
-        } else {
-          expect(report.steps).toEqual([]);
-          const expectedMessage =
-            scenario === 'stale source checks'
-              ? 'Source checks must use this commit'
-              : scenario === 'missing source checks'
-                ? 'source-checks.commit'
-                : scenario === 'skipped source test'
-                  ? '1 !== 0'
-                  : 'HEAD';
-          expect(report.error.message).toContain(expectedMessage);
-        }
+      }
+
+      async function assertChildFailure() {
+        assertFailed();
+        expect(report.error.message).toContain('build failed: 23');
+        expect(report.steps.at(-1)).toMatchObject({
+          name: 'build',
+          status: 'failed',
+          exitCode: 23,
+        });
+        expect(await readFile(join(reports, 'build.log'), 'utf8')).toContain(
+          'fixture child diagnostic'
+        );
+      }
+
+      function assertRendererFailure(message: string, steps: string[] = []) {
+        assertFailed();
+        expect(report.steps.map((step: {name: string}) => step.name)).toEqual(steps);
+        expect(report.error.message).toContain(message);
+      }
+
+      function assertSourceFailure(message: string) {
+        assertFailed();
+        expect(report.steps).toEqual([]);
+        expect(report.error.message).toContain(message);
+      }
+
+      const platformAssertions =
+        process.platform === 'darwin' ? [assertSupportingMacos] : [];
+      const assertions: Record<typeof scenario, (() => void | Promise<void>)[]> = {
+        passed: [assertPassed, assertFreshSourceChecks, ...platformAssertions],
+        'reused checks': [assertPassed, assertReusedSourceChecks, ...platformAssertions],
+        'reused renderer checks': [
+          assertPassed,
+          assertReusedRendererChecks,
+          assertReusedSourceChecks,
+          ...platformAssertions,
+        ],
+        'child failure': [assertChildFailure],
+        'missing revision': [() => assertSourceFailure('HEAD')],
+        'stale source checks': [
+          () => assertSourceFailure('Source checks must use this commit'),
+        ],
+        'missing source checks': [() => assertSourceFailure('source-checks.commit')],
+        'skipped source test': [() => assertSourceFailure('1 !== 0')],
+        'stale renderer checks': [
+          () => assertRendererFailure('Renderer checks must use this commit'),
+        ],
+        'missing renderer checks': [
+          () => assertRendererFailure('renderer-checks.commit'),
+        ],
+        'failed watcher checks': [() => assertRendererFailure('watcher.json must pass')],
+        'stale watcher checks': [
+          () => assertRendererFailure('watcher.json must use this commit'),
+        ],
+        'flaky renderer checks': [
+          () => assertRendererFailure('Renderer flaky checks must be zero', ['build']),
+        ],
+      };
+      for (const assertion of assertions[scenario]) {
+        await assertion();
       }
     } finally {
       await rm(directory, {recursive: true, force: true});
