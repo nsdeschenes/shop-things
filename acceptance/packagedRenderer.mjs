@@ -429,6 +429,31 @@ try {
     glibc: process.report.getReport().header.glibcVersionRuntime,
   };
   if (!supporting) {
+    async function readSecurity(path) {
+      return (await readFile(path, 'utf8').catch(() => 'unavailable')).trim();
+    }
+
+    report.securityTopology = {
+      apparmorRestriction: await readSecurity(
+        '/proc/sys/kernel/apparmor_restrict_unprivileged_userns'
+      ),
+      userNamespaces: await readSecurity('/proc/sys/user/max_user_namespaces'),
+      apparmorEnabled: await readSecurity('/sys/module/apparmor/parameters/enabled'),
+      initialRunnerApparmorRestriction:
+        process.env.ACCEPTANCE_INITIAL_APPARMOR_RESTRICTION ?? 'unrecorded',
+      topology: systemInstall
+        ? 'installed executable at recorded original runner restriction; Xvfb supporting CI proof'
+        : 'unpacked supporting test topology; factory desktop proof pending',
+    };
+    if (systemInstall) {
+      assert.equal(
+        report.securityTopology.apparmorRestriction,
+        process.env.ACCEPTANCE_INITIAL_APPARMOR_RESTRICTION
+      );
+    }
+  }
+
+  if (!supporting) {
     assert.ok(report.executionEnvironment.glibc, 'Linux glibc required');
   }
 

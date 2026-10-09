@@ -310,17 +310,41 @@ try {
     ]);
   }
 
-  await command(
-    'packaged-renderer',
-    process.execPath,
-    ['acceptance/packagedRenderer.mjs'],
-    {
-      PACKAGED_RENDERER_SYSTEM_INSTALL: installSystem ? '1' : '',
-      PACKAGED_RENDERER_TARGET: supporting
-        ? 'darwin-arm64-supporting'
-        : `linux-${process.arch}`,
+  if (installSystem) {
+    const initial = process.env.ACCEPTANCE_INITIAL_APPARMOR_RESTRICTION;
+    assert.ok(
+      initial === '0' || initial === '1',
+      'Record the original runner AppArmor setting before test relaxation'
+    );
+    await command('restore-installed-sandbox-default', 'sudo', [
+      '/usr/sbin/sysctl',
+      '-w',
+      'kernel.apparmor_restrict_unprivileged_userns=' + initial,
+    ]);
+  }
+
+  try {
+    await command(
+      'packaged-renderer',
+      process.execPath,
+      ['acceptance/packagedRenderer.mjs'],
+      {
+        PACKAGED_RENDERER_SYSTEM_INSTALL: installSystem ? '1' : '',
+        PACKAGED_RENDERER_TARGET: supporting
+          ? 'darwin-arm64-supporting'
+          : `linux-${process.arch}`,
+      }
+    );
+  } finally {
+    if (installSystem) {
+      await command('restore-portable-test-topology', 'sudo', [
+        '/usr/sbin/sysctl',
+        '-w',
+        'kernel.apparmor_restrict_unprivileged_userns=0',
+      ]);
     }
-  );
+  }
+
   report.packagedRenderer = await successfulReport('packaged-renderer.json');
   if (!reuseRendererChecks) {
     await command('development-watcher', process.execPath, ['acceptance/watcher.mjs']);

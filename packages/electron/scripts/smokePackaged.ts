@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
   cp,
@@ -9,6 +10,7 @@ import {
   mkdir,
   writeFile,
   chmod,
+  stat,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -116,6 +118,7 @@ try {
   );
 
   const migrationsFolder = join(resources, 'migrations');
+  const migrationBackupDirectory = join(directory, 'migration-backups');
   const paths = {
     working: join(directory, 'working.db'),
     backup: join(directory, 'snapshot.db'),
@@ -155,6 +158,7 @@ try {
     drafts.register(participant);
     const service = new backend.ActionService({
       migrationsFolder,
+      migrationBackupDirectory,
       settings,
       drafts,
       dialogs: {
@@ -481,6 +485,245 @@ try {
   assert.equal(await digest(paths.pending), pendingHash);
   assert.equal(handles.size, 0);
   phases.push('shipped-pending-migration/source-preserving-migrating-restore');
+  // Execute snapshot recovery through the shipped public APIs and actual addon.
+  const startupPath = join(directory, 'startup-pending.db');
+  await cp(paths.pending, startupPath);
+  await settings.write(startupPath);
+  const startupService = makeService();
+  await startupService.start();
+  const startupSession = startupService.status().session;
+  assert.ok(startupSession);
+  const snapshots = await db.listMigrationSnapshots(migrationBackupDirectory);
+  assert.equal(snapshots.unavailableCount, 0);
+  const startupSnapshot = snapshots.snapshots.find(
+    snapshot => snapshot.canonicalSource === startupPath
+  );
+  assert.ok(startupSnapshot);
+  assert.equal((await stat(startupSnapshot.snapshotPath)).mode & 0o777, 0o600);
+  assert.equal(
+    (await stat(join(startupSnapshot.snapshotPath, '..'))).mode & 0o777,
+    0o700
+  );
+  assert.deepEqual(
+    startupSnapshot.sourceHistory.map(row => row.name),
+    [initial]
+  );
+  const snapshotHash = await digest(startupSnapshot.snapshotPath);
+  const recoveredCopy = join(directory, 'recovered-snapshot.db');
+  await db.restoreMigrationSnapshot(startupSnapshot, recoveredCopy);
+  assert.equal(await digest(startupSnapshot.snapshotPath), snapshotHash);
+  const recoveredHandle = db.openDatabase(recoveredCopy);
+  try {
+    assert.deepEqual(
+      await recoveredHandle.db.all('select name from __drizzle_migrations'),
+      [{name: initial}]
+    );
+    assert.deepEqual(await recoveredHandle.db.all('pragma integrity_check'), [
+      {integrity_check: 'ok'},
+    ]);
+  } finally {
+    recoveredHandle.close();
+  }
+
+  await assert.rejects(
+    db.openExistingDatabase(startupPath, {migrationsFolder: initialOnly}),
+    /migration history does not match/
+  );
+  const current = await db.openExistingDatabase(startupPath, {
+    migrationsFolder,
+    migrationBackupDirectory,
+  });
+  current.close();
+  assert.equal(
+    (await db.listMigrationSnapshots(migrationBackupDirectory)).snapshots.length,
+    snapshots.snapshots.length
+  );
+
+  const snapshotState = success(
+    await startupService.handlers['database.listMigrationSnapshots']({})
+  );
+  const selected = snapshotState.snapshots.find(
+    snapshot => snapshot.sourcePath === startupPath
+  );
+  assert.ok(selected);
+  restoreDestination = join(directory, 'restored-selected-snapshot.db');
+  const restoredSnapshot = success(
+    await startupService.handlers['database.restoreMigrationSnapshot']({
+      snapshotId: selected.snapshotId,
+    })
+  );
+  assert.ok(restoredSnapshot.session && restoredSnapshot.session !== startupSession);
+  assert.equal(await digest(startupSnapshot.snapshotPath), snapshotHash);
+  assert.equal(
+    success(
+      await startupService.handlers['customers.list']({
+        session: restoredSnapshot.session,
+        query: '',
+      })
+    )[0]?.customer.firstName,
+    'Pending'
+  );
+  const laterPath = join(directory, 'later-pending.db');
+  await cp(paths.pending, laterPath);
+  openPath = laterPath;
+  const laterState = success(await startupService.handlers['database.open']());
+  assert.ok(laterState.session);
+  assert.ok(
+    (await db.listMigrationSnapshots(migrationBackupDirectory)).snapshots.some(
+      snapshot => snapshot.canonicalSource === laterPath
+    )
+  );
+  const failedPath = join(directory, 'failed-pending.db');
+  await cp(paths.pending, failedPath);
+  const unavailableBackup = join(directory, 'unavailable-backup');
+  await writeFile(unavailableBackup, 'not a directory');
+  await assert.rejects(
+    db.openExistingDatabase(failedPath, {
+      migrationsFolder,
+      migrationBackupDirectory: unavailableBackup,
+    }),
+    /Cannot preserve a verified migration backup/
+  );
+  const untouched = db.openDatabase(failedPath);
+  try {
+    assert.deepEqual(await untouched.db.all('select name from __drizzle_migrations'), [
+      {name: initial},
+    ]);
+  } finally {
+    untouched.close();
+  }
+
+  const brokenFolder = join(directory, 'copied-failing-migrations');
+  await cp(migrationsFolder, brokenFolder, {recursive: true});
+  const injected = join(brokenFolder, '20991231235959_qualification_failure');
+  await mkdir(injected);
+  await writeFile(
+    join(injected, 'migration.sql'),
+    'INSERT INTO qualification_missing_table VALUES(1);'
+  );
+  const failedBackups = join(directory, 'failed-migration-backups');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await assert.rejects(
+      db.openExistingDatabase(failedPath, {
+        migrationsFolder: brokenFolder,
+        migrationBackupDirectory: failedBackups,
+      }),
+      /qualification_missing_table/
+    );
+  }
+
+  const retainedFailures = await db.listMigrationSnapshots(failedBackups);
+  assert.equal(retainedFailures.snapshots.length, 2);
+  assert.equal(retainedFailures.unavailableCount, 0);
+  assert.notEqual(
+    retainedFailures.snapshots[0]?.snapshotPath,
+    retainedFailures.snapshots[1]?.snapshotPath
+  );
+  for (const snapshot of retainedFailures.snapshots) {
+    const handle = db.openDatabase(snapshot.snapshotPath);
+    try {
+      assert.deepEqual(await handle.db.all('select name from __drizzle_migrations'), [
+        {name: initial},
+      ]);
+    } finally {
+      handle.close();
+    }
+  }
+
+  report.migrationFailureFixture = {
+    scope: 'temporary copy of shipped migrations with one intentionally failing SQL file',
+    addedSqlSha256: await digest(join(injected, 'migration.sql')),
+  };
+  phases.push(
+    'shipped-public-api/copied-failing-migration/distinct-retained-snapshots/explicit-retries'
+  );
+  assert.equal(startupService.status().session, laterState.session);
+  assert.equal(
+    success(
+      await startupService.handlers['customers.list']({
+        session: laterState.session,
+        query: '',
+      })
+    )[0]?.customer.firstName,
+    'Pending'
+  );
+  success(await startupService.requestClose());
+
+  const writerPath = join(directory, 'writer-pending.db');
+  await cp(paths.pending, writerPath);
+  const owner = db.openDatabase(writerPath);
+  function externalWriter() {
+    return spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
+      const db = await import(process.argv[1]);
+      try { const handle = db.openDatabase(process.argv[2]); await handle.db.run("insert into customers(customerNumber,firstName) values(99,'External')"); handle.close(); }
+      catch(error) { console.error(error.message); process.exitCode = 2; }
+    `,
+        pathToFileURL(databasePath).href,
+        writerPath,
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 15000,
+        maxBuffer: 65536,
+        env: {...process.env, ELECTRON_RUN_AS_NODE: '1'},
+      }
+    );
+  }
+
+  try {
+    await owner.db.all('select * from customers');
+    await owner.db.run(
+      "insert into customers(customerNumber,firstName,balance) values(88,'Committed journal',1)"
+    );
+    const journalSnapshot = join(directory, 'committed-journal.db');
+    await db.backupDatabase(owner.db, journalSnapshot);
+    const journal = db.openDatabase(journalSnapshot);
+    try {
+      assert.deepEqual(
+        (
+          await journal.db.all<{firstName: string}>(
+            'select firstName from customers order by customerNumber'
+          )
+        ).map(row => row.firstName),
+        ['Pending', 'Committed journal']
+      );
+    } finally {
+      journal.close();
+    }
+
+    const blocked = externalWriter();
+    assert.equal(blocked.status, 2, blocked.stderr);
+    assert.match(blocked.stderr, /locked by another process/);
+    await db.runMigrations(owner.db, {migrationsFolder});
+    const stillBlocked = externalWriter();
+    assert.equal(stillBlocked.status, 2, stillBlocked.stderr);
+    assert.match(stillBlocked.stderr, /locked by another process/);
+  } finally {
+    owner.close();
+  }
+
+  const permitted = externalWriter();
+  assert.equal(permitted.status, 0, permitted.stderr);
+  phases.push(
+    'shipped-startup-and-later-open/private-migration-snapshot/no-repeat/older-app-rejection'
+  );
+  phases.push(
+    'shipped-validated-separate-snapshot-restore/opaque-selected-restore/source-preservation'
+  );
+  phases.push(
+    'shipped-real-storage-path-failure/unchanged-history/active-session-preservation'
+  );
+  report.externalWriterProof =
+    'Actual separate process rejected before/after migration with retained owner; no claim of observed inner snapshot/migration overlap';
+  phases.push(
+    'shipped-committed-journal-snapshot/retained-owner-external-writer-exclusion/positive-control'
+  );
+
   // Inspect bundled preload and its esbuild manifest without attaching or executing it.
   const preloadPath = join(archive, 'dist/preload.cjs');
   const preload = await readFile(preloadPath, 'utf8');
