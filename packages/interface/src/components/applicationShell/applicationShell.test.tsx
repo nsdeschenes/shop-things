@@ -266,3 +266,114 @@ test('update check failure offers an explicit retry and then reports current', a
   expect(await screen.findByRole('status')).toHaveTextContent("You're up to date");
   application.dispose();
 });
+
+test('explicit Update shows progress while customer work stays available and dismissal preserves the attempt', async () => {
+  const {user, client, application} = await fixture();
+  const checking = vi
+    .spyOn(client.update, 'check')
+    .mockResolvedValueOnce({
+      status: 'success',
+      value: {
+        revision: 1,
+        phase: 'available',
+        candidateId: 'candidate',
+        targetVersion: '0.4.0',
+        capabilityReasons: ['Installation is not available yet.'],
+        nextActions: ['check', 'update'],
+      },
+    })
+    .mockResolvedValue({
+      status: 'success',
+      value: {
+        revision: 3,
+        phase: 'downloading',
+        candidateId: 'candidate',
+        attemptId: 'attempt',
+        targetVersion: '0.4.0',
+        progress: 0.5,
+        capabilityReasons: ['Installation is not available yet.'],
+        nextActions: [],
+      },
+    });
+  const start = vi.spyOn(client.update, 'start').mockResolvedValue({
+    status: 'success',
+    value: {
+      revision: 2,
+      phase: 'downloading',
+      candidateId: 'candidate',
+      attemptId: 'attempt',
+      targetVersion: '0.4.0',
+      progress: 0.5,
+      capabilityReasons: ['Installation is not available yet.'],
+      nextActions: [],
+    },
+  });
+  await user.click(screen.getByRole('button', {name: 'Check for updates'}));
+  await user.click(await screen.findByRole('button', {name: 'Update'}));
+  expect(start).toHaveBeenCalledWith({candidateId: 'candidate'});
+  expect(
+    await screen.findByRole('progressbar', {name: 'Update download progress'})
+  ).toHaveValue(0.5);
+  expect(screen.getByRole('button', {name: 'Refresh customers'})).toBeEnabled();
+  await user.click(screen.getByRole('button', {name: 'Close'}));
+  await user.click(screen.getByRole('button', {name: 'Check for updates'}));
+  expect(
+    await screen.findByRole('progressbar', {name: 'Update download progress'})
+  ).toHaveValue(0.5);
+  expect(start).toHaveBeenCalledTimes(1);
+  expect(checking).toHaveBeenCalledTimes(2);
+  application.dispose();
+});
+
+test('a download failure retries only its current opaque attempt and stops at verified staging', async () => {
+  const {user, client, application} = await fixture();
+  vi.spyOn(client.update, 'check').mockResolvedValue({
+    status: 'success',
+    value: {
+      revision: 1,
+      phase: 'available',
+      candidateId: 'candidate',
+      targetVersion: '0.4.0',
+      capabilityReasons: [],
+      nextActions: ['check', 'update'],
+    },
+  });
+  vi.spyOn(client.update, 'start').mockResolvedValue({
+    status: 'success',
+    value: {
+      revision: 2,
+      phase: 'retryable-failure',
+      candidateId: 'candidate',
+      attemptId: 'failed-attempt',
+      targetVersion: '0.4.0',
+      errorCode: 'VERIFICATION',
+      capabilityReasons: [],
+      nextActions: ['retry'],
+    },
+  });
+  const retry = vi.spyOn(client.update, 'retry').mockResolvedValue({
+    status: 'success',
+    value: {
+      revision: 3,
+      phase: 'staged',
+      candidateId: 'candidate',
+      attemptId: 'new-attempt',
+      targetVersion: '0.4.0',
+      progress: 1,
+      capabilityReasons: [],
+      nextActions: [],
+    },
+  });
+  await user.click(screen.getByRole('button', {name: 'Check for updates'}));
+  await user.click(await screen.findByRole('button', {name: 'Update'}));
+  expect(await screen.findByRole('status')).toHaveTextContent(
+    'Update verification failed. Retry to download a fresh copy.'
+  );
+  await user.click(screen.getByRole('button', {name: 'Retry'}));
+  expect(retry).toHaveBeenCalledWith({attemptId: 'failed-attempt'});
+  expect(await screen.findByRole('status')).toHaveTextContent(
+    'Download verified. Installation is not available yet.'
+  );
+  expect(screen.queryByRole('button', {name: 'Update'})).not.toBeInTheDocument();
+  application.dispose();
+});

@@ -160,6 +160,7 @@ void app.whenReady().then(async () => {
 
   let trustedKeys: string[] = [];
   let packageVersion = app.getVersion();
+  let packageIdentityAvailable = false;
   const capabilityReasons = ['Installation is not available yet.'];
   if (process.platform !== 'linux' || process.arch !== 'arm64' || !app.isPackaged) {
     capabilityReasons.push('Updates require a system-installed Linux ARM64 package.');
@@ -183,6 +184,7 @@ void app.whenReady().then(async () => {
       }
 
       packageVersion = installedVersion;
+      packageIdentityAvailable = true;
     } catch {
       capabilityReasons.push(
         'Installed publisher trust or package identity is unavailable.'
@@ -195,6 +197,9 @@ void app.whenReady().then(async () => {
     packageVersion,
     trustedKeys,
     capabilityReasons,
+    ...(packageIdentityAvailable && process.arch === 'arm64'
+      ? {download: {directory: join(app.getPath('userData'), 'updates')}}
+      : {}),
   });
 
   stopIpc = registerIpc({
