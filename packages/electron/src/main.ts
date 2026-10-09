@@ -248,7 +248,9 @@ void app.whenReady().then(async () => {
   starting = (async () => {
     try {
       if (app.isPackaged && process.platform === 'linux' && process.arch === 'arm64') {
-        const evidence = await inspectPackageEvidence();
+        const evidence = await inspectPackageEvidence(
+          process.env.SHOP_THINGS_RESTART_ATTEMPT
+        );
         packageUsable =
           evidence.outcome === 'clean' ||
           evidence.outcome === 'installed' ||

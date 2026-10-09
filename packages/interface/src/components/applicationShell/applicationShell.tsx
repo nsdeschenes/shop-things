@@ -105,13 +105,19 @@ const styles = stylex.create({
 export default function ApplicationShell({application, children}: ApplicationShellProps) {
   const state = useSyncExternalStore(application.subscribe, application.getState);
   const [packageRecovery, setPackageRecovery] = useState(false);
+  const updateRevision = useRef(-1);
   useEffect(() => {
     const updates = application.getClient()?.update;
     if (!updates) {
       return;
     }
 
-    function observe(value: {phase: string}) {
+    function observe(value: {phase: string; revision: number}) {
+      if (value.revision < updateRevision.current) {
+        return;
+      }
+
+      updateRevision.current = value.revision;
       setPackageRecovery(value.phase === 'package-recovery');
     }
 
