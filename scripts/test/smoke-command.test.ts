@@ -12,7 +12,7 @@ test('packaged smoke validates existing outputs without rebuilding them', async 
   try {
     await mkdir(join(directory, 'scripts'));
     await mkdir(join(directory, 'bin'));
-    await writeFile(join(directory, 'package.json'), '{"type":"module"}');
+    await cp(join(root, 'package.json'), join(directory, 'package.json'));
     for (const name of [
       'electron-smoke.ts',
       'testHelpers.ts',

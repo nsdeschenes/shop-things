@@ -64,11 +64,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.4.2
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: 24
       - name: Set dependency cache key
         id: cache-key
         run: echo "key=workspace-deps-v1-${{ runner.os }}-${{ runner.arch }}-node26-pnpm12.4.2-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'packages/*/package.json') }}" >> "$GITHUB_OUTPUT"
@@ -93,11 +91,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.4.2
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: 24
       - name: Restore installed dependencies
         uses: actions/cache/restore@v4
         with:
@@ -117,11 +113,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.4.2
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: 24
       - name: Restore installed dependencies
         uses: actions/cache/restore@v4
         with:
@@ -142,11 +136,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.4.2
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: 24
       - name: Restore installed dependencies
         uses: actions/cache/restore@v4
         with:
@@ -167,11 +159,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.4.2
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: 24
       - name: Restore installed dependencies
         uses: actions/cache/restore@v4
         with:
@@ -202,11 +192,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.4.2
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: 24
       - name: Restore installed dependencies
         uses: actions/cache/restore@v4
         with:
@@ -232,7 +220,7 @@ jobs:
       - name: Run renderer E2E
         run: xvfb-run -a pnpm test:renderer
       - name: Run development watcher acceptance
-        run: xvfb-run -a node acceptance/watcher.mjs
+        run: xvfb-run -a pnpm exec node acceptance/watcher.mjs
       - name: Retain renderer results and the checked commit
         run: |
           cp acceptance-reports/renderer/results.json "$ACCEPTANCE_REPORT_DIR/renderer-results.json"
@@ -265,11 +253,9 @@ jobs:
           test "$E2E_RESULT" = success
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 12.4.2
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: 24
       - name: Restore installed dependencies
         uses: actions/cache/restore@v4
         with:
@@ -303,13 +289,13 @@ jobs:
           name: renderer-artifacts-${{ github.sha }}
           path: ${{ runner.temp }}/shop-things-acceptance/renderer-artifacts
       - name: Build Linux arm64 and smoke test the package
-        run: xvfb-run -a node --experimental-strip-types scripts/acceptance.ts --reuse-source-checks --reuse-renderer-checks
+        run: xvfb-run -a pnpm exec node --experimental-strip-types scripts/acceptance.ts --reuse-source-checks --reuse-renderer-checks
         env:
           ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
           SMOKE_EXECUTION_ENVIRONMENT: github-actions-ubuntu-24.04-arm-native-linux-arm64
       - name: Stage the tested Linux arm64 release
         if: github.event_name == 'push'
-        run: node --experimental-strip-types scripts/stage-release.ts
+        run: pnpm exec node --experimental-strip-types scripts/stage-release.ts
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'push'
         with:
