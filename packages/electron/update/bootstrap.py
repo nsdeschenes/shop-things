@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import stat
 
+os.umask(0o022)
 SOURCE = Path('/opt/Shop Things/resources/update')
 require = lambda value: None if value else (_ for _ in ()).throw(ValueError('Unsafe bootstrap installation'))
 require(os.geteuid() == 0)

@@ -25,7 +25,9 @@ metadata with exact `{schemaVersion:1,packageName:"shop-things",appVersion}`.
 Bootstrap installs this separately from the unchanged three-field public policy.
 Approved public policy is provisioned before package build/acceptance, never after
 an installer was tested. Ordinary draft builds lacking policy remain incapable;
-no production test key is supplied. See `docs/signed-updates.md`.
+no production test key is supplied. Normal build and the direct builder beforePack
+entry both validate any supplied public policy before packaging; private PEMs
+fail closed. See `docs/signed-updates.md`.
 
 ## Protocol and verification
 
