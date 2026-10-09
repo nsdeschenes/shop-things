@@ -141,16 +141,29 @@ try {
     artifacts: {path: string; sha256: string}[];
     installerEntries: string;
     developmentRuntime: {version: string; executable: string; sha256: string};
+    selectedElectronRuntime: {
+      versions: {node: string; electron: string};
+      executable: string;
+      sha256: string;
+    };
   } = JSON.parse(await readFile(packageProofPath, 'utf8'));
   assert.equal(packageInputs.commit, inventory.commit);
-  assert.equal(packageInputs.developmentRuntime.version, '26.11.0');
-  assert.equal(process.versions.node, '24.21.0');
-  assert.equal(process.versions.electron, '44.4.5');
+  assert.equal(
+    process.versions.node,
+    packageInputs.selectedElectronRuntime.versions.node,
+    'Packaged Node differs from the selected Electron runtime'
+  );
+  assert.equal(
+    process.versions.electron,
+    packageInputs.selectedElectronRuntime.versions.electron,
+    'Packaged Electron differs from the selected dependency'
+  );
   const contents = {
     commit: inventory.commit,
     artifacts: packageInputs.artifacts,
     installerEntries: packageInputs.installerEntries,
     developmentRuntime: packageInputs.developmentRuntime,
+    selectedElectronRuntime: packageInputs.selectedElectronRuntime,
     embeddedRuntime: process.versions,
     asar: await packageContents(archive),
     unpacked: await packageContents(dirname(resources)),
@@ -182,30 +195,35 @@ try {
     }
   }
 
-  const installedArchives = contents.installer.filter(entry =>
-    entry.path.endsWith('/resources/app.asar')
+  const installedArchives = contents.installer.filter(
+    entry =>
+      entry.path === 'resources/app.asar' || entry.path.endsWith('/resources/app.asar')
   );
   assert.equal(installedArchives.length, 1);
-  assert.equal(
-    installedArchives[0]?.sha256,
-    await digest(archive, originalFiles.readFile)
-  );
-  const installedExecutables = contents.installer.filter(
-    entry => entry.path.endsWith('/shop-things') && entry.kind === 'file'
-  );
-  assert.equal(installedExecutables.length, 1);
-  assert.equal(
-    installedExecutables[0]?.sha256,
-    await digest(join(dirname(resources), 'shop-things'))
-  );
-  for (const entry of contents.unpacked.filter(entry => entry.kind === 'file')) {
-    assert.ok(
-      contents.installer.some(
-        installed =>
-          installed.path.endsWith('/' + entry.path) && installed.sha256 === entry.sha256
-      ),
-      `Unpacked file absent or changed in installer: ${entry.path}`
-    );
+  const installedArchive = installedArchives[0];
+  assert.ok(installedArchive);
+  assert.equal(installedArchive.kind, 'file');
+  const applicationRoot = dirname(dirname(installedArchive.path));
+  report.installedApplicationRoot = applicationRoot;
+  const installedEntries = new Map(contents.installer.map(entry => [entry.path, entry]));
+  for (const entry of contents.unpacked) {
+    const installed = installedEntries.get(join(applicationRoot, entry.path));
+    assert.ok(installed, `Installer entry absent: ${entry.path}`);
+    assert.equal(installed.kind, entry.kind, `Installer kind changed: ${entry.path}`);
+    assert.equal(installed.mode, entry.mode, `Installer mode changed: ${entry.path}`);
+    if (entry.kind === 'file') {
+      assert.equal(
+        installed.sha256,
+        entry.sha256,
+        `Installer file changed: ${entry.path}`
+      );
+    } else if (entry.kind === 'symlink') {
+      assert.equal(
+        installed.target,
+        entry.target,
+        `Installer link changed: ${entry.path}`
+      );
+    }
   }
 
   phases.push(

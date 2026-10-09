@@ -1,6 +1,7 @@
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {readFile, readdir, stat, writeFile, mkdir, mkdtemp, rm} from 'node:fs/promises';
+import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {dirname, join, relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -125,6 +126,26 @@ test(`proves the shipped Linux glibc ${process.arch} backend and retains commit/
       maxBuffer: 8 * 1024 * 1024,
     });
     expect(listing.status, `${listing.stderr}`).toBe(0);
+    const {devEngines} = JSON.parse(
+      await readFile(join(projectRoot, 'package.json'), 'utf8')
+    );
+    expect(process.versions.node).toBe(devEngines.runtime.version);
+    const requireElectron = createRequire(import.meta.url);
+    const selectedElectron: string = requireElectron('electron');
+    const selectedRuntime = spawnSync(
+      selectedElectron,
+      ['-p', 'JSON.stringify(process.versions)'],
+      {
+        encoding: 'utf8',
+        timeout: 30_000,
+        env: {...process.env, ELECTRON_RUN_AS_NODE: '1'},
+      }
+    );
+    expect(selectedRuntime.status, `${selectedRuntime.stderr}`).toBe(0);
+    const selectedVersions = JSON.parse(selectedRuntime.stdout);
+    expect(selectedVersions.electron).toBe(
+      requireElectron('electron/package.json').version
+    );
     const packageProofPath = reportPath + '.package-inputs.json';
     await writeFile(
       packageProofPath,
@@ -137,6 +158,11 @@ test(`proves the shipped Linux glibc ${process.arch} backend and retains commit/
             version: process.versions.node,
             executable: process.execPath,
             sha256: await digest(process.execPath),
+          },
+          selectedElectronRuntime: {
+            versions: selectedVersions,
+            executable: selectedElectron,
+            sha256: await digest(selectedElectron),
           },
         },
         null,
