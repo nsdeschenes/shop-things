@@ -14,9 +14,9 @@ import {
   invokeUpdateHelper,
   protectedSystemFile,
 } from './updateHelperProtocol.js';
+import type {InstallResult} from './updateInstallationResult.js';
 import {inspectPackageEvidence, receiptRoot} from './updateReconciliation.js';
-
-export type InstallResult = 'retryable' | 'recovery' | 'restarting';
+export type {InstallResult};
 export interface InstallationOptions {
   service: Pick<ActionService, 'holdLifecycle'>;
   updatesDirectory: string;
@@ -141,6 +141,7 @@ export async function installVerifiedUpdate(
   }
 
   phase('authenticating');
+  let helperErrorCode: string | null = null;
   let exited = true;
   let observing = true;
   const timer = setInterval(() => {
@@ -170,13 +171,14 @@ export async function installVerifiedUpdate(
       .catch(() => {});
   }, 1000);
   try {
-    await (options.invoke ?? invokeUpdateHelper)({
+    const outcome = await (options.invoke ?? invokeUpdateHelper)({
       protocol: 1,
       attemptId: artifact.attemptId,
       manifest: Buffer.from(candidate.bytes).toString('base64'),
       signature: Buffer.from(candidate.signature).toString('base64'),
       candidatePath: artifact.path,
     });
+    helperErrorCode = outcome.errorCode;
   } catch (error) {
     exited = error instanceof HelperProcessError && error.exited;
   } finally {
@@ -241,7 +243,14 @@ export async function installVerifiedUpdate(
     if (provenUnchanged || authorizationDidNotMutate) {
       supervisor?.cancel();
       await lease.abort();
-      return 'retryable';
+      const reason = provenUnchanged ? after.receipt?.errorCode : helperErrorCode;
+      return reason === 'PACKAGE_LOCK'
+        ? 'package-lock'
+        : reason === 'TRANSACTION_REJECTED'
+          ? 'transaction-rejected'
+          : reason === 'VERIFICATION'
+            ? 'verification-rejected'
+            : 'retryable';
     }
 
     return 'recovery';

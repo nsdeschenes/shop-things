@@ -103,3 +103,5 @@ notifications, logout semantics or VM power-loss durability. Those require the
 separate controlled ARM64 desktop/VM qualification. The APT fixture records actual
 runner/tool versions and outcomes; do not describe an authored or unexecuted lane
 as successful qualification.
+
+On a manual launch, private bounded `launch.json` history is read for an informational notice about an unfinished earlier restart and possible lost unsaved edits. This history cannot authorize package work, database admission or another launch. Missing, corrupt, nonprivate or excessive history is ignored; normal startup still independently checks the protected root package evidence. A completed latest readiness record suppresses the notice.

@@ -1,11 +1,11 @@
 import {createHash} from 'node:crypto';
-import {constants, createReadStream} from 'node:fs';
+import {constants} from 'node:fs';
 import {chmod, copyFile, lstat, open, readFile, readdir, rm} from 'node:fs/promises';
 import {basename, dirname, isAbsolute, join} from 'node:path';
 
 import {DatabaseError} from './customers.js';
 import {openDatabase} from './index.js';
-import {recognizeDatabase} from './lifecycle.js';
+import {digest, fileDigest, verifySnapshotDatabase} from './snapshotVerification.js';
 
 interface MigrationHistory {
   name: string;
@@ -24,19 +24,6 @@ export interface MigrationSnapshot {
 const hashPattern = /^[a-f0-9]{64}$/;
 const attemptPattern =
   /^\d{10,16}-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
-function digest(value: unknown) {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-}
-
-async function fileDigest(path: string) {
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(path)) {
-    hash.update(chunk);
-  }
-
-  return hash.digest('hex');
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -220,20 +207,10 @@ export async function restoreMigrationSnapshot(
 
     const handle = openDatabase(destination);
     try {
-      const integrity = await handle.db.all<{integrity_check: string}>(
-        'pragma integrity_check'
-      );
-      if (integrity.length !== 1 || integrity[0]?.integrity_check !== 'ok') {
-        throw new Error('Recovered copy failed integrity validation');
-      }
-
-      await recognizeDatabase(handle.db);
-      const recoveredHistory = await handle.db.all(
-        'select name,hash from __drizzle_migrations order by id'
-      );
-      if (digest(recoveredHistory) !== digest(current.sourceHistory)) {
-        throw new Error('Recovered migration history differs from snapshot');
-      }
+      await verifySnapshotDatabase(handle.db, current.sourceHistory, {
+        integrity: 'Recovered copy failed integrity validation',
+        history: 'Recovered migration history differs from snapshot',
+      });
     } finally {
       handle.close();
     }

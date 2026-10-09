@@ -1,5 +1,4 @@
-import {createHash, randomUUID} from 'node:crypto';
-import {createReadStream} from 'node:fs';
+import {randomUUID} from 'node:crypto';
 import {chmod, lstat, mkdir, open, realpath, rename, rm, stat} from 'node:fs/promises';
 import {dirname, isAbsolute, join} from 'node:path';
 
@@ -8,11 +7,8 @@ import {readMigrationFiles} from 'drizzle-orm/migrator';
 import {DatabaseError} from './customers.js';
 import {openDatabase} from './index.js';
 import type {AppDatabase} from './index.js';
-import {backupDatabase, recognizeDatabase} from './lifecycle.js';
-
-function digest(value: unknown) {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-}
+import {backupDatabase} from './lifecycle.js';
+import {digest, fileDigest, verifySnapshotDatabase} from './snapshotVerification.js';
 
 async function privateDirectory(path: string) {
   await mkdir(path, {recursive: true, mode: 0o700});
@@ -30,15 +26,6 @@ async function syncPath(path: string) {
   } finally {
     await file.close();
   }
-}
-
-async function fileDigest(path: string) {
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(path)) {
-    hash.update(chunk);
-  }
-
-  return hash.digest('hex');
 }
 
 export async function snapshotBeforeMigrations(
@@ -96,20 +83,10 @@ export async function snapshotBeforeMigrations(
     await chmod(snapshot, 0o600);
     const backup = openDatabase(snapshot);
     try {
-      const integrity = await backup.db.all<{integrity_check: string}>(
-        'pragma integrity_check'
-      );
-      if (integrity.length !== 1 || integrity[0]?.integrity_check !== 'ok') {
-        throw new Error('Migration snapshot integrity check failed');
-      }
-
-      await recognizeDatabase(backup.db);
-      const backupHistory = await backup.db.all(
-        'select name,hash from __drizzle_migrations order by id'
-      );
-      if (digest(backupHistory) !== digest(sourceHistory)) {
-        throw new Error('Migration snapshot history differs from source');
-      }
+      await verifySnapshotDatabase(backup.db, sourceHistory, {
+        integrity: 'Migration snapshot integrity check failed',
+        history: 'Migration snapshot history differs from source',
+      });
     } finally {
       backup.close();
     }

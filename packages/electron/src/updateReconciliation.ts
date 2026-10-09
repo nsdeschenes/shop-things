@@ -17,8 +17,20 @@ export interface PackageEvidence {
     appVersion: string;
     packageVersion: string;
     resolution: 'administrator' | null;
+    errorCode?: 'PACKAGE_LOCK' | 'TRANSACTION_REJECTED' | 'PACKAGE_RECOVERY' | null;
   } | null;
 }
+function rootReceiptError(
+  value: unknown
+): value is 'PACKAGE_LOCK' | 'TRANSACTION_REJECTED' | 'PACKAGE_RECOVERY' | null {
+  return (
+    value === null ||
+    value === 'PACKAGE_LOCK' ||
+    value === 'TRANSACTION_REJECTED' ||
+    value === 'PACKAGE_RECOVERY'
+  );
+}
+
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -74,6 +86,7 @@ export async function inspectPackageEvidence(
       item.appVersion.length > 128 ||
       !stableVersion.test(item.appVersion) ||
       (item.resolution !== null && item.resolution !== 'administrator') ||
+      !rootReceiptError(item.errorCode) ||
       typeof item.packageVersion !== 'string' ||
       item.packageVersion.length > 128
     ) {
@@ -86,6 +99,7 @@ export async function inspectPackageEvidence(
       appVersion: item.appVersion,
       packageVersion: item.packageVersion,
       resolution: item.resolution,
+      errorCode: item.errorCode,
     };
   }
 

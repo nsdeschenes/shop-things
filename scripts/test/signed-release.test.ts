@@ -9,6 +9,7 @@ import {
   signStagedRelease,
   validateSignedAssets,
   validateDraftRelease,
+  validatePublicPolicy,
 } from '../updateRelease.ts';
 import {
   createDebianFixture,
@@ -421,4 +422,12 @@ test('signing refuses duplicate embedded trust fields concealing private materia
   } finally {
     await rm(directory, {recursive: true, force: true});
   }
+});
+
+test('shared runtime/release trust validation rejects duplicate canonical publisher keys', () => {
+  const {publicKey} = generateKeyPairSync('ed25519');
+  const key = publicKey.export({type: 'spki', format: 'pem'}).toString();
+  expect(() =>
+    validatePublicPolicy({schemaVersion: 1, helperProtocol: 1, trustedKeys: [key, key]})
+  ).toThrow('Duplicate publisher key');
 });

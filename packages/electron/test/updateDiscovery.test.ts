@@ -267,3 +267,29 @@ test('recovery retry coalesces an owner-minted read-only evidence check without 
   });
   expect(network).toBe(0);
 });
+
+test('protected unchanged rechecks preserve lock and transaction reasons with explicit Retry', async () => {
+  for (const [reason, errorCode] of [
+    ['package-lock', 'PACKAGE_LOCK'],
+    ['transaction-rejected', 'TRANSACTION_REJECTED'],
+  ] as const) {
+    const updates = new UpdateDiscovery({
+      appVersion: '0.3.1',
+      packageVersion: '0.3.1',
+      trustedKeys: [],
+      capabilityReasons: [],
+      recheck: async () => reason,
+    });
+    updates.setPackageRecovery();
+    const state = await updates.getState({});
+    if (state.status !== 'success') {
+      throw new Error('Could not read the update state');
+    }
+
+    const attemptId = state.value.attemptId!;
+    expect(await updates.retry({attemptId})).toMatchObject({
+      status: 'success',
+      value: {attemptId, phase: 'retryable-failure', errorCode, nextActions: ['retry']},
+    });
+  }
+});

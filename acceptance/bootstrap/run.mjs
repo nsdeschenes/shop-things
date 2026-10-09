@@ -188,10 +188,13 @@ try {
   }
 
   await mkdir(join(context, 'packages/electron/src'), {recursive: true});
-  await cp(
-    join(root, 'packages/electron/src/updateManifest.ts'),
-    join(context, 'packages/electron/src/updateManifest.ts')
-  );
+  for (const name of ['updateManifest.ts', 'publicUpdatePolicy.ts']) {
+    await cp(
+      join(root, 'packages/electron/src', name),
+      join(context, 'packages/electron/src', name)
+    );
+  }
+
   await cp(join(root, 'acceptance/bootstrap'), join(context, 'acceptance/bootstrap'), {
     recursive: true,
   });

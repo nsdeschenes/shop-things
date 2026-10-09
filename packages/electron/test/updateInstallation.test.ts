@@ -63,41 +63,60 @@ test('cancelled fixed authentication restores retained draft only with unchanged
       manifestDigest: 'a'.repeat(64),
     };
     let cancelled = false;
-    const result = await installVerifiedUpdate(
-      {
-        service: f.service,
-        updatesDirectory: f.directory,
-        capabilities: async () => true,
-        inspect: async () => ({
-          outcome: 'clean',
-          generation: 4,
-          state: 'full independent baseline',
-          receipt: null,
-        }),
-        supervisor: async () => ({
-          pid: 44,
-          cancel: () => {
-            cancelled = true;
+    let packageLock = false;
+    async function attemptInstallation() {
+      return installVerifiedUpdate(
+        {
+          service: f.service,
+          updatesDirectory: f.directory,
+          capabilities: async () => true,
+          inspect: async attempt => ({
+            outcome: packageLock && attempt ? 'unchanged' : 'clean',
+            generation: 4,
+            state: 'full independent baseline',
+            receipt:
+              packageLock && attempt
+                ? {
+                    attemptId: artifact.attemptId,
+                    manifestDigest: artifact.manifestDigest,
+                    appVersion: '0.4.0',
+                    packageVersion: '0.4.0',
+                    resolution: null,
+                    errorCode: 'PACKAGE_LOCK',
+                  }
+                : null,
+          }),
+          supervisor: async () => ({
+            pid: 44,
+            cancel: () => {
+              cancelled = true;
+            },
+          }),
+          invoke: async () => {
+            expect(frozen).toBe(true);
+            expect(await f.service.requestClose()).toMatchObject({
+              status: 'error',
+              error: {code: 'BUSY'},
+            });
+            throw new HelperProcessError(true);
           },
-        }),
-        invoke: async () => {
-          expect(frozen).toBe(true);
-          expect(await f.service.requestClose()).toMatchObject({
-            status: 'error',
-            error: {code: 'BUSY'},
-          });
-          throw new HelperProcessError(true);
+          exit: () => {
+            throw new Error('Cancellation must not exit');
+          },
         },
-        exit: () => {
-          throw new Error('Cancellation must not exit');
-        },
-      },
-      candidate,
-      artifact,
-      () => {}
-    );
-    expect(result).toBe('retryable');
+        candidate,
+        artifact,
+        () => {}
+      );
+    }
+
+    expect(await attemptInstallation()).toBe('retryable');
     expect(cancelled).toBe(true);
+    expect(f.service.status()).toEqual(original);
+    expect(retained).toBe('invalid unsaved value');
+    expect(frozen).toBe(false);
+    packageLock = true;
+    expect(await attemptInstallation()).toBe('package-lock');
     expect(f.service.status()).toEqual(original);
     expect(retained).toBe('invalid unsaved value');
     expect(frozen).toBe(false);

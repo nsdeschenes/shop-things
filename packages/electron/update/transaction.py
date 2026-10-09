@@ -516,6 +516,12 @@ def expected_state(journal):
             'automatic': journal['baseline']['automatic']}
 
 
+def unchanged_error(output):
+    # English diagnostics from fixed APT argv/LC_ALL=C; this never proves unchanged.
+    locks = (b'Could not get lock /var/lib/dpkg/lock', b'Unable to acquire the dpkg frontend lock')
+    return 'PACKAGE_LOCK' if any(marker in output for marker in locks) else 'TRANSACTION_REJECTED'
+
+
 def install(verified, uid):
     import apt_pkg
     import apt.progress.base
@@ -557,6 +563,8 @@ def install(verified, uid):
             publish(STATE + '/active.json', {'attemptId': journal['attemptId'], 'aptPid': child.pid,
                                             'aptStart': stat_text[stat_text.rfind(')') + 2:].split()[19]})
             code = child.wait()  # Never kill/timeout a possibly mutating transaction.
+            output.seek(0)
+            diagnostic = output.read(65536)  # Classification only; never expose APT output.
         journal = read(attempt + '/journal.json')
         try:
             final = package_state()
@@ -582,7 +590,7 @@ def install(verified, uid):
         except Exception:
             journal['outcome'] = 'uncertain'
         journal['phase'] = 'complete' if journal['outcome'] in ('installed', 'unchanged') else 'recovery'
-        journal['errorCode'] = None if journal['outcome'] == 'installed' else 'PACKAGE_RECOVERY' if journal['outcome'] == 'uncertain' else 'TRANSACTION_REJECTED'
+        journal['errorCode'] = None if journal['outcome'] == 'installed' else 'PACKAGE_RECOVERY' if journal['outcome'] == 'uncertain' else unchanged_error(diagnostic)
         persist(journal)
         if journal['outcome'] != 'uncertain':
             index['generation'] += 1
@@ -618,7 +626,7 @@ def validate_receipt(value, uid, attempt):
                     all(type(row[key]) is str and 0 < len(row[key]) <= 128 for key in ('version', 'architecture', 'multiArch', 'status')) and
                     row['status'] in ('ii ', 'hi ', 'rc ', 'pc ') and row['multiArch'] in ('no', 'same', 'foreign', 'allowed'))
             seen.add(row['package'])
-    require(value['errorCode'] in (None, 'TRANSACTION_REJECTED', 'PACKAGE_RECOVERY'))
+    require(value['errorCode'] in (None, 'TRANSACTION_REJECTED', 'PACKAGE_RECOVERY', 'PACKAGE_LOCK'))
     require(value['resolution'] is None or (value['outcome'] in ('installed', 'unchanged') and value['phase'] == 'complete'))
     for batch in value['plan']:
         require(type(batch) is list and 0 < len(batch) <= 4096)

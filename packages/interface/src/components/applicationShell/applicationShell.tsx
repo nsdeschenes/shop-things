@@ -2,10 +2,11 @@ import {Dialog} from '@base-ui/react/dialog';
 import {ArrowPathIcon, CircleStackIcon, Cog6ToothIcon} from '@heroicons/react/24/outline';
 import * as stylex from '@stylexjs/stylex';
 import {Link, useBlocker, useRouter} from '@tanstack/react-router';
-import {useEffect, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
+import {useEffect, useRef, useSyncExternalStore, type ReactNode} from 'react';
 
 import type {Application} from '../../application/controller';
 import {navigationTarget} from '../../application/protection';
+import useUpdateState from '../../application/useUpdateState';
 import {breakpoints} from '../../styles/breakpoints.stylex';
 import {colors} from '../../styles/colors.stylex';
 import {controls} from '../../styles/controls.stylex';
@@ -104,31 +105,8 @@ const styles = stylex.create({
 
 export default function ApplicationShell({application, children}: ApplicationShellProps) {
   const state = useSyncExternalStore(application.subscribe, application.getState);
-  const [packageRecovery, setPackageRecovery] = useState(false);
-  const updateRevision = useRef(-1);
-  useEffect(() => {
-    const updates = application.getClient()?.update;
-    if (!updates) {
-      return;
-    }
-
-    function observe(value: {phase: string; revision: number}) {
-      if (value.revision < updateRevision.current) {
-        return;
-      }
-
-      updateRevision.current = value.revision;
-      setPackageRecovery(value.phase === 'package-recovery');
-    }
-
-    const stop = updates.onStateChanged(observe);
-    void updates.getState({}).then(result => {
-      if (result.status === 'success') {
-        observe(result.value);
-      }
-    });
-    return stop;
-  }, [application, state.phase]);
+  const [updateState] = useUpdateState(application.getClient()?.update ?? null);
+  const packageRecovery = updateState.phase === 'package-recovery';
   const protection = useSyncExternalStore(
     application.protection.subscribe,
     application.protection.getState
