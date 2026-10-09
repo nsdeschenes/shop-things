@@ -27,6 +27,7 @@ def traced_process(args, raw, env, choose, on_cut=None):
     observed = []
     cut = None
     root_code = None
+    early_stop_count = 0
     with tempfile.TemporaryFile() as incoming, tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as error:
         incoming.write(raw)
         incoming.seek(0)
@@ -42,6 +43,7 @@ def traced_process(args, raw, env, choose, on_cut=None):
             except Exception:
                 os._exit(126)
         traced = {root}
+        early_children = {}
         deadline = time.monotonic() + 120
         try:
             pid, status = os.waitpid(root, 0)
@@ -57,7 +59,17 @@ def traced_process(args, raw, env, choose, on_cut=None):
                     time.sleep(0.001)
                     continue
                 if pid not in traced:
-                    raise RuntimeError('Unexpected process outside observer ownership')
+                    # Linux may report the auto-attached child's initial stop
+                    # before its parent's fork/vfork/clone notification. Keep it
+                    # stopped until GETEVENTMSG binds it to a known tracee.
+                    if not (os.WIFSTOPPED(status) and status >> 16 == 0 and os.WSTOPSIG(status) == signal.SIGSTOP):
+                        raise RuntimeError('Unexpected process outside observer ownership')
+                    owner = Path('/proc/' + str(pid) + '/status').read_text().split('TracerPid:')[1].splitlines()[0].strip()
+                    if owner != str(os.getpid()) or pid in early_children or len(early_children) >= 1024:
+                        raise RuntimeError('Unverified early child stop')
+                    early_children[pid] = start(pid)
+                    early_stop_count += 1
+                    continue
                 if os.WIFEXITED(status) or os.WIFSIGNALED(status):
                     traced.remove(pid)
                     if pid == root:
@@ -66,10 +78,14 @@ def traced_process(args, raw, env, choose, on_cut=None):
                 event = status >> 16
                 if event in (1, 2, 3):
                     child = ctypes.c_ulong()
-                    libc.ptrace(ctypes.c_int(GETEVENTMSG), ctypes.c_int(pid), ctypes.c_void_p(0), ctypes.byref(child))
-                    if child.value < 2:
+                    result = libc.ptrace(ctypes.c_int(GETEVENTMSG), ctypes.c_int(pid), ctypes.c_void_p(0), ctypes.byref(child))
+                    if result == -1 or child.value < 2:
                         raise RuntimeError('Missing traced child identity')
                     traced.add(child.value)
+                    if child.value in early_children:
+                        if start(child.value) != early_children.pop(child.value):
+                            raise RuntimeError('Early child identity changed')
+                        ptrace(CONT, child.value)
                 if event == 4:
                     command = Path('/proc/' + str(pid) + '/cmdline').read_bytes()
                     if len(command) > 8192:
@@ -91,7 +107,17 @@ def traced_process(args, raw, env, choose, on_cut=None):
                 if event or delivered in (signal.SIGTRAP, signal.SIGSTOP):
                     delivered = 0
                 ptrace(CONT, pid, delivered)
+            if early_children:
+                raise RuntimeError('Early child was not confirmed by an owned parent event')
         finally:
+            # Unconfirmed early stops remain tracer-owned and stopped; cleanup
+            # kills only identities verified as auto-attached to this observer.
+            for pid, identity in early_children.items():
+                try:
+                    if start(pid) == identity:
+                        traced.add(pid)
+                except FileNotFoundError:
+                    pass
             for pid in traced:
                 try:
                     os.kill(pid, signal.SIGKILL)
@@ -109,4 +135,4 @@ def traced_process(args, raw, env, choose, on_cut=None):
         output.seek(0)
         error.seek(0)
         return {'returncode': root_code, 'stdout': output.read(), 'stderr': error.read(), 'cut': cut,
-                'observedProcesses': len(observed), 'limits': 'Process kill at exec stop; no power-loss or graphical authentication proof.'}
+                'observedProcesses': len(observed), 'earlyChildStops': early_stop_count, 'limits': 'Process kill at exec stop; no power-loss or graphical authentication proof.'}
