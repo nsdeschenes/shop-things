@@ -8,6 +8,7 @@ import {fileURLToPath} from 'node:url';
 
 import {
   verifyUpdateManifest,
+  parseUniqueJson,
   type UpdateManifest,
 } from '../packages/electron/src/updateManifest.ts';
 
@@ -148,7 +149,9 @@ async function installerPolicy(path: string): Promise<PublicUpdatePolicy> {
       'Tested installer must contain approved public trust policy'
     );
     return validatePublicPolicy(
-      JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes))
+      parseUniqueJson(
+        new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(bytes)
+      )
     );
   } finally {
     await rm(temporary, {recursive: true, force: true});

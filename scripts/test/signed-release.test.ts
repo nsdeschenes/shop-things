@@ -370,3 +370,43 @@ test('refuses a signed release whose packaged app identity is older than its man
     await rm(directory, {recursive: true, force: true});
   }
 });
+
+test('signing refuses duplicate embedded trust fields concealing private material', async () => {
+  const directory = await createReleaseFixture();
+  const commit = 'a'.repeat(40);
+  const {publicKey, privateKey} = generateKeyPairSync('ed25519');
+  try {
+    const publicPem = publicKey.export({type: 'spki', format: 'pem'}).toString();
+    const privatePem = privateKey.export({type: 'pkcs8', format: 'pem'}).toString();
+    const rawPolicy = `{"schemaVersion":1,"helperProtocol":1,"trustedKeys":${JSON.stringify([privatePem])},"trustedKeys":${JSON.stringify([publicPem])}}`;
+    const installer = await createDebianFixture(directory, {policy: rawPolicy});
+    const report = await releaseAcceptance(commit, installer);
+    await mkdir(join(directory, 'reports'));
+    await writeFile(join(directory, 'reports/acceptance.json'), JSON.stringify(report));
+    expect(
+      runReleaseScript(directory, 'stage-release', {
+        GITHUB_SHA: commit,
+        ACCEPTANCE_REPORT_DIR: join(directory, 'reports'),
+      }).status
+    ).toBe(0);
+    const policy: PublicUpdatePolicy = {
+      schemaVersion: 1,
+      helperProtocol: 1,
+      trustedKeys: [publicKey.export({type: 'spki', format: 'pem'}).toString()],
+    };
+    await expect(
+      signStagedRelease({
+        directory: join(directory, 'release/assets'),
+        report,
+        commit,
+        privateKey,
+        approvedPolicy: policy,
+      })
+    ).rejects.toThrow('Duplicate JSON key');
+    expect(await readdir(join(directory, 'release/assets'))).not.toContain(
+      'shop-things-update-v1.sig'
+    );
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});

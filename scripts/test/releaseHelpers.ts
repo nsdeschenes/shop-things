@@ -60,7 +60,10 @@ export async function createDebianFixture(
   if (options.policy) {
     const resources = join(source, 'opt/Shop Things/resources/update');
     await mkdir(resources, {recursive: true});
-    await writeFile(join(resources, 'policy.json'), JSON.stringify(options.policy));
+    await writeFile(
+      join(resources, 'policy.json'),
+      typeof options.policy === 'string' ? options.policy : JSON.stringify(options.policy)
+    );
   }
 
   const resources = join(source, 'opt/Shop Things/resources/update');
