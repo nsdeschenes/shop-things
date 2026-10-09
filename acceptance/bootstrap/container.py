@@ -75,6 +75,10 @@ elif case == 'unrelated':
 else:
     raise ValueError('Unknown controlled bootstrap case')
 install('/fixtures/candidate.deb')
+loader = subprocess.run(['/usr/bin/ldd', '/opt/Shop Things/shop-things'], capture_output=True, text=True)
+report['installedLoader'] = {'command': ['/usr/bin/ldd', '/opt/Shop Things/shop-things'], 'exitCode': loader.returncode, 'stdout': loader.stdout, 'stderr': loader.stderr}
+print(json.dumps({'installedLoader': report['installedLoader']}), flush=True)
+assert loader.returncode == 0 and loader.stdout.strip() and 'not found' not in loader.stdout + loader.stderr, f'Installed runtime library resolution failed (exit {loader.returncode}):\n{loader.stdout}\n{loader.stderr}'
 result = verify()
 assert result['kind'] == 'verified-bootstrap', result
 assert fingerprints(paths) == before
