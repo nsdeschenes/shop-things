@@ -116,7 +116,7 @@ export function verifyUpdateManifest(
 }
 
 // Parse before JSON.parse can erase duplicate object keys, including escaped aliases.
-function parseUniqueJson(text: string): unknown {
+export function parseUniqueJson(text: string): unknown {
   let position = 0;
   function whitespace() {
     while (jsonWhitespace.test(text[position] ?? '\0')) {
