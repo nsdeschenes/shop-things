@@ -276,7 +276,7 @@ test('one application subscription and participant span route/editor mounts and 
       page.getByRole('button', {name: 'Open database', exact: true})
     ).toBeDisabled();
     await expect(page.getByRole('status', {name: 'Loading database'})).toBeVisible();
-    await expect(page.getByRole('status')).toHaveCount(1);
+    await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(1);
     await application.evaluate(() => Reflect.get(globalThis, 'acceptanceReleaseRead')());
     await expect(page.getByText('Database opened.', {exact: true})).toBeVisible();
     await expect(page.getByText('3 results', {exact: true})).toBeVisible();

@@ -226,7 +226,8 @@ test('held main lifecycle lease freezes real IPC draft until abort or commit', a
     });
     const page = application.windows()[0];
     if (page) {
-      await page.evaluate(() => Reflect.get(window, 'acceptanceEditor')?.stop());
+      // Normal close still requires a live draft participant after the held lease ends.
+      await page.evaluate(() => Reflect.get(window, 'acceptanceEditor')?.restore());
     }
 
     await application.close();
