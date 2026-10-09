@@ -4,6 +4,7 @@ import {createHash, createPublicKey, sign, type KeyObject} from 'node:crypto';
 import {lstat, mkdtemp, readFile, readdir, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 import {
   verifyUpdateManifest,
@@ -185,6 +186,22 @@ export async function validateSignedAssets(
     digest,
     manifest.artifact.sha256,
     'Installer bytes must match the signed manifest'
+  );
+  const appIdentity = JSON.parse(
+    execFileSync(
+      '/usr/bin/python3',
+      [
+        '-I',
+        fileURLToPath(new URL('./readPackageIdentity.py', import.meta.url)),
+        installer,
+      ],
+      {encoding: 'utf8', timeout: 30000, maxBuffer: 8192}
+    )
+  );
+  assert.equal(
+    appIdentity.appVersion,
+    manifest.appVersion,
+    'Tested package application identity must match signed manifest'
   );
   assert.deepEqual(debianIdentity(installer), {
     packageName: manifest.packageName,

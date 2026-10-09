@@ -13,3 +13,6 @@ acceptance-reports
 
 # Approved public publisher policy is supplied before build/acceptance.
 packages/electron/update/policy.json
+
+# Generated identity bound to packaged application metadata.
+packages/electron/update/identity.json

@@ -336,3 +336,37 @@ test('signing refuses a tested installer without approved embedded public trust'
     await rm(directory, {recursive: true, force: true});
   }
 });
+
+test('refuses a signed release whose packaged app identity is older than its manifest', async () => {
+  const directory = await createReleaseFixture();
+  const {publicKey, privateKey} = generateKeyPairSync('ed25519');
+  const policy: PublicUpdatePolicy = {
+    schemaVersion: 1,
+    helperProtocol: 1,
+    trustedKeys: [publicKey.export({type: 'spki', format: 'pem'}).toString()],
+  };
+  const commit = 'a'.repeat(40);
+  try {
+    const installer = await createDebianFixture(directory, {policy, appVersion: '0.0.0'});
+    const report = await releaseAcceptance(commit, installer);
+    await mkdir(join(directory, 'reports'));
+    await writeFile(join(directory, 'reports/acceptance.json'), JSON.stringify(report));
+    expect(
+      runReleaseScript(directory, 'stage-release', {
+        GITHUB_SHA: commit,
+        ACCEPTANCE_REPORT_DIR: join(directory, 'reports'),
+      }).status
+    ).toBe(0);
+    await expect(
+      signStagedRelease({
+        directory: join(directory, 'release/assets'),
+        report,
+        commit,
+        privateKey,
+        approvedPolicy: policy,
+      })
+    ).rejects.toThrow('application identity');
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
