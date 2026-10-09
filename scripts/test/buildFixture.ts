@@ -1,4 +1,4 @@
-import {spawn} from 'node:child_process';
+import {execFile, spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {constants, lstatSync, realpathSync} from 'node:fs';
 import {
@@ -27,6 +27,7 @@ import {
   sep,
 } from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {promisify} from 'node:util';
 
 type Entry = {path: string; stamp: string; mode: number} & (
   | {kind: 'missing'}
@@ -46,6 +47,7 @@ type BuildFixture = {
 };
 type FixtureOptions = {sourceRoot?: string; signal?: AbortSignal};
 
+const execute = promisify(execFile);
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const cacheRoot = join(homedir(), '.cache/agent-work/shop-things/build-fixtures');
 const javascriptExtension = /\.[cm]?js$/;
@@ -54,6 +56,9 @@ const foreignAbsolute = /^(?:[a-z]:|\\)/i;
 const safeLabel = /[^a-z0-9-]/gi;
 const pathSeparator = /[\\/]/;
 const npmConfiguration = /^npm_config_/i;
+const whitespace = /\s+/;
+const sensitiveName =
+  /^(?:\.env(?!\.example$).*|.*\.(?:pem|key|p12|pfx)|id_(?:rsa|ed25519))$/i;
 
 function contained(root: string, path: string): boolean {
   const name = relative(root, path);
@@ -116,7 +121,11 @@ async function snapshot(root: string, names: readonly string[]): Promise<Entry[]
     })
   );
   for (const [index, name] of names.entries()) {
-    if (name.split(pathSeparator).some(part => forbiddenComponent.test(part))) {
+    if (
+      name
+        .split(pathSeparator)
+        .some(part => forbiddenComponent.test(part) || sensitiveName.test(part))
+    ) {
       throw new Error(`Excluded source path: ${name}`);
     }
 
@@ -224,6 +233,68 @@ async function fileNames(root: string, directory = root): Promise<string[]> {
   return names.sort();
 }
 
+async function stopTree(pid: number | undefined): Promise<void> {
+  if (!pid) {
+    return;
+  }
+
+  if (process.platform === 'win32') {
+    await execute('taskkill', ['/pid', String(pid), '/T', '/F']).catch(error => {
+      if (error.code !== 128) {
+        throw error;
+      }
+    });
+    return;
+  }
+
+  const descendants = new Set([pid]);
+  async function living() {
+    const {stdout} = await execute('ps', ['-A', '-o', 'pid=,ppid=,stat=']);
+    const rows = stdout
+      .trim()
+      .split('\n')
+      .map(line => {
+        const [child, parent, state] = line.trim().split(whitespace);
+        return {pid: Number(child), parent: Number(parent), state};
+      });
+    let added = true;
+    while (added) {
+      added = false;
+      for (const row of rows) {
+        if (descendants.has(row.parent) && !descendants.has(row.pid)) {
+          descendants.add(row.pid);
+          added = true;
+        }
+      }
+    }
+
+    return rows
+      .filter(row => descendants.has(row.pid) && !row.state?.startsWith('Z'))
+      .map(row => row.pid);
+  }
+
+  const started = performance.now();
+  let pids = await living();
+  while (pids.length !== 0) {
+    for (const target of pids.toReversed()) {
+      try {
+        process.kill(target, performance.now() - started < 2000 ? 'SIGTERM' : 'SIGKILL');
+      } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
+          throw error;
+        }
+      }
+    }
+
+    if (performance.now() - started > 5000) {
+      throw new Error(`Fixture descendants did not stop: ${pids.join(', ')}`);
+    }
+
+    await new Promise(fulfill => setTimeout(fulfill, 25));
+    pids = await living();
+  }
+}
+
 async function inspectLinks(root: string, directory = root): Promise<void> {
   for (const entry of await readdir(directory, {withFileTypes: true})) {
     const path = join(directory, entry.name);
@@ -244,35 +315,57 @@ export async function withBuildFixture<T>(
 ): Promise<T> {
   const caller = await realpath(options.sourceRoot ?? sourceRoot);
   await mkdir(join(cacheRoot, 'worktrees'), {recursive: true});
-  const root = await mkdtemp(
-    join(cacheRoot, 'worktrees', `${label.replace(safeLabel, '-').slice(0, 60)}-`)
+  const root = await realpath(
+    await mkdtemp(
+      join(cacheRoot, 'worktrees', `${label.replace(safeLabel, '-').slice(0, 60)}-`)
+    )
   );
   const diagnostics = join(cacheRoot, 'context', basename(root));
   await mkdir(diagnostics, {recursive: true});
+  await writeFile(
+    join(diagnostics, 'result.json'),
+    JSON.stringify({state: 'running', root})
+  );
   const environment = {...process.env};
   for (const key of Object.keys(environment)) {
     if (
       npmConfiguration.test(key) ||
-      ['NODE_PATH', 'NODE_OPTIONS', 'GIT_DIR', 'GIT_WORK_TREE'].includes(key)
+      [
+        'NODE_PATH',
+        'NODE_OPTIONS',
+        'NODE_COMPILE_CACHE',
+        'NAPI_RS_NATIVE_LIBRARY_PATH',
+        'GIT_DIR',
+        'GIT_WORK_TREE',
+      ].includes(key)
     ) {
       delete environment[key];
     }
   }
 
   environment.NODE_OPTIONS = '--experimental-strip-types';
+  environment.TMPDIR = join(root, '.tmp');
+  environment.TMP = environment.TMPDIR;
+  environment.TEMP = environment.TMPDIR;
   environment.PATH = (environment.PATH ?? '')
     .split(delimiter)
-    .filter(path => !contained(caller, resolve(path)) && !path.includes('node_modules'))
+    .filter(
+      path => !contained(caller, resolve(path)) && !contained(sourceRoot, resolve(path))
+    )
     .join(delimiter);
-  const active = new Map<Promise<CommandResult>, () => void>();
+  const stoppingChildren = new Set<Promise<void>>();
+  const active = new Map<Promise<CommandResult>, () => Promise<void>>();
   let admission = true;
   let interrupted: Error | undefined;
+  const cancellation = Promise.withResolvers<never>();
+  void cancellation.promise.catch(() => {});
   let commandCount = 0;
   let runtime = process.execPath;
   function cancel() {
     interrupted ??= new Error('Build fixture interrupted');
+    cancellation.reject(interrupted);
     for (const stop of active.values()) {
-      stop();
+      void stop().catch(() => {});
     }
   }
 
@@ -294,7 +387,12 @@ export async function withBuildFixture<T>(
     args: readonly string[],
     cwd: string
   ): Promise<CommandResult> {
-    checkAdmission();
+    try {
+      checkAdmission();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
     const number = ++commandCount;
     const child = spawn(executable, args, {
       cwd,
@@ -302,26 +400,21 @@ export async function withBuildFixture<T>(
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
     });
+    const commandReceipt = writeFile(
+      join(diagnostics, `command-${number}.json`),
+      JSON.stringify({state: 'running', executable, args, cwd, pid: child.pid})
+    );
     const chunks: Buffer[] = [];
     let stdout = '';
     let stderr = '';
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    function stop(signal: NodeJS.Signals = 'SIGTERM') {
-      if (process.platform === 'win32') {
-        spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {stdio: 'ignore'});
-      } else if (child.pid) {
-        try {
-          process.kill(-child.pid, signal);
-        } catch (error) {
-          if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
-            throw error;
-          }
-        }
+    let stopping: Promise<void> | undefined;
+    function stop() {
+      if (!stopping) {
+        stopping = stopTree(child.pid);
+        stoppingChildren.add(stopping);
       }
 
-      if (signal === 'SIGTERM') {
-        timer ??= setTimeout(stop, 2000, 'SIGKILL');
-      }
+      return stopping;
     }
 
     const completion = new Promise<CommandResult>((fulfill, reject) => {
@@ -338,8 +431,8 @@ export async function withBuildFixture<T>(
         chunks.push(bytes);
       });
       child.once('close', async (code, signal) => {
-        clearTimeout(timer);
         try {
+          await commandReceipt;
           await writeFile(
             join(diagnostics, `command-${number}.log`),
             Buffer.concat(chunks)
@@ -382,7 +475,7 @@ export async function withBuildFixture<T>(
     const entry = process.env.npm_execpath;
     return entry && javascriptExtension.test(entry)
       ? command(runtime, [entry, ...args], cwd)
-      : command('pnpm', args, cwd);
+      : command(entry ?? 'pnpm', args, cwd);
   }
 
   let sourceIdentity: unknown;
@@ -471,6 +564,8 @@ export async function withBuildFixture<T>(
       JSON.stringify(sourceIdentity, null, 2)
     );
     const capturedMs = performance.now() - started;
+    await mkdir(join(root, '.tmp'));
+    environment.NODE_COMPILE_CACHE = join(root, '.tmp/node-compile-cache');
     const lockfile = await readFile(join(root, 'pnpm-lock.yaml'));
     const installStarted = performance.now();
     await pnpm([
@@ -518,22 +613,25 @@ export async function withBuildFixture<T>(
         installCount: 1,
       })
     );
-    const result = await callback({
-      path(name) {
-        checkAdmission();
-        return privatePath(root, name);
-      },
-      pnpm(args, settings) {
-        return pnpm(args, privatePath(root, settings?.cwd ?? '.'));
-      },
-      nodeFile(file, args = [], settings) {
-        return command(
-          runtime,
-          [privatePath(root, file), ...args],
-          privatePath(root, settings?.cwd ?? '.')
-        );
-      },
-    });
+    const result = await Promise.race([
+      cancellation.promise,
+      callback({
+        path(name) {
+          checkAdmission();
+          return privatePath(root, name);
+        },
+        pnpm(args, settings) {
+          return pnpm(args, privatePath(root, settings?.cwd ?? '.'));
+        },
+        nodeFile(file, args = [], settings) {
+          return command(
+            runtime,
+            [privatePath(root, file), ...args],
+            privatePath(root, settings?.cwd ?? '.')
+          );
+        },
+      }),
+    ]);
     admission = false;
     if (active.size !== 0) {
       throw new Error('Build fixture callback returned with unfinished commands');
@@ -551,11 +649,13 @@ export async function withBuildFixture<T>(
     return result;
   } catch (error) {
     admission = false;
+    const completions = [...active.keys()];
     for (const stop of active.values()) {
-      stop();
+      void stop().catch(() => {});
     }
 
-    await Promise.allSettled(active.keys());
+    const teardown = await Promise.allSettled(stoppingChildren);
+    await Promise.allSettled(completions);
     await writeFile(
       join(diagnostics, 'result.json'),
       JSON.stringify({
@@ -564,6 +664,9 @@ export async function withBuildFixture<T>(
         sourceIdentity,
         commandCount,
         error: String(error),
+        teardownErrors: teardown
+          .filter(result => result.status === 'rejected')
+          .map(result => String(result.reason)),
       })
     );
     throw new Error(
