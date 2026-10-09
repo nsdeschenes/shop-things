@@ -9,11 +9,16 @@ os.umask(0o022)
 SOURCE = Path('/opt/Shop Things/resources/update')
 require = lambda value: None if value else (_ for _ in ()).throw(ValueError('Unsafe bootstrap installation'))
 require(os.geteuid() == 0)
-for parent in [Path('/opt'), Path('/opt/Shop Things'), SOURCE.parent, SOURCE]:
-    info = parent.lstat()
+
+def protected_directory(path):
+    info = path.lstat()
     if not (stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022):
         # Only fixed public installation paths and metadata; no caller input.
-        raise ValueError(f'Unsafe bootstrap installation: {parent} uid={info.st_uid} gid={info.st_gid} mode={stat.S_IMODE(info.st_mode):04o}')
+        raise ValueError(f'Unsafe bootstrap installation: {path} uid={info.st_uid} gid={info.st_gid} mode={stat.S_IMODE(info.st_mode):04o}')
+
+
+for parent in [Path('/opt'), Path('/opt/Shop Things'), SOURCE.parent, SOURCE]:
+    protected_directory(parent)
 helper_path = SOURCE / 'updater-helper.py'
 info = helper_path.lstat()
 require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022)
@@ -23,12 +28,10 @@ spec.loader.exec_module(helper)
 helper.identity(helper.protected_bytes(str(SOURCE / 'identity.json'), 4096))
 for directory in ['/usr/lib/shop-things', '/usr/lib/shop-things/update', '/usr/share/polkit-1/actions']:
     for parent in reversed(Path(directory).parents):
-        info = parent.lstat()
-        require(stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022)
+        protected_directory(parent)
     if not Path(directory).exists():
         os.mkdir(directory, 0o755)
-    info = Path(directory).lstat()
-    require(stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022)
+    protected_directory(Path(directory))
 for source, destination, mode in [
     ('updater-helper.py', '/usr/lib/shop-things/updater-helper', 0o755),
     ('restart-supervisor.py', '/usr/lib/shop-things/update-supervisor', 0o755),

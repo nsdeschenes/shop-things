@@ -309,26 +309,35 @@ jobs:
         env:
           UPDATE_TRUSTED_PUBLIC_KEYS_JSON: ${{ vars.UPDATE_TRUSTED_PUBLIC_KEYS_JSON }}
         run: node --experimental-strip-types scripts/provision-update-policy.ts
-      - name: Prepare protected parent for the disposable installed-package fixture
+      - name: Prepare protected parents for the disposable installed-package fixture
         shell: bash
         run: |
           set -euo pipefail
-          sudo /usr/bin/python3 -I - <<'PYTHON' | tee "$ACCEPTANCE_REPORT_DIR/installed-parent-fixture.json"
+          sudo /usr/bin/python3 -I - <<'PYTHON' | tee "$ACCEPTANCE_REPORT_DIR/installed-parent-fixture.jsonl"
           import json, os, stat
-          # Hosted runner /opt is world writable; this is explicit fixture setup,
+          # Hosted runner installation ancestors may be writable; this is explicit fixture setup,
           # not installer behavior or a repair of customer installation paths.
           assert os.geteuid() == 0
-          fd = os.open('/opt', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-          try:
-              original = os.fstat(fd)
-              assert stat.S_ISDIR(original.st_mode) and original.st_uid == 0 and original.st_gid == 0
-              before = stat.S_IMODE(original.st_mode)
-              os.fchmod(fd, before & ~0o022)
-              current = os.fstat(fd)
-              assert current.st_uid == 0 and current.st_gid == 0 and not current.st_mode & 0o022
-              print(json.dumps({'schemaVersion': 1, 'scope': 'disposable-github-hosted-runner-fixture', 'path': '/opt', 'uid': current.st_uid, 'gid': current.st_gid, 'originalMode': f'{before:04o}', 'preparedMode': f'{stat.S_IMODE(current.st_mode):04o}', 'changed': before != stat.S_IMODE(current.st_mode)}))
-          finally:
-              os.close(fd)
+          paths = ['/', '/opt', '/usr', '/usr/lib', '/usr/share',
+                   '/usr/share/polkit-1', '/usr/share/polkit-1/actions', '/var', '/var/lib']
+          for path in paths:
+              try:
+                  fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+              except FileNotFoundError:
+                  # Normal package installation creates missing destinations.
+                  print(json.dumps({'schemaVersion': 1, 'scope': 'disposable-github-hosted-runner-fixture', 'path': path, 'present': False}), flush=True)
+                  continue
+              try:
+                  original = os.fstat(fd)
+                  print(json.dumps({'schemaVersion': 1, 'scope': 'disposable-github-hosted-runner-fixture', 'phase': 'observed', 'path': path, 'uid': original.st_uid, 'gid': original.st_gid, 'mode': f'{stat.S_IMODE(original.st_mode):04o}'}), flush=True)
+                  assert stat.S_ISDIR(original.st_mode) and original.st_uid == 0 and original.st_gid == 0, f'Unsafe CI fixture directory: {path}'
+                  before = stat.S_IMODE(original.st_mode)
+                  os.fchmod(fd, before & ~0o022)
+                  current = os.fstat(fd)
+                  assert current.st_uid == 0 and current.st_gid == 0 and not current.st_mode & 0o022
+                  print(json.dumps({'schemaVersion': 1, 'scope': 'disposable-github-hosted-runner-fixture', 'phase': 'prepared', 'path': path, 'present': True, 'uid': current.st_uid, 'gid': current.st_gid, 'originalMode': f'{before:04o}', 'preparedMode': f'{stat.S_IMODE(current.st_mode):04o}', 'changed': before != stat.S_IMODE(current.st_mode)}), flush=True)
+              finally:
+                  os.close(fd)
           PYTHON
       - name: Build Linux arm64 and smoke test the package
         run: xvfb-run -a node --experimental-strip-types scripts/acceptance.ts --reuse-source-checks --reuse-renderer-checks --install-disposable-system
