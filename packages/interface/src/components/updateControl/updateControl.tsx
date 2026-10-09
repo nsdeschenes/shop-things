@@ -36,6 +36,7 @@ const initial: UpdateState = {
 export default function UpdateControl({updates}: {updates: UpdateBridge | null}) {
   const [state, setState] = useState(initial);
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     if (!updates) {
@@ -61,7 +62,11 @@ export default function UpdateControl({updates}: {updates: UpdateBridge | null})
   }, [updates]);
 
   async function check() {
-    setState(previous => ({...previous, phase: 'checking'}));
+    setError(null);
+    if (['idle', 'current', 'available', 'check-failed'].includes(state.phase)) {
+      setState(previous => ({...previous, phase: 'checking'}));
+    }
+
     const result = await updates?.check({});
     if (result?.status === 'success') {
       setState(previous =>
@@ -69,6 +74,18 @@ export default function UpdateControl({updates}: {updates: UpdateBridge | null})
       );
     } else {
       setState(previous => ({...previous, phase: 'check-failed', errorCode: 'NETWORK'}));
+    }
+  }
+
+  async function attempt(operation: () => ReturnType<UpdateBridge['start']> | undefined) {
+    setError(null);
+    const result = await operation();
+    if (result?.status === 'success') {
+      setState(previous =>
+        result.value.revision >= previous.revision ? result.value : previous
+      );
+    } else if (result?.status === 'error') {
+      setError(result.error.message);
     }
   }
 
@@ -105,17 +122,64 @@ export default function UpdateControl({updates}: {updates: UpdateBridge | null})
                   ? "You're up to date"
                   : state.phase === 'available'
                     ? `Version ${state.targetVersion} is available`
-                    : state.phase === 'check-failed'
-                      ? 'Could not check for updates. Try again.'
-                      : 'Check for a newer version of Shop Things.'}
+                    : state.phase === 'downloading'
+                      ? `Downloading version ${state.targetVersion}…`
+                      : state.phase === 'verifying'
+                        ? 'Verifying the downloaded update…'
+                        : state.phase === 'staged'
+                          ? 'Download verified. Installation is not available yet.'
+                          : state.phase === 'retryable-failure'
+                            ? state.errorCode === 'VERIFICATION'
+                              ? 'Update verification failed. Retry to download a fresh copy.'
+                              : state.errorCode === 'STORAGE'
+                                ? 'Could not store the update. Check free disk space and retry.'
+                                : state.errorCode === 'RATE_LIMIT'
+                                  ? 'The release service has limited requests. Wait before retrying.'
+                                  : 'Could not download the update. Check your connection and retry.'
+                            : state.phase === 'check-failed'
+                              ? 'Could not check for updates. Try again.'
+                              : 'Check for a newer version of Shop Things.'}
             </p>
+            {state.phase === 'downloading' && (
+              <progress
+                aria-label="Update download progress"
+                max={1}
+                value={state.progress ?? 0}
+              />
+            )}
+            {error && <p role="alert">{error}</p>}
             {state.capabilityReasons.map(reason => (
               <p key={reason} {...stylex.props(styles.message)}>
                 {reason}
               </p>
             ))}
             <div {...stylex.props(styles.actions)}>
-              {state.phase === 'available' && <Button disabled>Update</Button>}
+              {state.phase === 'available' && (
+                <Button
+                  disabled={!state.nextActions.includes('update')}
+                  onClick={() => {
+                    const candidateId = state.candidateId;
+                    if (candidateId) {
+                      void attempt(() => updates?.start({candidateId}));
+                    }
+                  }}
+                >
+                  Update
+                </Button>
+              )}
+              {state.phase === 'retryable-failure' &&
+                state.nextActions.includes('retry') && (
+                  <Button
+                    onClick={() => {
+                      const attemptId = state.attemptId;
+                      if (attemptId) {
+                        void attempt(() => updates?.retry({attemptId}));
+                      }
+                    }}
+                  >
+                    Retry
+                  </Button>
+                )}
               {state.phase === 'check-failed' && (
                 <Button
                   onClick={() => {

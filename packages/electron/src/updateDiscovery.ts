@@ -1,7 +1,15 @@
 import {randomUUID, type KeyObject} from 'node:crypto';
+import {unlink} from 'node:fs/promises';
 
 import type {UpdateBridge, UpdateState} from '@shop-things/contract';
 
+import {
+  downloadUpdateCandidate,
+  verifyStagedUpdateArtifact,
+  UpdateDownloadError,
+  type UpdateDownloadOptions,
+  type VerifiedUpdateArtifact,
+} from './updateDownload.js';
 import {
   stableVersion,
   verifyUpdateManifest,
@@ -25,6 +33,7 @@ export interface UpdateDiscoveryOptions {
   trustedKeys: readonly (KeyObject | string)[];
   capabilityReasons: string[];
   request?: (url: string, limit: number) => Promise<Uint8Array>;
+  download?: Omit<UpdateDownloadOptions, 'trustedKeys' | 'baselinePackageVersion'>;
   compareDebian?: (left: string, right: string) => Promise<number>;
 }
 
@@ -53,6 +62,14 @@ export class UpdateDiscovery {
   private readonly listeners = new Set<(state: UpdateState) => void>();
   private pending: Promise<Awaited<ReturnType<UpdateBridge['check']>>> | null = null;
   private candidate: DiscoveredUpdateCandidate | null = null;
+  private attempt: {
+    id: string;
+    candidate: DiscoveredUpdateCandidate;
+    controller: AbortController;
+    artifact: VerifiedUpdateArtifact | null;
+  } | null = null;
+  private transferring: Promise<void> | null = null;
+  private downloadBackoffUntil = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
   private backoffUntil = 0;
   private stopped = false;
@@ -95,6 +112,10 @@ export class UpdateDiscovery {
   }
 
   check: UpdateBridge['check'] = () => {
+    if (this.attempt) {
+      return this.getState({});
+    }
+
     if (this.pending) {
       return this.pending;
     }
@@ -125,7 +146,7 @@ export class UpdateDiscovery {
                   phase: 'available',
                   candidateId: candidate.id,
                   targetVersion: candidate.manifest.appVersion,
-                  nextActions: ['check'],
+                  nextActions: this.options.download ? ['check', 'update'] : ['check'],
                 }
               : {phase: 'current', nextActions: ['check']}
           );
@@ -158,14 +179,164 @@ export class UpdateDiscovery {
     return this.pending;
   };
 
-  start: UpdateBridge['start'] = async () => ({
-    status: 'error',
-    error: {code: 'BUSY', message: 'Installation is not available yet.'},
-  });
-  retry: UpdateBridge['retry'] = async () => ({
-    status: 'error',
-    error: {code: 'VALIDATION', message: 'There is no update attempt to retry.'},
-  });
+  start: UpdateBridge['start'] = async ({candidateId}) => {
+    if (this.attempt || this.transferring) {
+      return {
+        status: 'error',
+        error: {code: 'BUSY', message: 'An update attempt is already active.'},
+      };
+    }
+
+    if (this.state.phase !== 'available' || this.candidate?.id !== candidateId) {
+      return {
+        status: 'error',
+        error: {
+          code: 'VALIDATION',
+          message: 'Check for updates before selecting a version.',
+        },
+      };
+    }
+
+    if (!this.options.download) {
+      return {
+        status: 'error',
+        error: {code: 'BUSY', message: 'Installation is not available yet.'},
+      };
+    }
+
+    this.launchDownload(this.candidate);
+    return this.getState({});
+  };
+  retry: UpdateBridge['retry'] = async ({attemptId}) => {
+    if (
+      !this.attempt ||
+      this.attempt.id !== attemptId ||
+      this.state.phase !== 'retryable-failure' ||
+      this.transferring
+    ) {
+      return {
+        status: 'error',
+        error: {
+          code: 'VALIDATION',
+          message: 'There is no failed update attempt to retry.',
+        },
+      };
+    }
+
+    if (Date.now() < this.downloadBackoffUntil) {
+      return {
+        status: 'error',
+        error: {
+          code: 'BUSY',
+          message: 'The release service has limited requests. Wait before retrying.',
+        },
+      };
+    }
+
+    this.launchDownload(this.attempt.candidate);
+    return this.getState({});
+  };
+
+  private launchDownload(candidate: DiscoveredUpdateCandidate) {
+    const options = this.options.download;
+    if (!options) {
+      throw new Error('Update download is unavailable.');
+    }
+
+    const attempt = {
+      id: randomUUID(),
+      candidate: structuredClone(candidate),
+      controller: new AbortController(),
+      artifact: null as VerifiedUpdateArtifact | null,
+    };
+    this.attempt = attempt;
+    const identity = {
+      candidateId: candidate.id,
+      attemptId: attempt.id,
+      targetVersion: candidate.manifest.appVersion,
+    };
+    this.publish({...identity, phase: 'downloading', progress: 0, nextActions: []});
+    this.transferring = downloadUpdateCandidate(
+      attempt.candidate,
+      {
+        ...options,
+        trustedKeys: this.options.trustedKeys,
+        baselinePackageVersion: this.options.packageVersion,
+      },
+      attempt.id,
+      {
+        progress: progress =>
+          this.publish({...identity, phase: 'downloading', progress, nextActions: []}),
+        verifying: () =>
+          this.publish({...identity, phase: 'verifying', progress: 1, nextActions: []}),
+      },
+      attempt.controller.signal
+    )
+      .then(artifact => {
+        attempt.artifact = artifact;
+        this.publish({...identity, phase: 'staged', progress: 1, nextActions: []});
+      })
+      .catch((error: unknown) => {
+        const failure =
+          error instanceof UpdateDownloadError
+            ? error
+            : new UpdateDownloadError('STORAGE');
+        if (failure.retryAt) {
+          this.downloadBackoffUntil = failure.retryAt;
+        }
+
+        this.publish({
+          ...identity,
+          phase: 'retryable-failure',
+          errorCode: failure.code,
+          nextActions: ['retry'],
+        });
+      })
+      .finally(() => {
+        this.transferring = null;
+      });
+  }
+
+  // Main re-verifies staged bytes before handing an untrusted reference to the helper.
+  async getVerifiedArtifact(attemptId: string): Promise<VerifiedUpdateArtifact | null> {
+    const attempt = this.attempt;
+    if (
+      !attempt ||
+      attempt.id !== attemptId ||
+      !attempt.artifact ||
+      this.state.phase !== 'staged'
+    ) {
+      return null;
+    }
+
+    const artifact = attempt.artifact;
+    try {
+      await verifyStagedUpdateArtifact(
+        attempt.candidate,
+        artifact,
+        this.options.trustedKeys
+      );
+    } catch {
+      await unlink(artifact.path).catch(() => {});
+      if (this.attempt === attempt && attempt.artifact === artifact) {
+        attempt.artifact = null;
+        this.publish({
+          candidateId: attempt.candidate.id,
+          attemptId: attempt.id,
+          targetVersion: attempt.candidate.manifest.appVersion,
+          phase: 'retryable-failure',
+          errorCode: 'VERIFICATION',
+          nextActions: ['retry'],
+        });
+      }
+
+      throw new UpdateDownloadError('VERIFICATION');
+    }
+
+    return this.attempt === attempt && attempt.artifact === artifact
+      ? structuredClone(artifact)
+      : null;
+  }
 
   startChecking() {
     if (this.timer) {
@@ -189,6 +360,7 @@ export class UpdateDiscovery {
   stop() {
     this.stopped = true;
     this.controller?.abort();
+    this.attempt?.controller.abort();
     if (this.timer) {
       clearInterval(this.timer);
     }
