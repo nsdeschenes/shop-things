@@ -29,7 +29,9 @@ test('real header/preload/main discovery fails closed without installed trust an
       value: {
         phase: 'check-failed',
         errorCode: 'TRUST_UNAVAILABLE',
-        capabilityReasons: expect.arrayContaining(['Installation is not available yet.']),
+        capabilityReasons: expect.arrayContaining([
+          'Updates require an original-user Linux ARM64 system installation.',
+        ]),
       },
     });
     const invalid = await page.evaluate(() =>

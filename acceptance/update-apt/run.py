@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import pwd
 import shutil
 import subprocess
 import sys
@@ -38,7 +39,9 @@ def package(name, version, extra='', script=''):
     return destination
 
 Path('/fixture/repo').mkdir()
-run('/usr/sbin/useradd', '-m', '-u', '1000', 'fixture')
+run('/usr/sbin/useradd', '-m', 'fixture')
+caller = pwd.getpwnam('fixture')
+assert caller.pw_uid > 0
 base = package('shop-things', '1.0.0')
 victim = package('victim', '1.0.0')
 run('/usr/bin/dpkg', '-i', str(base), str(victim))
@@ -74,9 +77,9 @@ if case == 'held':
     run('/usr/bin/apt-mark', 'hold', 'shop-things')
 if case == 'dirty':
     Path('/var/lib/dpkg/updates/9999').write_text('unfinished')
-installer = Path('/home/fixture/candidate.deb')
+installer = Path(caller.pw_dir) / 'candidate.deb'
 installer.write_bytes(target.read_bytes())
-os.chown(installer, 1000, 1000)
+os.chown(installer, caller.pw_uid, caller.pw_gid)
 installer.chmod(0o600)
 raw = installer.read_bytes()
 manifest = {'schemaVersion': 1, 'applicationId': 'com.shopthings.app', 'repository': 'nsdeschenes/shop-things',
@@ -94,7 +97,7 @@ if case == 'lock':
     lock = os.open('/var/lib/dpkg/lock-frontend', os.O_WRONLY)
     fcntl.lockf(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 process = subprocess.run(['/usr/bin/python3', '-I', '/usr/lib/shop-things/updater-helper'], input=json.dumps(request).encode(),
-                         capture_output=True, env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C', 'PKEXEC_UID': '1000'}, timeout=120)
+                         capture_output=True, env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C', 'PKEXEC_UID': str(caller.pw_uid)}, timeout=120)
 if lock:
     os.close(lock)
 assert process.returncode == 0, process.stderr
@@ -107,14 +110,14 @@ if journal_path.exists():
     print(json.dumps({'journal': journal, 'global': transaction.global_index()}))
 if case == 'allowed':
     assert outcome['outcome'] == 'installed', outcome
-    evidence = transaction.inspect(1000, request['attemptId'])
+    evidence = transaction.inspect(caller.pw_uid, request['attemptId'])
     assert evidence['outcome'] == 'installed', evidence
     names = [row['package'] for batch in journal['plan'] for row in batch if row['action'].startswith('/')]
     assert set(names) == {'shop-things', 'fixture-dep'}, names
     assert Path('/fixture/mutations').read_text().splitlines() == ['fixture-dep', 'shop-things']
     # Another UID sees no private package inventory, but root index is readable.
-    run('/usr/sbin/useradd', '-m', '-u', '1001', 'other')
-    blocked = subprocess.run(['/usr/sbin/runuser', '-u', 'other', '--', '/usr/bin/cat', '/var/lib/shop-things-updater-receipts/users/1000/' + request['attemptId'] + '.json'], capture_output=True)
+    run('/usr/sbin/useradd', '-m', 'other')
+    blocked = subprocess.run(['/usr/sbin/runuser', '-u', 'other', '--', '/usr/bin/cat', '/var/lib/shop-things-updater-receipts/users/' + str(caller.pw_uid) + '/' + request['attemptId'] + '.json'], capture_output=True)
     assert blocked.returncode != 0
 elif case == 'partial':
     assert outcome['outcome'] == 'uncertain', outcome
