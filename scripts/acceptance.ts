@@ -1,7 +1,7 @@
 // Local phases remain sequential; CI can reuse checks from separate jobs.
 import assert from 'node:assert/strict';
 import {spawn, spawnSync} from 'node:child_process';
-import {cp, mkdir, readFile, writeFile} from 'node:fs/promises';
+import {cp, mkdir, readFile, readdir, writeFile} from 'node:fs/promises';
 import {release} from 'node:os';
 import {join, resolve} from 'node:path';
 
@@ -14,6 +14,22 @@ function git(args: string[]) {
 }
 
 const supporting = process.argv.includes('--supporting-macos');
+const installSystem = process.argv.includes('--install-disposable-system');
+if (installSystem) {
+  assert.equal(process.platform, 'linux');
+  assert.equal(process.arch, 'arm64');
+  assert.equal(
+    process.env.GITHUB_ACTIONS,
+    'true',
+    'System installation requires a disposable CI runner'
+  );
+  assert.notEqual(
+    process.getuid?.(),
+    0,
+    'Electron must run as the original nonroot user'
+  );
+}
+
 const reuseSourceChecks = process.argv.includes('--reuse-source-checks');
 const reuseRendererChecks = process.argv.includes('--reuse-renderer-checks');
 const glibc = Reflect.get(
@@ -278,11 +294,28 @@ try {
     report.shippedBackend = await successfulReport('package-smoke.json');
   }
 
+  if (installSystem) {
+    const installers = (await readdir('release')).filter(name =>
+      name.endsWith('_arm64.deb')
+    );
+    assert.equal(installers.length, 1, 'Require the single accepted ARM64 installer');
+    const installer = installers[0];
+    assert.ok(installer);
+    await command('install-accepted-system-package', 'sudo', [
+      '/usr/bin/apt-get',
+      '-y',
+      '--no-remove',
+      'install',
+      resolve('release', installer),
+    ]);
+  }
+
   await command(
     'packaged-renderer',
     process.execPath,
     ['acceptance/packagedRenderer.mjs'],
     {
+      PACKAGED_RENDERER_SYSTEM_INSTALL: installSystem ? '1' : '',
       PACKAGED_RENDERER_TARGET: supporting
         ? 'darwin-arm64-supporting'
         : `linux-${process.arch}`,

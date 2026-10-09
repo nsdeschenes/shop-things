@@ -171,7 +171,8 @@ try {
   const settings = await readFile(join(userData, 'database.json'));
   const before = digest(await readFile(databasePath));
   // Container operations below are isolated. Actual native defaults/data/guard behavior
-  // above and below use these exact archive bytes without installing on the runner.
+  // above and below use exact archive bytes; the current protected installed baseline
+  // comes from the preceding explicit disposable-runner package installation.
   const context = join(directory, 'context');
   await mkdir(join(context, 'scripts'), {recursive: true});
   await cp(candidate, join(context, 'candidate.deb'));
