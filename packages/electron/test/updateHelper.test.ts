@@ -133,3 +133,11 @@ test('real guarded verification restores cancelled authentication and surfaces f
     await f.cleanup();
   }
 });
+
+test('actual transaction parser rejects fallback protocol and effective bypass settings', async () => {
+  const result = await promisify(execFile)('/usr/bin/python3', [
+    '-I',
+    fileURLToPath(new URL('./updateTransaction.test.py', import.meta.url)),
+  ]);
+  expect(result.stderr).toContain('OK');
+});

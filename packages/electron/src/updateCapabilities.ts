@@ -86,6 +86,7 @@ export async function inspectUpdateCapabilities(options: {
   try {
     for (const path of [
       updateHelperPath,
+      '/usr/lib/shop-things/update/apt-hook',
       supervisorPath,
       '/usr/bin/apt-get',
       '/usr/bin/dpkg',
@@ -100,6 +101,17 @@ export async function inspectUpdateCapabilities(options: {
       await protectedSystemFile(path, 104857600, false);
     }
 
+    await protectedSystemFile('/usr/lib/shop-things/update/transaction.py', 1048576);
+    await protectedSystemFile('/var/lib/shop-things-updater-receipts/global.json', 65536);
+    await execute(
+      '/usr/bin/python3',
+      [
+        '-I',
+        '-c',
+        'import apt_pkg,os,stat; p=os.path.realpath(apt_pkg.__file__); s=os.stat(p); assert s.st_uid==0 and not s.st_mode & 0o022; assert apt_pkg.VERSION',
+      ],
+      {timeout: 30000, maxBuffer: 4096, env: {PATH: '/usr/bin:/bin', LC_ALL: 'C'}}
+    );
     const helper = (await protectedSystemFile(updateHelperPath, 1048576)).toString(
       'utf8'
     );

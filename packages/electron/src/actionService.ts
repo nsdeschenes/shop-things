@@ -117,12 +117,14 @@ export interface ActionServiceOptions {
   database?: DatabaseOperations;
   logError?: (error: unknown) => void;
   drafts?: DraftCoordinator;
+  normalUseAllowed?: () => boolean;
 }
 
 // Main-process ownership only: never expose this lease through the renderer bridge.
 export interface LifecycleLease {
   assertCurrent(): void;
   commit(): Promise<Outcome<{closed: true}>>;
+  finalizeForExit(): Promise<Outcome<{closed: true}>>;
   abort(): Promise<Outcome<DatabaseState>>;
 }
 
@@ -446,7 +448,7 @@ export class ActionService {
   // The owner must explicitly abort only after proving the external transition is
   // reversible. Losing a renderer must not reopen a database during package mutation.
   async holdLifecycle(): Promise<Outcome<LifecycleLease>> {
-    if (this.closePending) {
+    if (this.closePending || this.options.normalUseAllowed?.() === false) {
       return {
         status: 'error',
         error: {
@@ -539,6 +541,24 @@ export class ActionService {
             currentDraft.assertCurrent();
           },
           abort,
+          finalizeForExit: async () => {
+            try {
+              assertOwned();
+            } catch (error) {
+              return {status: 'error', error: this.safeError(error)};
+            }
+
+            settled = true;
+            this.publish({
+              available: false,
+              selectedPath: original.selectedPath,
+              session: null,
+            });
+            currentDraft.finish('committed');
+            // Verified package success may outlive the original document. Keep
+            // admission permanently closed until the owner exits this process.
+            return {status: 'success', value: {closed: true}};
+          },
           commit: async () => {
             try {
               assertOwned();
@@ -984,7 +1004,7 @@ export class ActionService {
   }
 
   private async admit<T>(work: () => Promise<T | null>): Promise<Outcome<T>> {
-    if (this.busy || this.closePending) {
+    if (this.busy || this.closePending || this.options.normalUseAllowed?.() === false) {
       return {
         status: 'error',
         error: {

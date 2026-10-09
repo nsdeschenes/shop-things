@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 
 import {_electron, expect, test} from '@playwright/test';
 
-async function fixture() {
+async function fixture(guardedInstall = false) {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-update-ui-'));
   const packageRoot = join(directory, 'package');
   await mkdir(join(packageRoot, 'DEBIAN'), {recursive: true});
@@ -61,6 +61,7 @@ async function fixture() {
       signature: sign(null, manifest, keys.privateKey).toString('base64'),
       installer: installer.toString('base64'),
       release,
+      guardedInstall,
     })
   );
   const executablePath = createRequire(
@@ -311,6 +312,88 @@ test('controlled authentication holds the real guarded draft and restores cancel
     ).toMatchObject({
       value: {available: false, recoveryError: {code: 'DATABASE_UNAVAILABLE'}},
     });
+  } finally {
+    await app.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('guarded Update drains and holds customer work, then authentication cancellation restores the draft', async () => {
+  const {app, directory} = await fixture(true);
+  try {
+    const page = await app.firstWindow();
+    await page.getByRole('link', {name: 'Add customer'}).click();
+    await page
+      .getByRole('textbox', {name: 'First name'})
+      .fill('Retained installation draft');
+    await app.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceHelperDiscard', true);
+    });
+    await page.getByRole('button', {name: 'Check for updates'}).click();
+    await page.getByRole('button', {name: 'Update', exact: true}).click();
+    await app.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceReleaseUpdateDownload')()
+    );
+    await expect(page.getByRole('status')).toHaveText(
+      'Approve the system authentication dialog to continue.'
+    );
+    await expect
+      .poll(() =>
+        app.evaluate(() => Boolean(Reflect.get(globalThis, 'acceptanceInstallRequest')))
+      )
+      .toBe(true);
+    await expect(page.getByRole('textbox', {name: 'First name'})).toBeDisabled();
+    const status = await page.evaluate(() =>
+      Reflect.get(window, 'shopThings').database.status()
+    );
+    expect(
+      await page.evaluate(
+        session => Reflect.get(window, 'shopThings').customers.list({session, query: ''}),
+        status.value.session
+      )
+    ).toMatchObject({status: 'error', error: {code: 'BUSY'}});
+    await app.evaluate(() => Reflect.get(globalThis, 'acceptanceReleaseInstall')());
+    await expect(page.getByRole('button', {name: 'Retry', exact: true})).toBeVisible();
+    await expect(page.getByRole('textbox', {name: 'First name'})).toBeEnabled();
+    await expect(page.getByRole('textbox', {name: 'First name'})).toHaveValue(
+      'Retained installation draft'
+    );
+  } finally {
+    await app.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('uncertain package outcome holds admissions and recovery without automatic retry', async () => {
+  const {app, directory} = await fixture(true);
+  try {
+    const page = await app.firstWindow();
+    await page.getByRole('button', {name: 'Check for updates'}).click();
+    await page.getByRole('button', {name: 'Update', exact: true}).click();
+    await app.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceReleaseUpdateDownload')()
+    );
+    await expect
+      .poll(() =>
+        app.evaluate(() => Boolean(Reflect.get(globalThis, 'acceptanceInstallRequest')))
+      )
+      .toBe(true);
+    await app.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceInstallOutcome', 'uncertain');
+      Reflect.get(globalThis, 'acceptanceReleaseInstall')();
+    });
+    await expect(
+      page.getByRole('heading', {name: 'Package Recovery Required'})
+    ).toBeVisible();
+    await expect(page.getByRole('button', {name: 'Retry', exact: true})).toHaveCount(0);
+    expect(
+      await page.evaluate(() => Reflect.get(window, 'shopThings').database.retry())
+    ).toMatchObject({status: 'error', error: {code: 'BUSY'}});
+    expect(
+      await app.evaluate(() =>
+        Boolean(Reflect.get(globalThis, 'acceptanceInstalledExit'))
+      )
+    ).toBe(false);
   } finally {
     await app.close();
     await rm(directory, {recursive: true, force: true});

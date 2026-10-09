@@ -1,0 +1,27 @@
+#!/usr/bin/python3 -I
+"""Only the owned APT process may supply this real protocol-v3 gate."""
+import importlib.util
+import os
+from pathlib import Path
+import stat
+import sys
+try:
+    if os.geteuid() != 0 or len(sys.argv) != 1 or os.environ.get('APT_HOOK_INFO_FD') != '20':
+        raise ValueError('Invalid gate invocation')
+    path = Path('/usr/lib/shop-things/update/transaction.py')
+    for item in [path, *path.parents]:
+        info = item.lstat()
+        if info.st_uid != 0 or info.st_mode & 0o022 or stat.S_ISLNK(info.st_mode):
+            raise ValueError('Unprotected transaction module')
+    spec = importlib.util.spec_from_file_location('transaction', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    raw = bytearray()
+    while chunk := os.read(20, 65536):
+        raw.extend(chunk)
+        if len(raw) > module.MAXIMUM:
+            raise ValueError('Excessive hook stream')
+    module.gate(bytes(raw))
+except Exception:
+    print('Shop Things rejected an unverified package transaction.', file=sys.stderr)
+    sys.exit(1)

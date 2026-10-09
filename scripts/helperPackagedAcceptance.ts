@@ -8,7 +8,7 @@ import {
   randomUUID,
   sign,
 } from 'node:crypto';
-import {chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile} from 'node:fs/promises';
+import {chmod, mkdtemp, readFile, rm, symlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
@@ -23,6 +23,11 @@ import {loadInstalledUpdatePolicy} from '../packages/electron/src/updatePolicy.t
 import {root, runIfMain} from './workspace.ts';
 
 await runIfMain(import.meta.url, async () => {
+  assert.equal(
+    process.env.HELPER_ACCEPTANCE_DISPOSABLE_INSTALL,
+    '1',
+    'This mutating acceptance runner requires an explicitly disposable installation.'
+  );
   assert.equal(process.platform, 'linux');
   assert.equal(process.arch, 'arm64');
   assert.ok(process.getuid?.() && (process.env.DISPLAY || process.env.WAYLAND_DISPLAY));
@@ -30,7 +35,9 @@ await runIfMain(import.meta.url, async () => {
   // bootstrap fixture. This runner never writes installed policy or packages.
   assert.ok(
     process.env.HELPER_ACCEPTANCE_TEST_KEY_FILE &&
-      process.env.HELPER_ACCEPTANCE_TARGET_VERSION
+      process.env.HELPER_ACCEPTANCE_TARGET_VERSION &&
+      process.env.HELPER_ACCEPTANCE_TARGET_PACKAGE_VERSION &&
+      process.env.HELPER_ACCEPTANCE_INSTALLER_FILE
   );
   const privateKey = createPrivateKey(
     await readFile(process.env.HELPER_ACCEPTANCE_TEST_KEY_FILE)
@@ -65,23 +72,12 @@ await runIfMain(import.meta.url, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-packaged-helper-'));
   await chmod(directory, 0o700);
   try {
-    const payload = join(directory, 'payload');
-    await mkdir(join(payload, 'DEBIAN'), {recursive: true});
-    await writeFile(
-      join(payload, 'DEBIAN/control'),
-      `Package: shop-things\nVersion: ${version}\nArchitecture: arm64\nMaintainer: Fixture <noreply@example.com>\nDescription: Nonmutating packaged helper acceptance\n`
-    );
-    const identity = join(payload, 'opt/Shop Things/resources/update');
-    await mkdir(identity, {recursive: true});
-    await writeFile(
-      join(identity, 'identity.json'),
-      JSON.stringify({schemaVersion: 1, packageName: 'shop-things', appVersion: version})
-    );
+    // Use the complete already-built/qualified installer. Never construct a tiny
+    // package that would replace the real application with an identity-only payload.
     const candidate = join(directory, 'candidate.deb');
-    execFileSync(
-      '/usr/bin/dpkg-deb',
-      ['--build', '--root-owner-group', payload, candidate],
-      {stdio: 'ignore'}
+    await writeFile(
+      candidate,
+      await readFile(process.env.HELPER_ACCEPTANCE_INSTALLER_FILE!)
     );
     await chmod(candidate, 0o600);
     const bytes = await readFile(candidate);
@@ -93,7 +89,7 @@ await runIfMain(import.meta.url, async () => {
         channel: 'stable',
         appVersion: version,
         packageName: 'shop-things',
-        packageVersion: version,
+        packageVersion: process.env.HELPER_ACCEPTANCE_TARGET_PACKAGE_VERSION,
         platform: 'linux',
         architecture: 'arm64',
         helperProtocol: {min: 1, max: 1},
@@ -112,7 +108,10 @@ await runIfMain(import.meta.url, async () => {
       candidatePath: candidate,
     };
     const valid = await invokeUpdateHelper(request);
-    assert.equal(valid.outcome, 'install-disabled');
+    assert.equal(valid.outcome, 'installed');
+    const installedBaseline = snapshot();
+    // The valid fixture is a real package transaction; subsequent attacks must
+    // preserve the newly installed state rather than the old package baseline.
     const link = join(directory, 'link.deb');
     await symlink(candidate, link);
     for (const changed of [
@@ -130,7 +129,16 @@ await runIfMain(import.meta.url, async () => {
       (await invokeUpdateHelper({...request, attemptId: randomUUID()})).outcome,
       'rejected'
     );
-    assert.deepEqual(snapshot(), baseline, 'Package inventory must remain unchanged');
+    assert.notDeepEqual(
+      installedBaseline,
+      baseline,
+      'The valid upgrade must change the installed package inventory'
+    );
+    assert.deepEqual(
+      snapshot(),
+      installedBaseline,
+      'Rejected attacks must preserve installed package inventory'
+    );
     console.log(
       JSON.stringify({
         schemaVersion: 1,
@@ -140,7 +148,7 @@ await runIfMain(import.meta.url, async () => {
           .update(await protectedSystemFile(updateHelperPath, 1048576))
           .digest('hex'),
         checks: [
-          'valid-verified-no-mutation',
+          'valid-installed-transaction',
           'symlink-rejected',
           'bad-signature-rejected',
           'tamper-rejected',

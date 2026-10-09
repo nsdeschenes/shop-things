@@ -15,6 +15,8 @@ import {registerIpc} from '../packages/electron/dist/ipc.js';
 import {FileDatabaseSettings} from '../packages/electron/dist/settings.js';
 import {UpdateDiscovery} from '../packages/electron/dist/updateDiscovery.js';
 import {verifyUpdateUnderLease} from '../packages/electron/dist/updateHelper.js';
+import {HelperProcessError} from '../packages/electron/dist/updateHelperProtocol.js';
+import {installVerifiedUpdate} from '../packages/electron/dist/updateInstallation.js';
 
 // Only this test entry injects publisher trust and external transport. Production
 // main has no environment switch or renderer operation that can do either.
@@ -71,7 +73,78 @@ const updates = new UpdateDiscovery({
   appVersion: '0.3.1',
   packageVersion: '0.3.1',
   trustedKeys: [fixture.publicKey],
-  capabilityReasons: ['Installation is not available yet.'],
+  capabilityReasons: fixture.guardedInstall ? [] : ['Installation is not available yet.'],
+  ...(fixture.guardedInstall
+    ? {
+        install: async (candidate, artifact, phase) => {
+          globalThis.acceptanceInstallOwnsLease = true;
+          const result = await installVerifiedUpdate(
+            {
+              service,
+              updatesDirectory: join(app.getPath('userData'), 'updates'),
+              capabilities: async () => true,
+              inspect: async attempt => ({
+                outcome: attempt
+                  ? (globalThis.acceptanceInstallOutcome ?? 'clean')
+                  : 'clean',
+                generation: attempt && globalThis.acceptanceInstallOutcome ? 2 : 1,
+                state: 'independent full fixture package inventory',
+                receipt:
+                  attempt && globalThis.acceptanceInstallOutcome === 'installed'
+                    ? {
+                        attemptId: attempt,
+                        manifestDigest: artifact.manifestDigest,
+                        appVersion: candidate.manifest.appVersion,
+                        packageVersion: candidate.manifest.packageVersion,
+                      }
+                    : null,
+              }),
+              supervisor: async () => {
+                globalThis.acceptanceSupervisorReady = true;
+                return {
+                  pid: 44,
+                  cancel: () => {
+                    globalThis.acceptanceSupervisorCancelled = true;
+                  },
+                };
+              },
+              invoke: async request => {
+                if (!globalThis.acceptanceSupervisorReady) {
+                  throw new Error('Supervisor must be ready');
+                }
+
+                globalThis.acceptanceInstallRequest = request;
+                await new Promise(resolve => {
+                  globalThis.acceptanceReleaseInstall = resolve;
+                });
+                if (!globalThis.acceptanceInstallOutcome) {
+                  throw new HelperProcessError(true);
+                }
+
+                return {
+                  protocol: 1,
+                  type: 'outcome',
+                  attemptId: request.attemptId,
+                  outcome: globalThis.acceptanceInstallOutcome,
+                  errorCode: null,
+                };
+              },
+              exit: () => {
+                globalThis.acceptanceInstalledExit = true;
+              },
+            },
+            candidate,
+            artifact,
+            phase
+          );
+          if (result === 'retryable') {
+            globalThis.acceptanceInstallOwnsLease = false;
+          }
+
+          return result;
+        },
+      }
+    : {}),
   request: async url => {
     if (url.startsWith('https://api.github.com/')) {
       return Buffer.from(JSON.stringify([fixture.release]));
@@ -181,7 +254,9 @@ async function startWindow() {
   updates.startChecking();
   app.on('before-quit', () => {
     updates.stop();
-    service.closeUnprotected();
+    if (!globalThis.acceptanceInstallOwnsLease) {
+      service.closeUnprotected();
+    }
   });
 }
 

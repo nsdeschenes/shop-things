@@ -269,3 +269,29 @@ test.each([true, false])(
     }
   }
 );
+
+test('package startup gate prevents remembered opens and file admissions before renderer readiness', async () => {
+  const f = await fixture();
+  let allowed = false;
+  try {
+    const remembered = join(f.directory, 'remembered.db');
+    const initialized = await createDatabase(remembered, {migrationsFolder});
+    initialized.close();
+    await f.settings.write(remembered);
+    const before = await readFile(remembered);
+    const gated = new ActionService({...f.options, normalUseAllowed: () => allowed});
+    await gated.start();
+    expect(gated.status().available).toBe(false);
+    expect(await gated.handlers['database.open']()).toMatchObject({
+      status: 'error',
+      error: {code: 'BUSY'},
+    });
+    expect(await readFile(remembered)).toEqual(before);
+    allowed = true;
+    await gated.start();
+    expect(gated.status().available).toBe(true);
+    gated.closeUnprotected();
+  } finally {
+    await f.cleanup();
+  }
+});
