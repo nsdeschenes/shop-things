@@ -45,5 +45,13 @@
     "oxlint-tsgolint": "^7.0.2003",
     "typescript": "^7",
     "vitest": "^5.0.2"
-  }
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "26.11.0",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.4.2"
 }

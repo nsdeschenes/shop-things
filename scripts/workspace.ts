@@ -1,4 +1,5 @@
 import type {SpawnOptions} from 'node:child_process';
+import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -22,6 +23,20 @@ export async function runIfMain(url: string, run: () => void | Promise<unknown>)
   }
 
   try {
+    const {devEngines, scripts} = JSON.parse(
+      readFileSync(join(root, 'package.json'), 'utf8')
+    );
+    if (process.versions.node !== devEngines.runtime.version) {
+      const entry = fileURLToPath(url);
+      const command = Object.entries(scripts).find(
+        ([, value]) =>
+          typeof value === 'string' && value.includes(entry.slice(root.length + 1))
+      )?.[0];
+      throw new Error(
+        `Node ${devEngines.runtime.version} is required; found ${process.versions.node}. Run ${command ? `pnpm ${command}` : `pnpm exec node ${entry}`} to use the locked runtime.`
+      );
+    }
+
     await run();
   } catch (error) {
     console.error(error);
