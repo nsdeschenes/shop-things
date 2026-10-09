@@ -110,3 +110,42 @@ test.skipIf(process.platform !== 'linux')(
     }
   }
 );
+
+test.skipIf(process.platform !== 'linux')(
+  'real Debian control metadata declares the ELF-required ALSA runtime alternative',
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'runtime-dependencies-'));
+    try {
+      const configuration = JSON.parse(
+        await readFile(
+          new URL('../../packages/electron/package.json', import.meta.url),
+          'utf8'
+        )
+      );
+      await mkdir(join(directory, 'package/DEBIAN'), {recursive: true});
+      await writeFile(
+        join(directory, 'package/DEBIAN/control'),
+        'Package: shop-things\nVersion: 0.3.1\nArchitecture: arm64\nMaintainer: Fixture\nDescription: Fixture\nDepends: ' +
+          configuration.build.deb.depends.join(', ') +
+          '\n'
+      );
+      const artifact = join(directory, 'candidate.deb');
+      execFileSync('/usr/bin/dpkg-deb', [
+        '--build',
+        '--root-owner-group',
+        join(directory, 'package'),
+        artifact,
+      ]);
+      const metadata = execFileSync(
+        '/usr/bin/dpkg-deb',
+        ['--field', artifact, 'Depends'],
+        {encoding: 'utf8'}
+      );
+      expect(metadata.split(',').map(value => value.trim())).toContain(
+        'libasound2t64 | libasound2'
+      );
+    } finally {
+      await rm(directory, {recursive: true, force: true});
+    }
+  }
+);
