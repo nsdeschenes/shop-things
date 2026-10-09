@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
-import {stableVersion} from '../packages/electron/src/updateManifest.ts';
+import {parseUniqueJson, stableVersion} from '../packages/electron/src/updateManifest.ts';
 import {validatePublicPolicy} from './updateRelease.ts';
 import {root, runIfMain} from './workspace.ts';
 
@@ -25,7 +25,9 @@ export async function prepareUpdateIdentity(directory = root) {
   if (policy) {
     assert.ok(policy.length > 0 && policy.length <= 65536);
     validatePublicPolicy(
-      JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(policy))
+      parseUniqueJson(
+        new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(policy)
+      )
     );
   }
 

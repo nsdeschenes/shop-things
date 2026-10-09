@@ -2,6 +2,8 @@ import {createPublicKey} from 'node:crypto';
 import {constants} from 'node:fs';
 import {open, lstat} from 'node:fs/promises';
 
+import {parseUniqueJson} from './updateManifest.js';
+
 export const updatePolicyPath = '/usr/lib/shop-things/update/policy.json';
 export interface UpdatePolicy {
   schemaVersion: 1;
@@ -34,7 +36,14 @@ export async function loadInstalledUpdatePolicy(): Promise<UpdatePolicy> {
       throw new Error('Update policy is not protected.');
     }
 
-    const value: unknown = JSON.parse(await file.readFile('utf8'));
+    const bytes = await file.readFile();
+    if (bytes.length === 0 || bytes.length > 65536) {
+      throw new Error('Invalid update policy bounds.');
+    }
+
+    const value: unknown = parseUniqueJson(
+      new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(bytes)
+    );
     if (
       typeof value !== 'object' ||
       value === null ||
