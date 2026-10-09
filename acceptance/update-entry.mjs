@@ -19,7 +19,6 @@ import {verifyUpdateUnderLease} from '../packages/electron/dist/updateHelper.js'
 // Only this test entry injects publisher trust and external transport. Production
 // main has no environment switch or renderer operation that can do either.
 app.setPath('userData', process.env.SHOP_THINGS_ACCEPTANCE_DATA);
-await app.whenReady();
 const fixture = JSON.parse(
   await readFile(process.env.SHOP_THINGS_UPDATE_FIXTURE, 'utf8')
 );
@@ -141,45 +140,50 @@ globalThis.acceptanceVerifyUpdateHelper = async () => {
 
 const base = fileURLToPath(new URL('../packages/electron/dist/', import.meta.url));
 const html = join(base, 'renderer', 'index.html');
-const window = new BrowserWindow({
-  width: 1000,
-  height: 800,
-  webPreferences: {
-    contextIsolation: true,
-    sandbox: true,
-    nodeIntegration: false,
-    preload: join(base, 'preload.cjs'),
-  },
-});
-const tracker = trackAuthorizedDocument(window.webContents, pathToFileURL(html).href);
-globalThis.acceptanceUpdateResults = [];
-const handle = ipcMain.handle.bind(ipcMain);
-ipcMain.handle = (channel, listener) =>
-  handle(channel, async (...args) => {
-    const result = await listener(...args);
-    if (channel === 'shop-things:update.start') {
-      globalThis.acceptanceUpdateResults.push(result);
-    }
-
-    return result;
+async function startWindow() {
+  const window = new BrowserWindow({
+    width: 1000,
+    height: 800,
+    webPreferences: {
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      preload: join(base, 'preload.cjs'),
+    },
   });
-registerIpc({
-  ipc: ipcMain,
-  service,
-  drafts,
-  updates,
-  ready: async () => {
-    if (globalThis.acceptanceUpdateIpcGate) {
-      globalThis.acceptanceUpdateIpcHeld = true;
-      await globalThis.acceptanceUpdateIpcGate;
-    }
-  },
-  currentDocument: () => tracker.currentDocument(),
-  onDocumentChanged: callback => tracker.onDocumentChanged(callback),
-});
-await window.loadFile(html);
-updates.startChecking();
-app.on('before-quit', () => {
-  updates.stop();
-  service.closeUnprotected();
-});
+  const tracker = trackAuthorizedDocument(window.webContents, pathToFileURL(html).href);
+  globalThis.acceptanceUpdateResults = [];
+  const handle = ipcMain.handle.bind(ipcMain);
+  ipcMain.handle = (channel, listener) =>
+    handle(channel, async (...args) => {
+      const result = await listener(...args);
+      if (channel === 'shop-things:update.start') {
+        globalThis.acceptanceUpdateResults.push(result);
+      }
+
+      return result;
+    });
+  registerIpc({
+    ipc: ipcMain,
+    service,
+    drafts,
+    updates,
+    ready: async () => {
+      if (globalThis.acceptanceUpdateIpcGate) {
+        globalThis.acceptanceUpdateIpcHeld = true;
+        await globalThis.acceptanceUpdateIpcGate;
+      }
+    },
+    currentDocument: () => tracker.currentDocument(),
+    onDocumentChanged: callback => tracker.onDocumentChanged(callback),
+  });
+  await window.loadFile(html);
+  updates.startChecking();
+  app.on('before-quit', () => {
+    updates.stop();
+    service.closeUnprotected();
+  });
+}
+
+// Let ESM evaluation finish before Electron can emit ready.
+void app.whenReady().then(startWindow);
