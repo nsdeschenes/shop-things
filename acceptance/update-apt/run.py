@@ -47,6 +47,33 @@ def package(name, version, extra='', script='', architecture='arm64'):
     run('/usr/bin/dpkg-deb', '--build', '--root-owner-group', str(root), str(destination))
     return destination
 
+def assert_read_atime_inventory(transaction, status):
+    # Keep genuine dpkg/APT inspection in this controlled native integration
+    # tier. A host-wide package cache is unrelated to parser unit-test latency.
+    status.write_text('fixture stat boundary')
+    os.utime(status, (1, 1))
+    native_path = transaction.Path
+    native_command = transaction.command
+    def path(value):
+        return status if value == '/var/lib/dpkg/status' else native_path(value)
+    def command(*args, **kwargs):
+        status.read_text()
+        return native_command(*args, **kwargs)
+    transaction.Path = path  # External status-file metadata boundary only.
+    transaction.command = command
+    before = status.stat()
+    try:
+        inventory = transaction.package_state()  # Actual read-only dpkg/APT inventory.
+        assert inventory['packages']
+        assert before.st_atime_ns != status.stat().st_atime_ns
+        assert before.st_mtime_ns == status.stat().st_mtime_ns
+        assert before.st_ctime_ns == status.stat().st_ctime_ns
+    finally:
+        transaction.Path = native_path
+        transaction.command = native_command
+    assert inventory == transaction.package_state()
+    print(json.dumps({'readOnlyAtimeRegression': 'passed', 'actualInventoryPackages': len(inventory['packages'])}))
+
 Path('/fixture/repo').mkdir()
 run('/usr/sbin/useradd', '-m', 'fixture')
 caller = pwd.getpwnam('fixture')
@@ -92,6 +119,8 @@ spec = importlib.util.spec_from_file_location('transaction', '/usr/lib/shop-thin
 transaction = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(transaction)
 transaction.initialize()
+if case == 'allowed':
+    assert_read_atime_inventory(transaction, Path('/fixture/atime-status'))
 if case == 'held':
     run('/usr/bin/apt-mark', 'hold', 'shop-things')
 if case == 'dirty':
