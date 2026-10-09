@@ -50,7 +50,7 @@ test('root runtime selects locked Node for filtered scripts, exec and grandchild
         devEngines: {runtime: {name: 'node', version: '24.21.0', onFail: 'download'}},
       })
     );
-    command(['install'], directory);
+    command(['install', '--no-frozen-lockfile'], directory);
     const node24 = command(['exec', 'node', '-p', 'process.execPath'], directory);
     expect(spawnSync(node24, ['--version'], {encoding: 'utf8'}).stdout.trim()).toBe(
       'v24.21.0'
@@ -85,7 +85,7 @@ const nested = spawnSync('pnpm', ['--filter', 'runtime-leaf', 'exec', 'node', '-
 console.log(JSON.stringify({parent: process.version, child: child.stdout.trim(), nested: nested.stdout.trim(), codes: [child.status, nested.status]}));
 `
     );
-    command(['install'], directory, env, node24);
+    command(['install', '--no-frozen-lockfile'], directory, env, node24);
     const lock = await readFile(join(directory, 'pnpm-lock.yaml'), 'utf8');
     command(['install', '--frozen-lockfile', '--offline'], directory, env, node24);
     expect(await readFile(join(directory, 'pnpm-lock.yaml'), 'utf8')).toBe(lock);
