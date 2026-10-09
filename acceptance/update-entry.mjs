@@ -5,12 +5,16 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import {app, BrowserWindow, ipcMain} from 'electron';
 
 import {createDatabase} from '../packages/db/dist/index.js';
-import {ActionService} from '../packages/electron/dist/actionService.js';
+import {
+  ActionService,
+  databaseOperations,
+} from '../packages/electron/dist/actionService.js';
 import {trackAuthorizedDocument} from '../packages/electron/dist/document.js';
 import {DraftCoordinator} from '../packages/electron/dist/draftCoordinator.js';
 import {registerIpc} from '../packages/electron/dist/ipc.js';
 import {FileDatabaseSettings} from '../packages/electron/dist/settings.js';
 import {UpdateDiscovery} from '../packages/electron/dist/updateDiscovery.js';
+import {verifyUpdateUnderLease} from '../packages/electron/dist/updateHelper.js';
 
 // Only this test entry injects publisher trust and external transport. Production
 // main has no environment switch or renderer operation that can do either.
@@ -33,6 +37,16 @@ await writeFile(settingsPath, JSON.stringify({path: databasePath}));
 const drafts = new DraftCoordinator();
 const service = new ActionService({
   migrationsFolder,
+  database: {
+    ...databaseOperations,
+    openExistingDatabase: async (...args) => {
+      if (globalThis.acceptanceHelperReopenFailure) {
+        throw new Error('Controlled reopen failure');
+      }
+
+      return databaseOperations.openExistingDatabase(...args);
+    },
+  },
   settings: new FileDatabaseSettings(settingsPath),
   drafts,
   dialogs: {
@@ -43,7 +57,7 @@ const service = new ActionService({
     backupDatabase: async () => null,
     restoreSource: async () => null,
     restoreDestination: async () => null,
-    confirmDiscard: async () => false,
+    confirmDiscard: async () => globalThis.acceptanceHelperDiscard ?? false,
   },
 });
 await service.start();
@@ -92,6 +106,39 @@ const updates = new UpdateDiscovery({
     },
   },
 });
+// Controlled main-only acceptance entry; production has no helper-enabling switch.
+globalThis.acceptanceVerifyUpdateHelper = async () => {
+  const state = (await updates.getState({})).value;
+  const candidate = updates.getCandidate(state.candidateId);
+  const artifact = await updates.getVerifiedArtifact(state.attemptId);
+  if (!candidate || !artifact) {
+    throw new Error('Expected a verified selected candidate');
+  }
+
+  return verifyUpdateUnderLease({
+    service,
+    candidate,
+    artifact,
+    invoke: async request => {
+      globalThis.acceptanceHelperRequest = request;
+      await new Promise(resolve => {
+        globalThis.acceptanceReleaseHelper = resolve;
+      });
+      if (globalThis.acceptanceHelperDenied) {
+        throw new Error('Controlled authentication cancellation/denial');
+      }
+
+      return {
+        protocol: 1,
+        type: 'outcome',
+        attemptId: request.attemptId,
+        outcome: 'install-disabled',
+        errorCode: 'INSTALL_DISABLED',
+      };
+    },
+  });
+};
+
 const base = fileURLToPath(new URL('../packages/electron/dist/', import.meta.url));
 const html = join(base, 'renderer', 'index.html');
 const window = new BrowserWindow({

@@ -3,6 +3,7 @@ import {join} from 'node:path';
 
 import {inspectBrowserDependencies} from './inspectBrowserDependencies.ts';
 import {prepare} from './prepare.ts';
+import {prepareUpdateIdentity} from './prepareUpdateIdentity.ts';
 import {runCommand} from './processes.ts';
 import {electronRoot, pnpm, runIfMain} from './workspace.ts';
 
@@ -44,6 +45,7 @@ export async function compileInterface(build: boolean) {
 
 export async function buildAll({interfaceBuild = true} = {}) {
   await prepare();
+  await prepareUpdateIdentity();
   await compileElectron();
   await compileInterface(interfaceBuild);
   await inspectBrowserDependencies();

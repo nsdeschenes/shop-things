@@ -62,7 +62,12 @@
         "from": "update",
         "to": "update",
         "filter": [
-          "policy.json"
+          "policy.json",
+          "identity.json",
+          "updater-helper.py",
+          "bootstrap.py",
+          "com.shopthings.app.update.policy",
+          "ELECTRON-BUILDER-LICENSE"
         ]
       }
     ],
@@ -87,7 +92,30 @@
       ]
     },
     "deb": {
-      "packageName": "shop-things"
+      "packageName": "shop-things",
+      "afterInstall": "update/after-install.tpl",
+      "afterRemove": "update/after-remove.tpl",
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "python3 (>= 3.9)",
+        "python3-gi",
+        "gir1.2-gtk-3.0",
+        "pkexec | policykit-1",
+        "polkitd | policykit-1",
+        "apt",
+        "dpkg",
+        "openssl",
+        "acl",
+        "libglib2.0-bin"
+      ]
     },
     "linux": {
       "category": "Utility",

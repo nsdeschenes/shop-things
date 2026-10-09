@@ -3,7 +3,7 @@ import {lstat, mkdir, readFile, realpath} from 'node:fs/promises';
 import {createConnection} from 'node:net';
 import {dirname, join} from 'node:path';
 
-const supervisorPath = '/usr/lib/shop-things/update-supervisor';
+export const supervisorPath = '/usr/lib/shop-things/update-supervisor';
 const attemptPattern = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const processStartPattern = /^[0-9]{1,24}$/;
 const socketPattern = /^\/tmp\/shop-things-restart-[A-Za-z0-9_-]+\/ready\.sock$/;

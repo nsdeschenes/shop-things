@@ -215,3 +215,104 @@ test('an in-flight old document cannot start a transfer after renderer replaceme
     await rm(directory, {recursive: true, force: true});
   }
 });
+
+test('controlled authentication holds the real guarded draft and restores cancellation, verification and failed reopen', async () => {
+  const {app, directory} = await fixture();
+  try {
+    const page = await app.firstWindow();
+    await app.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceUpdateMode', 'complete');
+    });
+    await page.getByRole('button', {name: 'Check for updates'}).click();
+    await page.getByRole('button', {name: 'Update', exact: true}).click();
+    await expect(page.getByRole('status')).toHaveText(
+      'Download verified. Installation is not available yet.'
+    );
+    await page.addScriptTag({
+      path: fileURLToPath(
+        new URL('../acceptance-reports/harness/controlled-editor.mjs', import.meta.url)
+      ),
+      type: 'module',
+    });
+    await page.waitForFunction(
+      () => Reflect.get(window, 'acceptanceEditorReady') === true
+    );
+    const draft = page.getByRole('textbox', {name: 'Controlled balance'});
+    await draft.fill('-');
+    await app.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceHelperDiscard', true);
+      Reflect.set(globalThis, 'acceptanceHelperDenied', true);
+    });
+    // Pending renderer Save must drain before any authentication request.
+    await page.evaluate(() => Reflect.get(window, 'acceptanceEditor').beginSave());
+    const first = app.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceVerifyUpdateHelper')()
+    );
+    await expect(draft).toBeDisabled();
+    expect(
+      await app.evaluate(() => Reflect.get(globalThis, 'acceptanceHelperRequest'))
+    ).toBeUndefined();
+    await page.evaluate(() => Reflect.get(window, 'acceptanceEditor').finishSave());
+    await expect
+      .poll(() =>
+        app.evaluate(() => Boolean(Reflect.get(globalThis, 'acceptanceReleaseHelper')))
+      )
+      .toBe(true);
+    await expect(draft).toHaveValue('-');
+    expect(
+      await page.evaluate(async () => {
+        const bridge = Reflect.get(window, 'shopThings');
+        const state = await bridge.database.status();
+        return bridge.customers.list({session: state.value.session, query: ''});
+      })
+    ).toMatchObject({status: 'error', error: {code: 'BUSY'}});
+    await app.evaluate(() => Reflect.get(globalThis, 'acceptanceReleaseHelper')());
+    expect(await first).toMatchObject({status: 'success', value: {verified: false}});
+    await expect(draft).toBeEnabled();
+    await expect(draft).toHaveValue('-');
+    await app.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceReleaseHelper', null);
+      Reflect.set(globalThis, 'acceptanceHelperDenied', false);
+    });
+    const second = app.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceVerifyUpdateHelper')()
+    );
+    await expect
+      .poll(() =>
+        app.evaluate(() => Boolean(Reflect.get(globalThis, 'acceptanceReleaseHelper')))
+      )
+      .toBe(true);
+    await app.evaluate(() => Reflect.get(globalThis, 'acceptanceReleaseHelper')());
+    expect(await second).toMatchObject({status: 'success', value: {verified: true}});
+    await expect(draft).toBeEnabled();
+    await expect(draft).toHaveValue('-');
+    await app.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceReleaseHelper', null);
+    });
+    const third = app.evaluate(() =>
+      Reflect.get(globalThis, 'acceptanceVerifyUpdateHelper')()
+    );
+    await expect
+      .poll(() =>
+        app.evaluate(() => Boolean(Reflect.get(globalThis, 'acceptanceReleaseHelper')))
+      )
+      .toBe(true);
+    await app.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceHelperReopenFailure', true);
+      Reflect.get(globalThis, 'acceptanceReleaseHelper')();
+    });
+    expect(await third).toMatchObject({
+      status: 'error',
+      error: {code: 'DATABASE_UNAVAILABLE'},
+    });
+    await expect(draft).toHaveValue('-');
+    expect(
+      await page.evaluate(() => Reflect.get(window, 'shopThings').database.status())
+    ).toMatchObject({
+      value: {available: false, recoveryError: {code: 'DATABASE_UNAVAILABLE'}},
+    });
+  } finally {
+    await app.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});

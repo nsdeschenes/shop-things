@@ -48,6 +48,7 @@ export async function createDebianFixture(
     packageVersion?: string;
     architecture?: string;
     policy?: unknown;
+    appVersion?: string;
   } = {}
 ) {
   const source = join(directory, 'deb-fixture');
@@ -61,6 +62,17 @@ export async function createDebianFixture(
     await mkdir(resources, {recursive: true});
     await writeFile(join(resources, 'policy.json'), JSON.stringify(options.policy));
   }
+
+  const resources = join(source, 'opt/Shop Things/resources/update');
+  await mkdir(resources, {recursive: true});
+  await writeFile(
+    join(resources, 'identity.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      packageName: 'shop-things',
+      appVersion: options.appVersion ?? '0.0.1',
+    })
+  );
 
   const filename = options.filename ?? 'shop-things_0.0.1_arm64.deb';
   const destination = join(directory, 'release', filename);
