@@ -57,12 +57,20 @@ export async function loadInstalledUpdatePolicy(): Promise<UpdatePolicy> {
       if (
         typeof key !== 'string' ||
         key.length > 4096 ||
+        !key.startsWith('-----BEGIN PUBLIC KEY-----\n') ||
         createPublicKey(key).asymmetricKeyType !== 'ed25519'
       ) {
         throw new Error('Invalid publisher key.');
       }
 
-      trustedKeys.push(key);
+      const publicKey = createPublicKey(key)
+        .export({type: 'spki', format: 'pem'})
+        .toString();
+      if (key.trim() !== publicKey.trim()) {
+        throw new Error('Publisher key must contain only public SPKI PEM.');
+      }
+
+      trustedKeys.push(publicKey);
     }
 
     return {schemaVersion: 1, helperProtocol: 1, trustedKeys};

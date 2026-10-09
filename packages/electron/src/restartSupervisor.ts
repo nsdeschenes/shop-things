@@ -3,7 +3,7 @@ import {lstat, mkdir, readFile, realpath} from 'node:fs/promises';
 import {createConnection} from 'node:net';
 import {dirname, join} from 'node:path';
 
-const supervisorPath = '/usr/lib/shop-things/update/restart-supervisor.py';
+const supervisorPath = '/usr/lib/shop-things/update-supervisor';
 const attemptPattern = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const processStartPattern = /^[0-9]{1,24}$/;
 const socketPattern = /^\/tmp\/shop-things-restart-[A-Za-z0-9_-]+\/ready\.sock$/;
@@ -45,12 +45,7 @@ export async function startRestartSupervisor(options: {
   }
 
   await protectedFile(supervisorPath);
-  for (const path of [
-    '/usr',
-    '/usr/lib',
-    '/usr/lib/shop-things',
-    dirname(supervisorPath),
-  ]) {
+  for (const path of ['/usr', '/usr/lib', '/usr/lib/shop-things']) {
     const info = await lstat(path);
     if (!info.isDirectory() || info.uid !== 0 || (info.mode & 0o022) !== 0) {
       throw new Error('The packaged restart supervisor directory is unsafe.');

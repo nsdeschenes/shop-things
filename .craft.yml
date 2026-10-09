@@ -22,8 +22,10 @@ artifactProvider:
 requireNames:
   - /^shop-things-[0-9]+\.[0-9]+\.[0-9]+-linux-arm64\.deb$/
   - /^SHA256SUMS$/
+  - /^shop-things-update-v1\.json$/
+  - /^shop-things-update-v1\.sig$/
 
 targets:
   - name: github
     tagPrefix: v
-    includeNames: /^(shop-things-[0-9]+\.[0-9]+\.[0-9]+-linux-arm64\.deb|SHA256SUMS)$/
+    includeNames: /^(shop-things-[0-9]+\.[0-9]+\.[0-9]+-linux-arm64\.deb|SHA256SUMS|shop-things-update-v1\.(json|sig))$/
