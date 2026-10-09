@@ -139,3 +139,42 @@ test.skipIf(process.platform !== 'linux')(
     }
   }
 );
+
+test.skipIf(process.platform !== 'linux')(
+  'bootstrap directory diagnostics preserve ownership, mode and symlink rejection',
+  () => {
+    const script = `import ast, os, stat, tempfile
+from pathlib import Path
+source = ast.parse(Path(__import__('sys').argv[1]).read_text())
+function = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == 'protected_directory')
+namespace = {'stat': stat}
+exec(compile(ast.Module(body=[function], type_ignores=[]), '<bootstrap-directory-check>', 'exec'), namespace)
+check = namespace['protected_directory']
+check(Path('/'))
+assert os.geteuid() != 0
+with tempfile.TemporaryDirectory() as directory:
+    path = Path(directory)
+    original = path.stat()
+    for rejected in [Path('/tmp'), path, path / 'linked']:
+        if rejected.name == 'linked':
+            rejected.symlink_to('/')
+        info = rejected.lstat()
+        try:
+            check(rejected)
+            raise AssertionError('Unsafe directory accepted')
+        except ValueError as error:
+            assert str(rejected) in str(error)
+            assert f'uid={info.st_uid} gid={info.st_gid} mode={stat.S_IMODE(info.st_mode):04o}' in str(error)
+    assert path.stat().st_mode == original.st_mode
+print('Directory diagnostics and unchanged safety predicates passed')`;
+    const child = spawnSync(
+      '/usr/bin/python3',
+      ['-I', '-c', script, join(root, 'packages/electron/update/bootstrap.py')],
+      {encoding: 'utf8'}
+    );
+    expect({status: child.status, stderr: child.stderr}).toEqual({status: 0, stderr: ''});
+    expect(child.stdout).toContain(
+      'Directory diagnostics and unchanged safety predicates passed'
+    );
+  }
+);
