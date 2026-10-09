@@ -47,7 +47,11 @@ The [GitHub environment API](https://docs.github.com/en/rest/deployments/environ
 exposes required-reviewer and deployment-branch policies. The
 [immutable-release API](https://docs.github.com/en/rest/repos/repos#check-if-immutable-releases-are-enabled-for-a-repository)
 requires administration read access. Independently review the environment UI's
-bypass setting as part of operator setup, including where an API payload omits it.
+bypass setting as part of operator setup: the supported REST API does not expose
+that toggle. Signing additionally requires observed independent allowlisted human
+approval of the exact first-attempt main run/candidate SHA. See the
+[qualification runbook](updates/qualification.md) for the separate nonpublishing
+signing bundle and mandatory desktop/VM evidence gates.
 
 ## Build, sign, and publish
 

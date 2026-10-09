@@ -1,4 +1,4 @@
-name: Publish release
+name: Prepare qualification signing bundle
 
 on:
   workflow_dispatch:
@@ -13,19 +13,19 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: read
   actions: read
   checks: read
   statuses: read
 
 concurrency:
-  group: craft-release
+  group: qualification-signing-bundle
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Sign and publish ${{ inputs.version }} at ${{ inputs.release_sha }}
+  qualification:
+    name: Sign qualification candidate ${{ inputs.version }} at ${{ inputs.release_sha }}
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     environment: update-signing
@@ -43,13 +43,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version }}
           RELEASE_SHA: ${{ inputs.release_sha }}
-          QUALIFIED_RELEASE_SHA: ${{ vars.UPDATE_RELEASE_QUALIFIED_SHA }}
           CI_EVIDENCE_DIRECTORY: release/provenance
         shell: bash
         run: |
           set -euo pipefail
           test "$RELEASE_SHA" = "$GITHUB_SHA"
-          test "$QUALIFIED_RELEASE_SHA" = "$RELEASE_SHA"
           [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
           git fetch origin main
@@ -95,33 +93,13 @@ jobs:
           ACCEPTANCE_REPORT_PATH: release/reports/acceptance.json
           SIGNING_PUBLIC_POLICY_PATH: release/provenance/approved-policy.json
         run: node --experimental-strip-types scripts/sign-update-release.ts
-      - name: Create a complete release draft
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ inputs.version }}
-          RELEASE_SHA: ${{ inputs.release_sha }}
-        run: |
-          set -euo pipefail
-          node --experimental-strip-types scripts/verify-release-tag.ts
-          gh release create "v$VERSION" --draft --target "$RELEASE_SHA" --title "$VERSION" --notes-file CHANGELOG.md
-          gh release upload "v$VERSION" release/assets/*
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$VERSION" > "$RUNNER_TEMP/release-draft.json"
-      - name: Verify the complete uploaded draft before immutable publication
-        env:
-          UPDATE_TRUSTED_PUBLIC_KEYS_JSON: ${{ vars.UPDATE_TRUSTED_PUBLIC_KEYS_JSON }}
-          RELEASE_SHA: ${{ inputs.release_sha }}
-          VERSION: ${{ inputs.version }}
-          RELEASE_ASSET_DIRECTORY: release/assets
-          RELEASE_DRAFT_PATH: ${{ runner.temp }}/release-draft.json
-        run: node --experimental-strip-types scripts/validate-release-draft.ts
-      - name: Publish the validated immutable release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ inputs.version }}
-          RELEASE_SHA: ${{ inputs.release_sha }}
-        run: |
-          set -euo pipefail
-          node --experimental-strip-types scripts/verify-release-tag.ts
-          gh release edit "v$VERSION" --draft=false
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$VERSION" | jq -e '.immutable == true and .draft == false'
-          node --experimental-strip-types scripts/verify-release-tag.ts
+      - name: Retain the public approved qualification bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-bundle-${{ inputs.release_sha }}
+          path: |
+            release/assets/*
+            release/reports/*
+            release/provenance/*
+            release/apt-evidence/*
+          if-no-files-found: error

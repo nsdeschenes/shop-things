@@ -1,5 +1,7 @@
 name: Restricted update package transaction
 on:
+  push:
+    branches: [main]
   pull_request:
     paths:
       [
@@ -38,5 +40,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: arm64-actual-apt-evidence
+          name: arm64-actual-apt-evidence-${{ github.sha }}
           path: apt-evidence

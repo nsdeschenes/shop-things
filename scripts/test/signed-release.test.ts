@@ -156,19 +156,23 @@ test('signs the accepted complete artifact set with installed trust and rejects 
 test('publication fails closed without required independent signing approval and repository immutability', async () => {
   const {validateSigningProtection} = await import('../releaseProtection.ts');
   const environment = {
+    id: 17,
     name: 'update-signing',
     protection_rules: [
       {
         type: 'required_reviewers',
         prevent_self_review: true,
-        reviewers: [{type: 'User', reviewer: {id: 1}}],
+        reviewers: [{type: 'User', reviewer: {id: 1, type: 'User'}}],
       },
     ],
     deployment_branch_policy: {protected_branches: false, custom_branch_policies: true},
   };
   const branches = {total_count: 1, branch_policies: [{name: 'main', type: 'branch'}]};
   expect(() =>
-    validateSigningProtection(environment, branches, {enabled: true})
+    validateSigningProtection(environment, branches, {
+      enabled: true,
+      enforced_by_owner: false,
+    })
   ).not.toThrow();
   for (const unsafe of [
     {...environment, protection_rules: []},
@@ -180,17 +184,25 @@ test('publication fails closed without required independent signing approval and
       ],
     },
   ]) {
-    expect(() => validateSigningProtection(unsafe, branches, {enabled: true})).toThrow();
+    expect(() =>
+      validateSigningProtection(unsafe, branches, {
+        enabled: true,
+        enforced_by_owner: false,
+      })
+    ).toThrow();
   }
 
   expect(() =>
-    validateSigningProtection(environment, branches, {enabled: false})
+    validateSigningProtection(environment, branches, {
+      enabled: false,
+      enforced_by_owner: false,
+    })
   ).toThrow();
   expect(() =>
     validateSigningProtection(
       environment,
       {...branches, branch_policies: [{name: '*', type: 'branch'}]},
-      {enabled: true}
+      {enabled: true, enforced_by_owner: false}
     )
   ).toThrow();
 });

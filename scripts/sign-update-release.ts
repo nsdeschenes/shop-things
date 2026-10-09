@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {createPrivateKey} from 'node:crypto';
-import {readFile} from 'node:fs/promises';
+import {readFile, writeFile} from 'node:fs/promises';
 
 import {signStagedRelease, validatePublicPolicy} from './updateRelease.ts';
 import {runIfMain} from './workspace.ts';
@@ -30,4 +30,11 @@ await runIfMain(import.meta.url, async () => {
     privateKey: createPrivateKey(pem),
     approvedPolicy,
   });
+  if (process.env.SIGNING_PUBLIC_POLICY_PATH) {
+    await writeFile(
+      process.env.SIGNING_PUBLIC_POLICY_PATH,
+      JSON.stringify(approvedPolicy) + '\n',
+      {flag: 'wx', mode: 0o644}
+    );
+  }
 });
