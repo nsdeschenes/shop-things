@@ -397,7 +397,7 @@ def persist(journal):
     path = receipt_path(journal['uid'], journal['attemptId'])
     # Projection deliberately omits private root paths and process/environment data.
     projection = {key: journal[key] for key in ('schemaVersion', 'attemptId', 'uid', 'generation', 'manifestDigest',
-                    'appVersion', 'packageVersion', 'baseline', 'plan', 'phase', 'outcome', 'errorCode', 'final')}
+                    'appVersion', 'packageVersion', 'baselineAppVersion', 'finalAppVersion', 'baseline', 'plan', 'phase', 'outcome', 'errorCode', 'final')}
     projection['plan'] = [[{**row, 'action': 'archive' if row['action'].startswith('/') else 'configure'} for row in batch] for batch in journal['plan']]
     publish(path, projection, uid=journal['uid'])
     directory = str(Path(path).parent)
@@ -434,6 +434,7 @@ def gate(raw):
     journal = read(STATE + '/' + active['attemptId'] + '/journal.json')
     source_policy()
     fresh = package_state()
+    require(read('/usr/lib/shop-things/update/identity.json')['appVersion'] == journal['baselineAppVersion'], 'Installed application baseline changed before gate')
     # Subsequent batches may observe previously authorized mutations, but must
     # still match the accumulated intended tuples for all already-touched packages.
     expected = journal['baseline'] if not journal['plan'] else expected_state(journal)
@@ -513,6 +514,10 @@ def install(verified, uid):
         require(not index['unresolved'], 'Unresolved system transaction requires recovery')
         source_policy()
         baseline = package_state()
+        identity = read('/usr/lib/shop-things/update/identity.json')
+        require(identity == {'schemaVersion': 1, 'packageName': 'shop-things', 'appVersion': verified['baseline']['appVersion']}, 'Installed application baseline changed')
+        app = next((row for row in baseline['packages'] if row['package'].split(':')[0] == 'shop-things'), None)
+        require(app is not None and app['version'] == verified['baseline']['packageVersion'] and app['architecture'] == 'arm64')
         caller_index = Path(RECEIPTS + '/users/' + str(uid) + '/index.json')
         if caller_index.exists():
             inventory = read(caller_index)
@@ -521,7 +526,7 @@ def install(verified, uid):
         config = controlled_config(attempt)
         journal = {'schemaVersion': 1, 'attemptId': verified['attemptId'], 'uid': uid, 'generation': 0,
                    'manifestDigest': verified['manifestDigest'], 'appVersion': verified['appVersion'],
-                   'packageVersion': verified['packageVersion'], 'baseline': baseline, 'plan': [], 'observedPlans': [],
+                   'packageVersion': verified['packageVersion'], 'baselineAppVersion': identity['appVersion'], 'finalAppVersion': None, 'baseline': baseline, 'plan': [], 'observedPlans': [],
                    'phase': 'pending', 'outcome': 'pending', 'errorCode': None, 'final': None}
         index['generation'] += 1
         index['unresolved'] = [{'attemptId': journal['attemptId'], 'uid': uid}]
@@ -558,6 +563,7 @@ def install(verified, uid):
             else:
                 journal['outcome'] = 'uncertain'
             journal['final'] = final
+            journal['finalAppVersion'] = read('/usr/lib/shop-things/update/identity.json')['appVersion']
         except Exception:
             journal['outcome'] = 'uncertain'
         journal['phase'] = 'complete' if journal['outcome'] in ('installed', 'unchanged') else 'recovery'
@@ -574,7 +580,7 @@ def install(verified, uid):
 
 def validate_receipt(value, uid, attempt):
     require(type(value) is dict and set(value) == {'schemaVersion', 'attemptId', 'uid', 'generation', 'manifestDigest',
-            'appVersion', 'packageVersion', 'baseline', 'plan', 'phase', 'outcome', 'errorCode', 'final'})
+            'appVersion', 'packageVersion', 'baselineAppVersion', 'finalAppVersion', 'baseline', 'plan', 'phase', 'outcome', 'errorCode', 'final'})
     require(value['schemaVersion'] == 1 and value['uid'] == uid and value['attemptId'] == attempt and
             UUID.fullmatch(attempt) and type(value['generation']) is int and 0 < value['generation'] < 9007199254740991 and
             type(value['manifestDigest']) is str and re.fullmatch('[0-9a-f]{64}', value['manifestDigest']) and
@@ -606,13 +612,15 @@ def validate_receipt(value, uid, attempt):
             if row['action'] == 'archive':
                 require(type(row['sha256']) is str and re.fullmatch('[0-9a-f]{64}', row['sha256']) and
                         type(row['byteLength']) is int and 0 < row['byteLength'] <= 1073741824)
+    require(type(value['baselineAppVersion']) is str and len(value['baselineAppVersion']) <= 128 and
+            (value['finalAppVersion'] is None or (type(value['finalAppVersion']) is str and len(value['finalAppVersion']) <= 128)))
     if value['outcome'] == 'installed':
         targets = [row for batch in value['plan'] for row in batch if row['action'] == 'archive' and row['package'].split(':')[0] == 'shop-things']
-        require(value['phase'] == 'complete' and len(targets) == 1 and targets[0]['newVersion'] == value['packageVersion'] and
+        require(value['finalAppVersion'] == value['appVersion'] and value['phase'] == 'complete' and len(targets) == 1 and targets[0]['newVersion'] == value['packageVersion'] and
                 targets[0]['newArchitecture'] == 'arm64' and value['final'] is not None and
                 value['final']['packages'] == expected_state(value)['packages'])
     if value['outcome'] == 'unchanged':
-        require(value['phase'] == 'complete' and not value['plan'] and value['final'] == value['baseline'])
+        require(value['finalAppVersion'] == value['baselineAppVersion'] and value['phase'] == 'complete' and not value['plan'] and value['final'] == value['baseline'])
     return value
 
 
@@ -640,18 +648,22 @@ def inspect(uid, attempt=None):
             records[row['attemptId']] = record
     if any(row['uid'] != uid for row in before['unresolved']):
         return {'outcome': 'uncertain', 'generation': before['generation'], 'state': None, 'receipt': None}
+    current_identity = read('/usr/lib/shop-things/update/identity.json')
+    require(type(current_identity) is dict and set(current_identity) == {'schemaVersion', 'packageName', 'appVersion'} and current_identity['schemaVersion'] == 1 and current_identity['packageName'] == 'shop-things' and type(current_identity['appVersion']) is str and re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\+[A-Za-z0-9.-]+)?', current_identity['appVersion']))
     fresh = package_state()
+    require(current_identity == read('/usr/lib/shop-things/update/identity.json'))
     require(before == global_index(), 'Protected package generation changed during inspection')
+    snapshot = {**fresh, 'appVersion': current_identity['appVersion']}
     current = records.get(attempt) if attempt else None
     if attempt is None and before['unresolved']:
         require(len(before['unresolved']) == 1)
         current = records.get(before['unresolved'][0]['attemptId'])
     if current:
-        if current['outcome'] in ('installed', 'unchanged') and current['phase'] == 'complete' and current['final'] == fresh:
-            return {'outcome': current['outcome'], 'generation': before['generation'], 'state': fresh, 'receipt': current}
-        return {'outcome': 'uncertain', 'generation': before['generation'], 'state': fresh, 'receipt': current}
+        if current['outcome'] in ('installed', 'unchanged') and current['phase'] == 'complete' and current['final'] == fresh and current['finalAppVersion'] == current_identity['appVersion']:
+            return {'outcome': current['outcome'], 'generation': before['generation'], 'state': snapshot, 'receipt': current}
+        return {'outcome': 'uncertain', 'generation': before['generation'], 'state': snapshot, 'receipt': current}
     require(not before['unresolved'], 'Protected pending receipt is missing')
     # No receipt is not install success: this only proves the initialized system
     # index has no accepted/pending transaction. Main must compare its prelaunch
     # generation+full baseline, fixed child exit and no active invocation as well.
-    return {'outcome': 'clean', 'generation': before['generation'], 'state': fresh, 'receipt': None}
+    return {'outcome': 'clean', 'generation': before['generation'], 'state': snapshot, 'receipt': None}
