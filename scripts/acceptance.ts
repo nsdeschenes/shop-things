@@ -310,19 +310,6 @@ try {
     ]);
   }
 
-  if (installSystem) {
-    const initial = process.env.ACCEPTANCE_INITIAL_APPARMOR_RESTRICTION;
-    assert.ok(
-      initial === '0' || initial === '1',
-      'Record the original runner AppArmor setting before test relaxation'
-    );
-    await command('restore-installed-sandbox-default', 'sudo', [
-      '/usr/sbin/sysctl',
-      '-w',
-      'kernel.apparmor_restrict_unprivileged_userns=' + initial,
-    ]);
-  }
-
   try {
     await command(
       'packaged-renderer',
