@@ -398,6 +398,53 @@ class RecoveryTests(unittest.TestCase):
             spec.loader.exec_module(actual)
             module = actual.load_fixed(str(destination),'controlled_fixed_helper')
             self.assertEqual(module.value,1)
+    def test_external_observer_accepts_real_child_stop_before_parent_fork_notification(self):
+        source = Path(__file__).parents[3] / 'acceptance/update-apt/interruption.py'
+        spec = importlib.util.spec_from_file_location('interruption', source)
+        observer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(observer)
+        original_waitpid = os.waitpid
+        deferred = []
+        owned = set()
+        reordered = False
+        def deliver_child_first(pid, flags):
+            nonlocal reordered
+            if deferred:
+                return deferred.pop()
+            result = original_waitpid(pid, flags)
+            if result[0] > 0:
+                owned.add(result[0])
+            if not reordered and result[1] >> 16 in (1, 2, 3):
+                # Both statuses are genuine kernel events. Linux permits their
+                # delivery in either order; force the formerly failing order.
+                deferred.append(result)
+                child_result = original_waitpid(-1, observer.WALL)
+                self.assertTrue(os.WIFSTOPPED(child_result[1]))
+                self.assertEqual(os.WSTOPSIG(child_result[1]),signal.SIGSTOP)
+                self.assertNotEqual(child_result[0],result[0])
+                owned.add(child_result[0])
+                reordered = True
+                return child_result
+            return result
+        try:
+            with patch.object(os,'waitpid',deliver_child_first):
+                result = observer.traced_process(['/usr/bin/python3','-I','-c',"import subprocess; subprocess.run(['/bin/true','cut-owned-child']); print('parent survived')"],b'',{'PATH':'/usr/bin:/bin'},
+                                                 lambda root,pid,command: pid if command[-1] == 'cut-owned-child' else None)
+            self.assertTrue(reordered)
+            self.assertEqual(result['earlyChildStops'],1)
+            self.assertEqual(result['stdout'],b'parent survived\n')
+            self.assertEqual(result['returncode'],0)
+            self.assertEqual(result['cut']['pid'],result['cut']['killedPid'])
+        finally:
+            for pid in owned:
+                try: os.kill(pid,signal.SIGKILL)
+                except ProcessLookupError: pass
+            for pid in owned:
+                try:
+                    while True:
+                        _,status = original_waitpid(pid,observer.WALL)
+                        if os.WIFEXITED(status) or os.WIFSIGNALED(status): break
+                except ChildProcessError: pass
     def test_clean_index_does_not_make_missing_or_wrong_architecture_app_usable(self):
         for packages in [[], [{**BASELINE['packages'][0], 'architecture': 'amd64'}]]:
             self.module.publish(self.root / 'packages.json', {'packages': packages, 'automatic': []})
