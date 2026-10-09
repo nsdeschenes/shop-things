@@ -1,6 +1,7 @@
 """External disposable fixture only; never invoked by the packaged application."""
 import hashlib
 import json
+import pwd
 from pathlib import Path
 import subprocess
 import sys
@@ -8,13 +9,18 @@ import sys
 def run(*args):
     return subprocess.run(args, check=True, capture_output=True, text=True).stdout
 
-def verify():
+def verify(expected_exit=0):
     result = subprocess.run(['/usr/local/bin/node', '--experimental-strip-types', '/fixtures/scripts/verify-bootstrap.ts'], capture_output=True, text=True)
+    assert result.returncode == expected_exit, f'Bootstrap verifier exit {result.returncode}: {result.stderr[:4096]} {result.stdout[:4096]}'
     value = json.loads(result.stdout)
     return value
 
 def inventory():
     return run('/usr/bin/dpkg-query', '-W', '-f=${binary:Package}\t${Version}\t${Architecture}\t${Status}\n')
+
+caller = pwd.getpwnam('fixture')
+assert caller.pw_uid != 0
+caller_owner = f'{caller.pw_uid}:{caller.pw_gid}'
 
 def protected_data():
     root = Path('/home/fixture/.config/electron')
@@ -25,11 +31,11 @@ def protected_data():
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
-        run('/usr/bin/chown', '1000:1000', str(path))
-    run('/usr/bin/chown', '-R', '1000:1000', str(root))
+        run('/usr/bin/chown', caller_owner, str(path))
+    run('/usr/bin/chown', '-R', caller_owner, str(root))
     database = Path('/home/fixture/working.sqlite')
     database.write_bytes(b'container ownership/retention sentinel; native database proof runs separately')
-    run('/usr/bin/chown', '1000:1000', str(database))
+    run('/usr/bin/chown', caller_owner, str(database))
     return [root / name for name in values] + [database]
 
 def fingerprints(paths):
@@ -39,7 +45,7 @@ def install(path):
     run('/usr/bin/apt-get', '-y', '--no-remove', 'install', path)
 
 case = sys.argv[1]
-report = {'case': case, 'architecture': run('/usr/bin/dpkg', '--print-architecture').strip(), 'os': Path('/etc/os-release').read_text(), 'apt': run('/usr/bin/apt-get', '--version').splitlines()[0], 'dpkg': run('/usr/bin/dpkg', '--version').splitlines()[0]}
+report = {'case': case, 'caller': {'uid': caller.pw_uid, 'gid': caller.pw_gid}, 'architecture': run('/usr/bin/dpkg', '--print-architecture').strip(), 'os': Path('/etc/os-release').read_text(), 'apt': run('/usr/bin/apt-get', '--version').splitlines()[0], 'dpkg': run('/usr/bin/dpkg', '--version').splitlines()[0]}
 assert report['architecture'] == 'arm64'
 paths = protected_data()
 before = fingerprints(paths)
@@ -64,7 +70,7 @@ elif case == 'unrelated':
     marker.write_text('unrelated package must remain')
     run('/usr/bin/dpkg-deb', '--build', '--root-owner-group', str(root.parent), '/fixtures/unrelated.deb')
     install('/fixtures/unrelated.deb')
-    assert verify()['kind'] == 'unrelated-electron'
+    assert verify(1)['kind'] == 'unrelated-electron'
     unrelated_before = Path('/opt/unrelated/retained').read_bytes()
 else:
     raise ValueError('Unknown controlled bootstrap case')
