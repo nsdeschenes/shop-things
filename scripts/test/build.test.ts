@@ -1,10 +1,10 @@
-import {readFile, rm, writeFile} from 'node:fs/promises';
+import {mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 
 import {expect, test} from 'vitest';
 
 import {withBuildFixture} from './buildFixture.ts';
 
-const forbiddenPreloadImport = /node:fs/;
+const forbiddenPreloadImport = /Backend code entered the preload bundle/;
 const prohibitedDependency = /Prohibited contract dependency/;
 
 test('direct Electron builds compile their contract and database prerequisites', async ({
@@ -85,7 +85,11 @@ test('dependency inspection rejects backend imports in the browser contract', as
   await withBuildFixture(
     'browser-dependencies',
     async fixture => {
-      await fixture.pnpm(['--filter', 'electron', 'build:main']);
+      await fixture.pnpm(['--filter', '@shop-things/contract', 'build']);
+      await mkdir(fixture.path('packages/electron/dist'), {recursive: true});
+      await fixture.nodeFile('packages/electron/scripts/buildPreload.mjs', [], {
+        cwd: 'packages/electron',
+      });
       await fixture.nodeFile('scripts/test/inspectBuildFixture.ts');
       const manifestPath = fixture.path('packages/contract/package.json');
       const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));

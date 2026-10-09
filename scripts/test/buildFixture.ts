@@ -451,7 +451,7 @@ export async function withBuildFixture<T>(
           if (spawnError || code !== 0 || interrupted) {
             reject(
               new Error(
-                `${executable} ${args.join(' ')} failed (${signal ?? code}) in private fixture ${root}\n${stderr || stdout}`,
+                `${executable} ${args.join(' ')} failed (${signal ?? code}) in private fixture ${root}\n${stdout.slice(-65536)}\n${stderr}`,
                 {cause: spawnError ?? interrupted}
               )
             );
