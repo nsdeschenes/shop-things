@@ -108,3 +108,7 @@ steps before the sequential test, build and packaged application acceptance run.
 It runs for Electron, its shipped interface/database/contract packages, acceptance
 code, or shared build configuration changes. Root script-test-only changes and
 root documentation changes skip the desktop workflow.
+
+For the manual Linux ARM64 transition from legacy `electron` to `shop-things`,
+follow the [bootstrap operator runbook](docs/updates/bootstrap.md). Its verifier is
+read-only; package identity does not substitute for normal guarded Quit consent.

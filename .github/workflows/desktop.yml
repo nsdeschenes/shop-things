@@ -312,6 +312,8 @@ jobs:
         env:
           ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
           SMOKE_EXECUTION_ENVIRONMENT: github-actions-ubuntu-24.04-arm-native-linux-arm64
+      - name: Verify manual bootstrap in isolated native ARM64 fixtures
+        run: xvfb-run -a node acceptance/bootstrap/run.mjs "$ACCEPTANCE_REPORT_DIR/bootstrap"
       - name: Stage the tested Linux arm64 release
         if: github.event_name == 'push'
         run: node --experimental-strip-types scripts/stage-release.ts
