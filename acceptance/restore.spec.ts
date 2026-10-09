@@ -75,12 +75,25 @@ async function backup(application: ElectronApplication, page: Page, source: stri
 }
 
 async function stateAndRecord(page: Page) {
-  return page.evaluate(async () => {
-    const client = Reflect.get(window, 'shopThings');
-    const state = await client.database.status();
-    const record = await client.customers.get({session: state.value.session, id: 2});
-    return {state, record};
-  });
+  function read() {
+    return page.evaluate(async () => {
+      const client = Reflect.get(window, 'shopThings');
+      const state = await client.database.status();
+      const record = await client.customers.get({session: state.value.session, id: 2});
+      return {state, record};
+    });
+  }
+
+  let result = await read();
+  // Settings also lists migration snapshots through the serialized database service.
+  // Capture a usable baseline, rather than a transient BUSY read during that work.
+  await expect
+    .poll(async () => {
+      result = await read();
+      return [result.state.status, result.record.status];
+    })
+    .toEqual(['success', 'success']);
+  return result;
 }
 
 async function cleanup(application: ElectronApplication, directory: string) {
