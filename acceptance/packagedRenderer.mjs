@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {mkdir, mkdtemp, readFile, readdir, realpath, writeFile} from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  writeFile,
+} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
-import {join, relative} from 'node:path';
+import {dirname, join, relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 import {_electron, expect} from '@playwright/test';
@@ -21,8 +29,22 @@ const debArchitecture = architecture === 'x64' ? 'amd64' : architecture;
 const bundle = supporting
   ? join(release, 'mac-arm64/Shop Things.app/Contents')
   : join(release, architecture === 'x64' ? 'linux-unpacked' : 'linux-arm64-unpacked');
-const executablePath = join(bundle, supporting ? 'MacOS/Shop Things' : 'shop-things');
-const resources = join(bundle, supporting ? 'Resources' : 'resources');
+const systemInstall = process.env.PACKAGED_RENDERER_SYSTEM_INSTALL === '1';
+if (systemInstall) {
+  assert.equal(target, 'linux-arm64');
+  assert.notEqual(
+    process.getuid(),
+    0,
+    'Installed Electron must run as the original nonroot user'
+  );
+}
+
+const unpackedExecutable = join(bundle, supporting ? 'MacOS/Shop Things' : 'shop-things');
+const unpackedResources = join(bundle, supporting ? 'Resources' : 'resources');
+const executablePath = systemInstall
+  ? '/opt/Shop Things/shop-things'
+  : unpackedExecutable;
+const resources = systemInstall ? '/opt/Shop Things/resources' : unpackedResources;
 const archive = join(resources, 'app.asar');
 const addon = join(
   resources,
@@ -224,6 +246,26 @@ async function closeNormally(discard = false) {
   page = undefined;
 }
 
+async function protectedInstalledFile(path) {
+  for (let checked = path; ; checked = dirname(checked)) {
+    const info = await lstat(checked);
+    assert.ok(!info.isSymbolicLink(), 'Installed path must not contain symbolic links');
+    assert.equal(info.uid, 0, 'Installed path must be root owned');
+    assert.equal(
+      info.mode & 0o022,
+      0,
+      'Installed path must not be writable by ordinary users'
+    );
+    if (checked === '/') {
+      break;
+    }
+  }
+
+  const info = await lstat(path);
+  assert.ok(info.isFile(), 'Installed resource must be a regular file');
+  return {uid: info.uid, mode: info.mode & 0o777};
+}
+
 async function inventory() {
   const expected = [];
   for (const [folder, destination] of [
@@ -288,13 +330,72 @@ async function inventory() {
     });
   }
 
-  const artifacts = [executablePath, archive, addon];
+  if (systemInstall) {
+    report.installedSystem = {uid: process.getuid(), files: [], identity: null};
+    for (const path of [executablePath, archive, addon, ...shippedFiles]) {
+      const ownership = await protectedInstalledFile(path);
+      const unpacked =
+        path === executablePath
+          ? unpackedExecutable
+          : join(unpackedResources, relative(resources, path));
+      assert.equal(
+        await digest(path),
+        await digest(unpacked),
+        'Installed bytes must match accepted unpacked artifact'
+      );
+      report.installedSystem.files.push({path, sha256: await digest(path), ...ownership});
+    }
+
+    const identity = '/usr/lib/shop-things/update/identity.json';
+    const identityOwnership = await protectedInstalledFile(identity);
+    const installedIdentity = JSON.parse(await readFile(identity, 'utf8'));
+    assert.deepEqual(
+      installedIdentity,
+      JSON.parse(await readFile(join(resources, 'update/identity.json'), 'utf8'))
+    );
+    report.installedSystem.identity = {
+      path: identity,
+      sha256: await digest(identity),
+      value: installedIdentity,
+      ...identityOwnership,
+    };
+  }
+
+  const artifacts = [
+    unpackedExecutable,
+    join(unpackedResources, 'app.asar'),
+    systemInstall ? join(unpackedResources, relative(resources, addon)) : addon,
+  ];
   if (!supporting) {
     const installers = (await readdir(release)).filter(name =>
       name.endsWith(`_${debArchitecture}.deb`)
     );
     assert.equal(installers.length, 1, `One Linux ${architecture} installer required`);
     artifacts.push(join(release, installers[0]));
+    if (systemInstall) {
+      const expectedPackage = spawnSync(
+        '/usr/bin/dpkg-deb',
+        ['--field', join(release, installers[0]), 'Package', 'Version', 'Architecture'],
+        {encoding: 'utf8'}
+      );
+      assert.equal(expectedPackage.status, 0, expectedPackage.stderr);
+      const installedPackage = spawnSync(
+        '/usr/bin/dpkg-query',
+        [
+          '-W',
+          '-f=Package: ${Package}\nVersion: ${Version}\nArchitecture: ${Architecture}\n',
+          'shop-things',
+        ],
+        {encoding: 'utf8'}
+      );
+      assert.equal(installedPackage.status, 0, installedPackage.stderr);
+      assert.equal(
+        installedPackage.stdout,
+        expectedPackage.stdout,
+        'Installed package identity must match accepted installer'
+      );
+      report.installedSystem.package = installedPackage.stdout;
+    }
   }
 
   report.artifacts = await Promise.all(
