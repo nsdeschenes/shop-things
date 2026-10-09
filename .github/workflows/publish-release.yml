@@ -25,8 +25,10 @@ concurrency:
 
 jobs:
   publish:
+    name: Sign and publish ${{ inputs.version }} at ${{ inputs.release_sha }}
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    environment: update-signing
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,13 +38,16 @@ jobs:
         with:
           node-version: 26
       - name: Verify the prepared version, merged PR and passing acceptance
+        id: acceptance
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version }}
           RELEASE_SHA: ${{ inputs.release_sha }}
+          QUALIFIED_RELEASE_SHA: ${{ vars.UPDATE_RELEASE_QUALIFIED_SHA }}
         shell: bash
         run: |
           set -euo pipefail
+          test "$QUALIFIED_RELEASE_SHA" = "$RELEASE_SHA"
           [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
           git fetch origin main
@@ -56,16 +61,61 @@ jobs:
               jq -e --arg sha "$RELEASE_SHA" \
                 '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "main" and .event == "push")] | first | .status == "completed" and .conclusion == "success"'
           done
-          # Craft may resolve --rev to a named ref. Ensure that ref still identifies the tested commit.
-          CRAFT_REF=$(git name-rev --name-only --no-undefined "$RELEASE_SHA" 2>/dev/null || printf '%s' "$RELEASE_SHA")
-          test "$(git rev-parse "$CRAFT_REF")" = "$RELEASE_SHA"
-      - name: Install Craft
-        run: |
-          curl -fsSL --retry 3 https://github.com/getsentry/craft/releases/download/2.33.1/craft -o "$RUNNER_TEMP/craft.cjs"
-          node "$RUNNER_TEMP/craft.cjs" --version
-      - name: Publish the tested installer and checksums
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/desktop.yml/runs" -f head_sha="$RELEASE_SHA" -f branch=main -f event=push |
+            jq -r --arg sha "$RELEASE_SHA" '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "main" and .event == "push" and .conclusion == "success")] | first | "run_id=\(.id)"' >> "$GITHUB_OUTPUT"
+      - name: Verify independent signing approval and immutable release policy
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_POLICY_TOKEN }}
+        run: node --experimental-strip-types scripts/releaseProtection.ts
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.release_sha }}
+          path: release/assets
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.acceptance.outputs.run_id }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: renderer-acceptance-linux-arm64-${{ inputs.release_sha }}
+          path: release/reports
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.acceptance.outputs.run_id }}
+      - name: Sign only the accepted installer using installed public trust
+        env:
+          UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
+          UPDATE_TRUSTED_PUBLIC_KEYS_JSON: ${{ vars.UPDATE_TRUSTED_PUBLIC_KEYS_JSON }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          RELEASE_ASSET_DIRECTORY: release/assets
+          ACCEPTANCE_REPORT_PATH: release/reports/acceptance.json
+        run: node --experimental-strip-types scripts/sign-update-release.ts
+      - name: Create a complete release draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version }}
           RELEASE_SHA: ${{ inputs.release_sha }}
-        run: node "$RUNNER_TEMP/craft.cjs" publish "$VERSION" --rev "$RELEASE_SHA" --no-merge --keep-branch --no-input
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/verify-release-tag.ts
+          gh release create "v$VERSION" --draft --target "$RELEASE_SHA" --title "$VERSION" --notes-file CHANGELOG.md
+          gh release upload "v$VERSION" release/assets/*
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$VERSION" > "$RUNNER_TEMP/release-draft.json"
+      - name: Verify the complete uploaded draft before immutable publication
+        env:
+          UPDATE_TRUSTED_PUBLIC_KEYS_JSON: ${{ vars.UPDATE_TRUSTED_PUBLIC_KEYS_JSON }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          VERSION: ${{ inputs.version }}
+          RELEASE_ASSET_DIRECTORY: release/assets
+          RELEASE_DRAFT_PATH: ${{ runner.temp }}/release-draft.json
+        run: node --experimental-strip-types scripts/validate-release-draft.ts
+      - name: Publish the validated immutable release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/verify-release-tag.ts
+          gh release edit "v$VERSION" --draft=false
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$VERSION" | jq -e '.immutable == true and .draft == false'
+          node --experimental-strip-types scripts/verify-release-tag.ts

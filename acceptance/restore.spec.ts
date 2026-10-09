@@ -75,12 +75,25 @@ async function backup(application: ElectronApplication, page: Page, source: stri
 }
 
 async function stateAndRecord(page: Page) {
-  return page.evaluate(async () => {
-    const client = Reflect.get(window, 'shopThings');
-    const state = await client.database.status();
-    const record = await client.customers.get({session: state.value.session, id: 2});
-    return {state, record};
-  });
+  function read() {
+    return page.evaluate(async () => {
+      const client = Reflect.get(window, 'shopThings');
+      const state = await client.database.status();
+      const record = await client.customers.get({session: state.value.session, id: 2});
+      return {state, record};
+    });
+  }
+
+  let result = await read();
+  // Settings also lists migration snapshots through the serialized database service.
+  // Capture a usable baseline, rather than a transient BUSY read during that work.
+  await expect
+    .poll(async () => {
+      result = await read();
+      return [result.state.status, result.record.status];
+    })
+    .toEqual(['success', 'success']);
+  return result;
 }
 
 async function cleanup(application: ElectronApplication, directory: string) {
@@ -415,6 +428,119 @@ test('Restore after database setup enters saved customers after completion', asy
     await restore(application, setup, source, join(directory, 'setup-restored.sqlite'));
     await expect(setup.getByText('3 results', {exact: true})).toBeVisible();
     await expect(setup.getByText('Database restored.', {exact: true})).toBeVisible();
+  } finally {
+    await cleanup(application, directory);
+  }
+});
+
+test('retained migration snapshots preserve drafts on failed restore and recover into a separate copy', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-snapshot-recovery-'));
+  const application = await launch(directory, true);
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByText('3 results', {exact: true})).toBeVisible();
+    const initial = join(directory, 'initial-migrations');
+    await mkdir(initial);
+    const name = '20260929093112_wealthy_hemingway';
+    await cp(join(root, 'packages/db/migrations', name), join(initial, name), {
+      recursive: true,
+    });
+    const source = join(directory, 'source.sqlite');
+    const snapshotPath = await application.evaluate(
+      async (_electron, paths) => {
+        const database = Reflect.get(globalThis, 'acceptanceDatabase');
+        const service = Reflect.get(globalThis, 'acceptanceService');
+        const legacy = database.openDatabase(paths.source);
+        try {
+          await database.runMigrations(legacy.db, {migrationsFolder: paths.initial});
+          await legacy.db.run(
+            "insert into customers(customerNumber,firstName) values(7,'Before update')"
+          );
+        } finally {
+          legacy.close();
+        }
+
+        const original = await database.openExistingDatabase(paths.source, {
+          migrationsFolder: service.options.migrationsFolder,
+          migrationBackupDirectory: service.options.migrationBackupDirectory,
+        });
+        try {
+          await original.db.run("update customers set firstName='After update'");
+        } finally {
+          original.close();
+        }
+
+        return (
+          await database.listMigrationSnapshots(service.options.migrationBackupDirectory)
+        ).snapshots[0].snapshotPath;
+      },
+      {source, initial}
+    );
+    const sourceBytes = await readFile(source);
+    const snapshotBytes = await readFile(snapshotPath);
+    await page.getByRole('link', {name: 'Database settings', exact: true}).click();
+    const restoreCopy = page.getByRole('button', {name: 'Restore new copy'});
+    await expect(restoreCopy).toBeEnabled();
+    await expect(page.getByRole('region', {name: 'Migration snapshots'})).toContainText(
+      source
+    );
+    await page.addScriptTag({
+      path: join(root, 'acceptance-reports/harness/controlled-editor.mjs'),
+      type: 'module',
+    });
+    await page.waitForFunction(
+      () => Reflect.get(window, 'acceptanceEditorReady') === true
+    );
+    const draft = page.getByRole('textbox', {name: 'Controlled balance'});
+    await draft.fill('-');
+    const before = await stateAndRecord(page);
+    await application.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceDiscard', true);
+      Reflect.get(globalThis, 'acceptanceFiles').push({path: null});
+    });
+    await restoreCopy.click();
+    await expect(draft).toBeEnabled();
+    await expect(draft).toHaveValue('-');
+    await expect(restoreCopy).toBeEnabled();
+    expect(await stateAndRecord(page)).toEqual(before);
+    const destination = join(directory, 'recovered.sqlite');
+    await writeFile(snapshotPath, 'damaged snapshot');
+    await application.evaluate(
+      (_electron, path) => Reflect.get(globalThis, 'acceptanceFiles').push({path}),
+      destination
+    );
+    await restoreCopy.click();
+    await expect(page.getByRole('alertdialog', {includeHidden: true})).toBeVisible();
+    await expect(draft).toHaveValue('-');
+    await expect(draft).toBeEnabled();
+    expect(await stateAndRecord(page)).toEqual(before);
+    await expect(access(destination)).rejects.toThrow();
+    await writeFile(snapshotPath, snapshotBytes);
+    await application.evaluate(
+      (_electron, path) => Reflect.get(globalThis, 'acceptanceFiles').push({path}),
+      destination
+    );
+    await restoreCopy.click();
+    await expect(
+      page.getByRole('link', {name: 'Before update', exact: true})
+    ).toBeVisible();
+    await expect(draft).toHaveValue('0.00');
+    const recovered = await page.evaluate(() =>
+      Reflect.get(window, 'shopThings').database.status()
+    );
+    expect(recovered.value.selectedPath).toBe(destination);
+    expect(recovered.value.session).not.toBe(before.state.value.session);
+    expect(await readFile(source)).toEqual(sourceBytes);
+    expect(await readFile(snapshotPath)).toEqual(snapshotBytes);
+    expect(
+      await application.evaluate(async () => {
+        const database = Reflect.get(globalThis, 'acceptanceDatabase');
+        const service = Reflect.get(globalThis, 'acceptanceService');
+        return (
+          await database.listMigrationSnapshots(service.options.migrationBackupDirectory)
+        ).snapshots.length;
+      })
+    ).toBe(2);
   } finally {
     await cleanup(application, directory);
   }

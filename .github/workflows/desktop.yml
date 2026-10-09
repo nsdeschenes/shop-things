@@ -302,6 +302,11 @@ jobs:
         with:
           name: renderer-artifacts-${{ github.sha }}
           path: ${{ runner.temp }}/shop-things-acceptance/renderer-artifacts
+      - name: Provision approved public update trust before build
+        if: vars.UPDATE_TRUSTED_PUBLIC_KEYS_JSON != ''
+        env:
+          UPDATE_TRUSTED_PUBLIC_KEYS_JSON: ${{ vars.UPDATE_TRUSTED_PUBLIC_KEYS_JSON }}
+        run: node --experimental-strip-types scripts/provision-update-policy.ts
       - name: Build Linux arm64 and smoke test the package
         run: xvfb-run -a node --experimental-strip-types scripts/acceptance.ts --reuse-source-checks --reuse-renderer-checks
         env:

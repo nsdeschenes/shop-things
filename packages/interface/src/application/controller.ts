@@ -435,7 +435,10 @@ export function createApplication(
     }
   }
 
-  async function transition(action: 'create' | 'open' | 'restore' | 'retry') {
+  async function transition(
+    action: 'create' | 'open' | 'restore' | 'retry' | 'restoreSnapshot',
+    snapshotId = ''
+  ) {
     if (!client || state.phase !== 'ready') {
       return unavailable;
     }
@@ -458,7 +461,10 @@ export function createApplication(
           return obsolete;
         }
 
-        const result = await client!.database[action]();
+        const result =
+          action === 'restoreSnapshot'
+            ? await client!.database.restoreMigrationSnapshot({snapshotId})
+            : await client!.database[action]();
         if (attempt !== generation) {
           return obsolete;
         }
@@ -479,7 +485,15 @@ export function createApplication(
   }
 
   async function fileAction(
-    action: 'create' | 'open' | 'retry' | 'restore' | 'backup' | 'export'
+    action:
+      | 'create'
+      | 'open'
+      | 'retry'
+      | 'restore'
+      | 'backup'
+      | 'export'
+      | 'restoreSnapshot',
+    snapshotId = ''
   ) {
     if (
       state.pendingFile ||
@@ -532,7 +546,7 @@ export function createApplication(
 
               return result;
             })
-          : await transition(action);
+          : await transition(action, snapshotId);
       if (attempt !== generation) {
         return;
       }
@@ -549,7 +563,7 @@ export function createApplication(
         const destination = 'path' in result.value ? ` ${result.value.path}` : '';
         toasts.success({
           id: 'database-feedback',
-          title: `${action === 'create' ? 'Database created.' : action === 'open' || action === 'retry' ? 'Database opened.' : action === 'restore' ? 'Database restored.' : action === 'backup' ? 'Backup saved.' : 'Customers exported.'}${destination}`,
+          title: `${action === 'create' ? 'Database created.' : action === 'open' || action === 'retry' ? 'Database opened.' : action === 'restore' || action === 'restoreSnapshot' ? 'Database restored.' : action === 'backup' ? 'Backup saved.' : 'Customers exported.'}${destination}`,
         });
       }
     } catch {
@@ -564,6 +578,7 @@ export function createApplication(
       if (attempt === generation) {
         publish({...state, pendingFile: null});
         flushSessionChange();
+        void queryClient.invalidateQueries({queryKey: ['migration-snapshots']});
       }
     }
   }
@@ -771,6 +786,15 @@ export function createApplication(
       }
     },
     fileAction,
+    listMigrationSnapshots: async () => {
+      if (!client || state.phase !== 'ready' || state.mode !== 'live') {
+        return unavailable;
+      }
+
+      return serialize(() => client!.database.listMigrationSnapshots({}));
+    },
+    restoreMigrationSnapshot: (snapshotId: string) =>
+      fileAction('restoreSnapshot', snapshotId),
     refreshCustomers,
     onCustomersRefreshed(listener: () => Promise<void>) {
       refreshListeners.add(listener);

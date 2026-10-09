@@ -4,19 +4,27 @@ import {join} from 'node:path';
 
 import {expect, test} from 'vitest';
 
-import {createReleaseFixture, runReleaseScript} from './releaseHelpers.ts';
+import {
+  createDebianFixture,
+  createReleaseFixture,
+  runReleaseScript,
+  releaseAcceptance,
+} from './releaseHelpers.ts';
 
 test('stages only the accepted arm64 installer and generates its verifiable checksum', async () => {
   const directory = await createReleaseFixture();
   const commit = 'a'.repeat(40);
-  const payload = Buffer.from('installer payload for checksum/copy verification');
+  let payload: Buffer;
   try {
     await mkdir(join(directory, 'release'));
     await mkdir(join(directory, 'reports'));
-    await writeFile(join(directory, 'release/electron_0.0.1_arm64.deb'), payload);
+    const installer = await createDebianFixture(directory, {
+      filename: 'electron_0.0.1_arm64.deb',
+    });
+    payload = await readFile(installer);
     await writeFile(join(directory, 'release/ignored.yml'), 'packaging metadata');
     const reportPath = join(directory, 'reports/acceptance.json');
-    const report = {status: 'passed', commit, environment: {target: 'linux-arm64-glibc'}};
+    const report = await releaseAcceptance(commit, installer);
     await writeFile(reportPath, JSON.stringify(report));
     const env = {GITHUB_SHA: commit, ACCEPTANCE_REPORT_DIR: join(directory, 'reports')};
     const result = runReleaseScript(directory, 'stage-release', env);
@@ -25,6 +33,7 @@ test('stages only the accepted arm64 installer and generates its verifiable chec
     expect(await readdir(join(directory, 'release/assets'))).toStrictEqual([
       'SHA256SUMS',
       filename,
+      'shop-things-update-v1.json',
     ]);
     expect(await readFile(join(directory, 'release/assets', filename))).toStrictEqual(
       payload
