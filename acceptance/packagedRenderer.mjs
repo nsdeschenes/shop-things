@@ -32,6 +32,14 @@ const bundle = supporting
 const systemInstall = process.env.PACKAGED_RENDERER_SYSTEM_INSTALL === '1';
 if (systemInstall) {
   assert.equal(target, 'linux-arm64');
+  assert.equal(process.platform, 'linux');
+  assert.equal(process.arch, 'arm64');
+  assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Require the disposable CI runner');
+  assert.ok(
+    process.env.ACCEPTANCE_INITIAL_APPARMOR_RESTRICTION === '0' ||
+      process.env.ACCEPTANCE_INITIAL_APPARMOR_RESTRICTION === '1',
+    'Require the recorded original runner AppArmor restriction'
+  );
   assert.notEqual(
     process.getuid(),
     0,
@@ -428,6 +436,88 @@ try {
     release: process.getBuiltinModule('node:os').release(),
     glibc: process.report.getReport().header.glibcVersionRuntime,
   };
+
+  if (!supporting) {
+    assert.ok(report.executionEnvironment.glibc, 'Linux glibc required');
+  }
+
+  userData = await realpath(
+    await mkdtemp(join(tmpdir(), 'shop-things-packaged-renderer-'))
+  );
+  report.userData = userData;
+  const localElectron = createRequire(join(root, 'packages/electron/package.json'))(
+    'electron'
+  );
+  const probeRestriction = supporting
+    ? 'not-applicable'
+    : (
+        await readFile(
+          '/proc/sys/kernel/apparmor_restrict_unprivileged_userns',
+          'utf8'
+        ).catch(() => 'unavailable')
+      ).trim();
+  if (systemInstall) {
+    assert.equal(
+      probeRestriction,
+      '0',
+      'Run local isolation in the portable test topology'
+    );
+  }
+
+  const isolation = spawnSync(
+    localElectron,
+    [join(root, 'acceptance/packagedIsolation.cjs'), `--user-data-dir=${userData}`],
+    {
+      encoding: 'utf8',
+      timeout: 15_000,
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: '',
+        VITE_DEV_SERVER_URL: '',
+        SHOP_THINGS_ISOLATION_EXPECTED: userData,
+      },
+    }
+  );
+  report.isolation = {
+    topology: 'local portable Electron standard-flag isolation supporting fixture',
+    apparmorRestriction: probeRestriction,
+    exitCode: isolation.status,
+    signal: isolation.signal,
+    error: isolation.error?.message,
+    stdout: isolation.stdout,
+    stderr: isolation.stderr,
+  };
+  assert.equal(
+    isolation.status,
+    0,
+    `Standard flag isolation must be verified before production launch: ${isolation.stderr}`
+  );
+  fixture = JSON.parse(isolation.stdout.trim());
+  assert.equal(fixture.beforeReady, userData);
+  assert.equal(fixture.ready, userData);
+  if (systemInstall) {
+    const command = [
+      '/usr/sbin/sysctl',
+      '-w',
+      'kernel.apparmor_restrict_unprivileged_userns=' +
+        process.env.ACCEPTANCE_INITIAL_APPARMOR_RESTRICTION,
+    ];
+    const result = spawnSync('sudo', command, {encoding: 'utf8'});
+    report.installedSandboxRestore = {
+      command: ['sudo', ...command],
+      exitCode: result.status,
+      signal: result.signal,
+      error: result.error?.message,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+    assert.equal(
+      result.status,
+      0,
+      'Restore the original runner restriction before installed launch'
+    );
+  }
+
   if (!supporting) {
     async function readSecurity(path) {
       return (await readFile(path, 'utf8').catch(() => 'unavailable')).trim();
@@ -453,46 +543,6 @@ try {
     }
   }
 
-  if (!supporting) {
-    assert.ok(report.executionEnvironment.glibc, 'Linux glibc required');
-  }
-
-  userData = await realpath(
-    await mkdtemp(join(tmpdir(), 'shop-things-packaged-renderer-'))
-  );
-  report.userData = userData;
-  const localElectron = createRequire(join(root, 'packages/electron/package.json'))(
-    'electron'
-  );
-  const isolation = spawnSync(
-    localElectron,
-    [join(root, 'acceptance/packagedIsolation.cjs'), `--user-data-dir=${userData}`],
-    {
-      encoding: 'utf8',
-      timeout: 15_000,
-      env: {
-        ...process.env,
-        ELECTRON_RUN_AS_NODE: '',
-        VITE_DEV_SERVER_URL: '',
-        SHOP_THINGS_ISOLATION_EXPECTED: userData,
-      },
-    }
-  );
-  report.isolation = {
-    exitCode: isolation.status,
-    signal: isolation.signal,
-    error: isolation.error?.message,
-    stdout: isolation.stdout,
-    stderr: isolation.stderr,
-  };
-  assert.equal(
-    isolation.status,
-    0,
-    `Standard flag isolation must be verified before production launch: ${isolation.stderr}`
-  );
-  fixture = JSON.parse(isolation.stdout.trim());
-  assert.equal(fixture.beforeReady, userData);
-  assert.equal(fixture.ready, userData);
   await launch('Create database');
   await inventory();
   await passed(expectedCases[0]);
@@ -709,7 +759,9 @@ try {
     report.cleanup = 'failed-probe test-owned forced exit';
     await application.evaluate(({app}) => app.exit(0)).catch(() => {});
   } else {
-    report.cleanup = 'normal protected close completed';
+    report.cleanup = report.closures?.length
+      ? 'normal protected close completed'
+      : 'no packaged application launch completed';
   }
 
   report.finishedAt = new Date().toISOString();
