@@ -136,6 +136,7 @@
       "maintainer": "Shop Things contributors <nsdeschenes@users.noreply.github.com>",
       "executableName": "shop-things"
     },
-    "beforePack": "update/before-pack.cjs"
+    "beforePack": "update/before-pack.cjs",
+    "afterPack": "update/after-pack.cjs"
   }
 }
