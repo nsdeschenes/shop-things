@@ -1,6 +1,7 @@
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {readFile, readdir, stat, writeFile, mkdir} from 'node:fs/promises';
+import {readFile, readdir, stat, writeFile, mkdir, mkdtemp, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import {dirname, join, relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -54,6 +55,7 @@ test(`proves the shipped Linux glibc ${process.arch} backend and retains commit/
     target: `linux-${process.arch}-glibc`,
   };
   let failure: unknown;
+  let installerRoot: string | undefined;
   await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
   try {
     report.commit = git(['rev-parse', 'HEAD']);
@@ -101,11 +103,45 @@ test(`proves the shipped Linux glibc ${process.arch} backend and retains commit/
     );
     expect(installers.length, `Expected one Linux ${process.arch} installer`).toBe(1);
     const installer = join(release, installers[0]!);
-    report.artifacts = await Promise.all(
+    const artifacts = await Promise.all(
       [executable, archive, addon, installer, license].map(async path => ({
         path: relative(release, path),
         sha256: await digest(path),
       }))
+    );
+    report.artifacts = artifacts;
+    installerRoot = await mkdtemp(join(tmpdir(), 'shop-things-installer-'));
+    const extraction = spawnSync(
+      'dpkg-deb',
+      ['--raw-extract', installer, installerRoot],
+      {
+        encoding: 'utf8',
+        timeout: 30_000,
+      }
+    );
+    expect(extraction.status, `${extraction.stderr}`).toBe(0);
+    const listing = spawnSync('dpkg-deb', ['--contents', installer], {
+      encoding: 'utf8',
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    expect(listing.status, `${listing.stderr}`).toBe(0);
+    const packageProofPath = reportPath + '.package-inputs.json';
+    await writeFile(
+      packageProofPath,
+      JSON.stringify(
+        {
+          commit: report.commit,
+          artifacts,
+          installerEntries: listing.stdout,
+          developmentRuntime: {
+            version: process.versions.node,
+            executable: process.execPath,
+            sha256: await digest(process.execPath),
+          },
+        },
+        null,
+        2
+      ) + '\n'
     );
     const sourceMigrations = join(projectRoot, 'packages/db/migrations');
     const packagedMigrations = join(resources, 'migrations');
@@ -162,6 +198,8 @@ test(`proves the shipped Linux glibc ${process.arch} backend and retains commit/
         resources,
         runtimeReport,
         inventoryPath,
+        packageProofPath,
+        installerRoot,
       ],
       {
         encoding: 'utf8',
@@ -194,6 +232,12 @@ test(`proves the shipped Linux glibc ${process.arch} backend and retains commit/
         report.runtime.status === 'passed',
       'Successful shipped runtime report required'
     ).toBeTruthy();
+    for (const path of [executable, archive, addon, installer, license]) {
+      expect(await digest(path), `Package changed during proof: ${path}`).toBe(
+        artifacts.find(entry => entry.path === relative(release, path))?.sha256
+      );
+    }
+
     report.status = 'passed';
   } catch (error) {
     failure = error;
@@ -206,6 +250,9 @@ test(`proves the shipped Linux glibc ${process.arch} backend and retains commit/
     report.finishedAt = new Date().toISOString();
     await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
     process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+    if (installerRoot) {
+      await rm(installerRoot, {recursive: true, force: true});
+    }
   }
 
   if (failure) {

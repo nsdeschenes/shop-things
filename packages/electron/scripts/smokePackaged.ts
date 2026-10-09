@@ -9,9 +9,12 @@ import {
   mkdir,
   writeFile,
   chmod,
+  lstat,
+  readlink,
 } from 'node:fs/promises';
+import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {dirname, join, relative} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 import type {CreateCustomerInput} from '@shop-things/contract';
@@ -20,13 +23,18 @@ import type {DatabaseHandle} from '@shop-things/db';
 const resources = process.argv[2];
 const reportPath = process.argv[3];
 const inventoryPath = process.argv[4];
+const packageProofPath = process.argv[5];
+const installerRoot = process.argv[6];
 
 assert.ok(
-  resources && reportPath && inventoryPath,
+  resources && reportPath && inventoryPath && packageProofPath && installerRoot,
   'Packaged runner requires resources and report paths'
 );
 
 const archive = join(resources, 'app.asar');
+const {promises: originalFiles}: typeof import('node:fs') = createRequire(
+  import.meta.url
+)('original-fs');
 const backendPath = join(archive, 'dist/actionService.js');
 const databasePath = join(archive, 'node_modules/@shop-things/db/dist/index.js');
 const directory = await mkdtemp(join(tmpdir(), 'shop-things-packaged-backend-'));
@@ -47,10 +55,52 @@ const report: Record<string, unknown> = {
 
 const phases: string[] = [];
 
-async function digest(path: string) {
+async function digest(path: string, reader = readFile) {
   return createHash('sha256')
-    .update(await readFile(path))
+    .update(await reader(path))
     .digest('hex');
+}
+
+type PackageEntry = {
+  path: string;
+  kind: 'directory' | 'file' | 'symlink';
+  mode: number;
+  size?: number;
+  sha256?: string;
+  target?: string;
+  package?: {name?: string; version?: string};
+};
+
+async function packageContents(root: string, folder = root): Promise<PackageEntry[]> {
+  const entries: PackageEntry[] = [];
+  const files = root === archive ? {readdir, lstat, readlink, readFile} : originalFiles;
+  for (const name of (await files.readdir(folder)).sort()) {
+    const path = join(folder, name);
+    const info = await files.lstat(path);
+    const entry = {path: relative(root, path), mode: info.mode & 0o7777};
+    if (info.isSymbolicLink()) {
+      entries.push({...entry, kind: 'symlink', target: await files.readlink(path)});
+    } else if (info.isDirectory()) {
+      entries.push({...entry, kind: 'directory'});
+      entries.push(...(await packageContents(root, path)));
+    } else {
+      assert.ok(info.isFile(), `Unsupported packaged entry: ${path}`);
+      const file: PackageEntry = {
+        ...entry,
+        kind: 'file',
+        size: info.size,
+        sha256: await digest(path, files.readFile),
+      };
+      if (name === 'package.json') {
+        const manifest = JSON.parse(await files.readFile(path, 'utf8'));
+        file.package = {name: manifest.name, version: manifest.version};
+      }
+
+      entries.push(file);
+    }
+  }
+
+  return entries;
 }
 
 function success<T>(
@@ -86,6 +136,81 @@ try {
 
   report.buildInventory = inventory;
   phases.push('shipped-code-matches-current-committed-build-inventory');
+  const packageInputs: {
+    commit: string;
+    artifacts: {path: string; sha256: string}[];
+    installerEntries: string;
+    developmentRuntime: {version: string; executable: string; sha256: string};
+  } = JSON.parse(await readFile(packageProofPath, 'utf8'));
+  assert.equal(packageInputs.commit, inventory.commit);
+  assert.equal(packageInputs.developmentRuntime.version, '26.11.0');
+  assert.equal(process.versions.node, '24.21.0');
+  assert.equal(process.versions.electron, '44.4.5');
+  const contents = {
+    commit: inventory.commit,
+    artifacts: packageInputs.artifacts,
+    installerEntries: packageInputs.installerEntries,
+    developmentRuntime: packageInputs.developmentRuntime,
+    embeddedRuntime: process.versions,
+    asar: await packageContents(archive),
+    unpacked: await packageContents(dirname(resources)),
+    installer: await packageContents(installerRoot),
+  };
+  report.packageContents = contents;
+  for (const [scope, entries] of [
+    ['asar', contents.asar],
+    ['unpacked', contents.unpacked],
+    ['installer', contents.installer],
+  ] as const) {
+    assert.ok(entries.length > 0, `Empty package inventory: ${scope}`);
+    for (const entry of entries) {
+      for (const path of [entry.path, entry.target ?? '']) {
+        assert.equal(
+          /(^|\/)(node_modules\/node|node@runtime[^/]*)(\/|$)/i.test(path) ||
+            (entry.kind !== 'directory' && /(^|\/)node(?:\.exe)?$/i.test(path)),
+          false,
+          `Development Node path shipped in ${scope}: ${path}`
+        );
+      }
+
+      assert.notEqual(entry.package?.name, 'node', `Node package shipped: ${entry.path}`);
+      assert.notEqual(
+        entry.sha256,
+        packageInputs.developmentRuntime.sha256,
+        `Development Node executable shipped in ${scope}: ${entry.path}`
+      );
+    }
+  }
+
+  const installedArchives = contents.installer.filter(entry =>
+    entry.path.endsWith('/resources/app.asar')
+  );
+  assert.equal(installedArchives.length, 1);
+  assert.equal(
+    installedArchives[0]?.sha256,
+    await digest(archive, originalFiles.readFile)
+  );
+  const installedExecutables = contents.installer.filter(
+    entry => entry.path.endsWith('/shop-things') && entry.kind === 'file'
+  );
+  assert.equal(installedExecutables.length, 1);
+  assert.equal(
+    installedExecutables[0]?.sha256,
+    await digest(join(dirname(resources), 'shop-things'))
+  );
+  for (const entry of contents.unpacked.filter(entry => entry.kind === 'file')) {
+    assert.ok(
+      contents.installer.some(
+        installed =>
+          installed.path.endsWith('/' + entry.path) && installed.sha256 === entry.sha256
+      ),
+      `Unpacked file absent or changed in installer: ${entry.path}`
+    );
+  }
+
+  phases.push(
+    'complete-package-content-inventory/development-Node-excluded/embedded-runtime-unchanged'
+  );
   const backend: typeof import('../src/actionService.js') = await import(
     pathToFileURL(backendPath).href
   );
