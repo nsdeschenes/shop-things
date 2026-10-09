@@ -1,3 +1,4 @@
+import {spawnSync} from 'node:child_process';
 import {
   chmod,
   link as hardLink,
@@ -12,6 +13,7 @@ import {
 import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {runInNewContext} from 'node:vm';
 
 import {expect, test} from 'vitest';
 
@@ -82,3 +84,58 @@ test('packaging refuses symlink and hardlink output without changing external pe
     await rm(root, {recursive: true, force: true});
   }
 });
+
+test('supported parent config tightens only Linux builder umask and preserves stricter masks', async () => {
+  const path = join(root, 'packages/electron/update/build-config.cjs');
+  const source = await readFile(path, 'utf8');
+  const configuration = JSON.parse(
+    await readFile(join(root, 'packages/electron/package.json'), 'utf8')
+  );
+  expect(configuration.build.extends).toBe('update/build-config.cjs');
+  for (const [platform, initial, expected] of [
+    ['linux', 0o002, 0o022],
+    ['linux', 0o077, 0o077],
+    ['darwin', 0o002, 0o002],
+    ['win32', 0o002, 0o002],
+  ] as const) {
+    let mask: number = initial;
+    const module = {exports: {}};
+    runInNewContext(source, {
+      module,
+      process: {
+        platform,
+        umask(value?: number) {
+          const previous = mask;
+          if (value !== undefined) {
+            mask = value;
+          }
+
+          return previous;
+        },
+      },
+    });
+    expect(mask).toBe(expected);
+    expect(module.exports).toEqual({});
+  }
+});
+
+test.skipIf(process.platform !== 'linux')(
+  'direct Linux builder parent module tightens its own process mask',
+  () => {
+    const path = join(root, 'packages/electron/update/build-config.cjs');
+    for (const initial of [0o002, 0o077]) {
+      const child = spawnSync(
+        process.execPath,
+        [
+          '-e',
+          'process.umask(Number(process.argv[1])); require(process.argv[2]); console.log(process.umask());',
+          String(initial),
+          path,
+        ],
+        {encoding: 'utf8'}
+      );
+      expect(child.status).toBe(0);
+      expect(Number(child.stdout.trim())).toBe(initial | 0o022);
+    }
+  }
+);
