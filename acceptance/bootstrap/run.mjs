@@ -13,7 +13,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {basename, join, resolve} from 'node:path';
+import {basename, dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 import {_electron, expect} from '@playwright/test';
@@ -23,8 +23,7 @@ import {
   createDatabase,
   listMigrationSnapshots,
 } from '../../packages/db/dist/index.js';
-
-const installerName = /^shop-things-.*-linux-arm64\.deb$/;
+import {acceptedBootstrapArtifact} from '../../scripts/bootstrapArtifact.ts';
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const reportDirectory = resolve(process.argv[2] ?? 'acceptance-reports/bootstrap');
 assert.equal(process.platform, 'linux');
@@ -120,11 +119,15 @@ async function runtime(executablePath, config, name, protectedQuit = false) {
 }
 
 try {
-  const candidates = (await readdir(join(root, 'release'))).filter(name =>
-    installerName.test(name)
+  const accepted = JSON.parse(
+    await readFile(join(dirname(reportDirectory), 'packaged-renderer.json'), 'utf8')
   );
-  assert.equal(candidates.length, 1, 'Require one exact tested ARM64 installer.');
-  const candidate = join(root, 'release', candidates[0]);
+  const artifact = await acceptedBootstrapArtifact(
+    join(root, 'release'),
+    accepted,
+    report.builtCommit
+  );
+  const candidate = artifact.path;
   const legacy = join(directory, 'legacy.deb');
   command('/usr/bin/curl', [
     '--fail',
@@ -141,7 +144,9 @@ try {
   );
   report.artifact = {
     candidate: basename(candidate),
-    sha256: digest(await readFile(candidate)),
+    sha256: artifact.sha256,
+    acceptedCommit: accepted.commit,
+    installedPackage: accepted.installedSystem.package,
     legacySha256: digest(await readFile(legacy)),
   };
   const oldRoot = join(directory, 'legacy');
@@ -176,6 +181,7 @@ try {
   const context = join(directory, 'context');
   await mkdir(join(context, 'scripts'), {recursive: true});
   await cp(candidate, join(context, 'candidate.deb'));
+  assert.equal(digest(await readFile(join(context, 'candidate.deb'))), artifact.sha256);
   await cp(legacy, join(context, 'legacy.deb'));
   await cp(process.execPath, join(context, 'node'));
   for (const name of [
