@@ -674,7 +674,15 @@ try {
         `
       const db = await import(process.argv[1]);
       try { const handle = db.openDatabase(process.argv[2]); await handle.db.run("insert into customers(customerNumber,firstName) values(99,'External')"); handle.close(); }
-      catch(error) { console.error(error.message); process.exitCode = 2; }
+      catch(error) {
+        // Drizzle wraps the native lock error; retain its bounded cause chain.
+        let cause = error;
+        for (let depth = 0; cause && depth < 8; depth++) {
+          console.error(String(cause.message ?? cause).slice(0, 1024));
+          cause = cause.cause;
+        }
+        process.exitCode = 2;
+      }
     `,
         pathToFileURL(databasePath).href,
         writerPath,
