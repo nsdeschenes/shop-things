@@ -65,6 +65,8 @@
           "policy.json",
           "identity.json",
           "updater-helper.py",
+          "transaction.py",
+          "apt-hook",
           "bootstrap.py",
           "com.shopthings.app.update.policy",
           "ELECTRON-BUILDER-LICENSE"
@@ -107,6 +109,7 @@
         "libsecret-1-0",
         "python3 (>= 3.9)",
         "python3-gi",
+        "python3-apt",
         "gir1.2-gtk-3.0",
         "pkexec | policykit-1",
         "polkitd | policykit-1",

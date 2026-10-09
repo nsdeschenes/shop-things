@@ -20,14 +20,15 @@ type Outcome<T> =
   | {status: 'success'; value: T}
   | Exclude<ActionResults['database.status'], {status: 'success'}>;
 
-// Main-only composition seam for controlled acceptance. Shipped Update stays disabled.
-// This helper version contains no package mutation; every result may safely abort.
-// #181 must replace that guarantee with independently durable transaction evidence.
+// Test-only legacy verification composition. An explicit external nonmutating fixture
+// is mandatory; this function cannot invoke the shipped mutating helper.
 export async function verifyUpdateUnderLease(options: {
   service: Pick<ActionService, 'holdLifecycle'>;
   candidate: DiscoveredUpdateCandidate;
   artifact: VerifiedUpdateArtifact;
-  invoke?: typeof invokeUpdateHelper;
+  invoke: (
+    request: Parameters<typeof invokeUpdateHelper>[0]
+  ) => Promise<{outcome: 'install-disabled' | 'rejected'}>;
 }): Promise<Outcome<{verified: boolean}>> {
   if (
     options.artifact.candidateId !== options.candidate.id ||
@@ -47,7 +48,7 @@ export async function verifyUpdateUnderLease(options: {
   let verified = false;
   try {
     held.value.assertCurrent();
-    const result = await (options.invoke ?? invokeUpdateHelper)({
+    const result = await options.invoke({
       protocol: 1,
       attemptId: options.artifact.attemptId,
       manifest: Buffer.from(options.candidate.bytes).toString('base64'),

@@ -63,6 +63,10 @@ class FixturePolicy(supervisor.Policy):
     def old_alive(self, value):
         return self.old_running
 
+    def install_receipt(self, directory, attempt):
+        # External protected package evidence boundary only; supervisor remains real.
+        return supervisor.read_private_json(os.path.join(directory, 'install.json'))
+
     def verify_installed(self, receipt):
         if self.reject_installed:
             raise ValueError('dpkg configured target mismatch')

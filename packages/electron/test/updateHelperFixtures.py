@@ -65,6 +65,35 @@ class HelperVerification(unittest.TestCase):
         self.assertEqual(staged.stat().st_mode & 0o777, 0o600)
         self.assertEqual(staged.parent.stat().st_mode & 0o777, 0o700)
 
+    def test_aliased_identity_and_linked_parent_are_rejected(self):
+        import io
+        import tarfile
+        raw = self.run_tool('/usr/bin/dpkg-deb', '--fsys-tarfile', str(self.artifact))
+        for alias, linked in [('opt/./Shop Things/resources/update/identity.json', False),
+                              ('opt//Shop Things/resources/update', True)]:
+            archive = self.root / 'data.tar.gz'
+            with tarfile.open(fileobj=io.BytesIO(raw), mode='r:') as source, tarfile.open(archive, 'w:gz') as target:
+                for member in source:
+                    target.addfile(member, source.extractfile(member) if member.isfile() else None)
+                member = tarfile.TarInfo(alias)
+                if linked:
+                    member.type = tarfile.SYMTYPE
+                    member.linkname = '/tmp/unsafe'
+                    target.addfile(member)
+                else:
+                    content = b'{"schemaVersion":1,"packageName":"shop-things","appVersion":"9.0.0"}'
+                    member.size = len(content)
+                    target.addfile(member, io.BytesIO(content))
+            candidate = self.root / ('linked.deb' if linked else 'alias.deb')
+            candidate.write_bytes(self.artifact.read_bytes())
+            names = self.run_tool('/usr/bin/ar', 't', str(candidate)).decode().splitlines()
+            for name in names:
+                if name.startswith('data.tar'):
+                    subprocess.run(['/usr/bin/ar', 'd', str(candidate), name], check=True, capture_output=True)
+            subprocess.run(['/usr/bin/ar', 'r', str(candidate), str(archive)], check=True, capture_output=True)
+            with self.assertRaises(ValueError):
+                self.helper.package_identity(str(candidate))
+
     def test_wrong_signature_fails_before_candidate_copy(self):
         request = self.request()
         request['signature'] = base64.b64encode(bytes(64)).decode()

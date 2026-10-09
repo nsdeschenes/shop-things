@@ -1,5 +1,4 @@
 import {spawn} from 'node:child_process';
-import {createHash} from 'node:crypto';
 import {constants} from 'node:fs';
 import {lstat, open} from 'node:fs/promises';
 import {dirname} from 'node:path';
@@ -20,8 +19,15 @@ export interface HelperVerificationOutcome {
   protocol: 1;
   type: 'outcome';
   attemptId?: string;
-  outcome: 'install-disabled' | 'rejected';
-  errorCode: 'INSTALL_DISABLED' | 'VERIFICATION';
+  outcome: 'install-disabled' | 'rejected' | 'installed' | 'unchanged' | 'uncertain';
+  errorCode: string | null;
+}
+export class HelperProcessError extends Error {
+  readonly exited: boolean;
+  constructor(exited: boolean) {
+    super('The helper did not produce a complete verified outcome.');
+    this.exited = exited;
+  }
 }
 
 export async function protectedSystemFile(path: string, maximum: number, read = true) {
@@ -74,11 +80,13 @@ export async function invokeUpdateHelper(
   return await new Promise((resolve, reject) => {
     let output = Buffer.alloc(0);
     let diagnostics = 0;
-    const timer = setTimeout(() => child.kill('SIGTERM'), 120000);
+    let excessive = false;
+    // Never terminate an authorization/helper process that could be mutating.
+    const timer = setTimeout(() => reject(new HelperProcessError(false)), 1800000);
     child.stdin.on('error', () => {});
     child.stdout.on('data', (chunk: Buffer) => {
       if (output.length + chunk.length > 8192) {
-        child.kill('SIGTERM');
+        excessive = true;
       } else {
         output = Buffer.concat([output, chunk]);
       }
@@ -86,12 +94,12 @@ export async function invokeUpdateHelper(
     child.stderr.on('data', (chunk: Buffer) => {
       diagnostics += chunk.length;
       if (diagnostics > 8192) {
-        child.kill('SIGTERM');
+        excessive = true;
       }
     });
-    child.once('error', error => {
+    child.once('error', () => {
       clearTimeout(timer);
-      reject(error);
+      reject(new HelperProcessError(true));
     });
     child.once('close', code => {
       clearTimeout(timer);
@@ -102,63 +110,24 @@ export async function invokeUpdateHelper(
 
         const value = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(output));
         if (
+          excessive ||
           value.protocol !== 1 ||
           value.type !== 'outcome' ||
           value.attemptId !== request.attemptId ||
+          !['rejected', 'installed', 'unchanged', 'uncertain'].includes(value.outcome) ||
+          Object.keys(value).sort().join(',') !==
+            'attemptId,errorCode,outcome,protocol,type' ||
           !(
-            (value.outcome === 'install-disabled' &&
-              value.errorCode === 'INSTALL_DISABLED') ||
-            (value.outcome === 'rejected' && value.errorCode === 'VERIFICATION')
+            value.errorCode === null ||
+            (typeof value.errorCode === 'string' && value.errorCode.length <= 64)
           )
         ) {
-          throw new Error('Invalid helper outcome.');
-        }
-
-        const expectedFields =
-          value.outcome === 'rejected'
-            ? ['protocol', 'type', 'attemptId', 'outcome', 'errorCode']
-            : [
-                'protocol',
-                'type',
-                'attemptId',
-                'outcome',
-                'errorCode',
-                'manifestDigest',
-                'appVersion',
-                'packageVersion',
-                'baseline',
-              ];
-        if (Object.keys(value).sort().join(',') !== expectedFields.sort().join(',')) {
-          throw new Error('Unknown helper outcome fields.');
-        }
-
-        if (value.outcome === 'install-disabled') {
-          const manifest = JSON.parse(
-            Buffer.from(request.manifest, 'base64').toString('utf8')
-          );
-          if (
-            value.manifestDigest !==
-              createHash('sha256')
-                .update(Buffer.from(request.manifest, 'base64'))
-                .digest('hex') ||
-            value.appVersion !== manifest.appVersion ||
-            value.packageVersion !== manifest.packageVersion ||
-            !value.baseline ||
-            Object.keys(value.baseline).sort().join(',') !==
-              'appVersion,architecture,packageVersion' ||
-            value.baseline.architecture !== 'arm64' ||
-            typeof value.baseline.appVersion !== 'string' ||
-            value.baseline.appVersion.length > 128 ||
-            typeof value.baseline.packageVersion !== 'string' ||
-            value.baseline.packageVersion.length > 128
-          ) {
-            throw new Error('Invalid verified helper identity.');
-          }
+          throw new HelperProcessError(true);
         }
 
         resolve(value);
-      } catch (error) {
-        reject(error);
+      } catch {
+        reject(new HelperProcessError(true));
       }
     });
     child.stdin.end(bytes);

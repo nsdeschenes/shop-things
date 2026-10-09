@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""Fixed protocol-v1 install boundary. Package mutation is deliberately disabled."""
+"""Fixed protocol-v1 install boundary. Restricted signed installation boundary."""
 import base64
 import hashlib
 import json
@@ -144,7 +144,9 @@ def package_identity(path):
                 expanded += member.size
                 require(count <= 100000 and expanded <= 4 * 1073741824, 'Package expansion exceeded bound')
                 name = member.name.removeprefix('./')
-                require(not name.startswith('/') and '..' not in name.split('/'), 'Unsafe archive path')
+                if name in ('', '.'):
+                    require(member.isdir(), 'Unsafe archive root')
+                require(name in ('', '.') or (not name.startswith('/') and all(part not in ('', '.', '..') for part in name.split('/'))), 'Unsafe archive path')
                 if name in ['opt', 'opt/Shop Things', 'opt/Shop Things/resources', 'opt/Shop Things/resources/update']:
                     require(member.isdir(), 'Unsafe application identity parent')
                 if name == 'opt/Shop Things/resources/update/identity.json':
@@ -287,7 +289,14 @@ def main():
         raw = sys.stdin.buffer.read(100001)
         require(0 < len(raw) <= 100000, 'Request exceeded bounds')
         request = strict_json(raw)
-        result = verify_request(request, uid)
+        verified = verify_request(request, uid)
+        import importlib.util
+        path = '/usr/lib/shop-things/update/transaction.py'
+        protected_bytes(path, 1048576)
+        spec = importlib.util.spec_from_file_location('transaction', path)
+        transaction = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(transaction)
+        result = transaction.install(verified, uid)
     except Exception:
         # No paths, raw request, key material or arbitrary tool output in diagnostics.
         result = {'protocol': 1, 'type': 'outcome', 'outcome': 'rejected', 'errorCode': 'VERIFICATION'}

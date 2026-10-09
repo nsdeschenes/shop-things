@@ -60,39 +60,13 @@ rejecting duplicates, links, unsafe paths and excessive expansion; it never
 extracts archive paths to the filesystem. Target identity appVersion must match
 the signed manifest. Release signing uses that same archive reader.
 
-Successful verification emits one bounded outcome:
-`{protocol:1,type:"outcome",attemptId,outcome:"install-disabled",errorCode:"INSTALL_DISABLED",manifestDigest,appVersion,packageVersion,baseline:{appVersion,packageVersion,architecture:"arm64"}}`.
-Failure emits `{protocol:1,type:"outcome",attemptId?,outcome:"rejected",errorCode:"VERIFICATION"}`.
-No raw inputs, keys, candidate/root staging paths or tool output enter diagnostics.
-A rejection does not promise an independently established unchanged package state
-for a future mutating helper. This helper contains **no package mutation**.
-
-Production installation remains disabled until #181. The main-only
-`verifyUpdateUnderLease()` composition holds actual draft/database protection
-before invoking authentication and aborts/reopens afterward. Its ability to abort
-any outcome depends specifically on this nonmutating helper version; #181 must
-replace it with independent durable evidence and owner-controlled recovery. Failed
-reopen uses existing database recovery with retained draft. The controlled
-acceptance entry injects only external auth/helper behavior, never a production
-bridge operation or environment switch.
-
-## #181 handoff and evidence
-
-Reuse the fixed single request and exclusive protected staging path
-`<attempt>/artifact.deb`, retained manifest.json/manifest.sig, target identity,
-manifest digest and independently inspected baseline. #181 owns the actual APT
-protocol-v3 locked plan, prohibited transaction checks, durable private journal,
-root-authentic outcomes, supervisor ordering and production enablement. APT's
-specified hook mechanism internally executes its one fixed protected hook command
-through a shell; the helper must never derive that command from input or directly
-invoke a shell. No stale simulation is transaction authority.
-
-ACL tools are packaged for #181's separate root-owned projection boundary
-`/var/lib/shop-things-updater-receipts/`: bounded minimal public pending index and
-private per-UID named-user read/search-only ACL receipts. #181 owns initialization,
-schema, ACL capability checks, crash durability and startup reconciliation. Root
-journals/staging remain root-only. No new privileged startup/read operation or
-user-authoritative progress record is introduced here.
+The shipped helper emits one bounded five-field outcome: protocol, type,
+attemptId, outcome (`installed`, `unchanged`, `uncertain` or `rejected`) and finite
+errorCode. Main never treats stdout or an exit code as installation evidence; it
+reads independently durable protected receipts and fresh package state. Internal
+`verify_request()` remains a nonmutating signed-byte verification seam for tests;
+there is no shipped verify operation. Legacy controlled verification composition
+requires an explicit nonmutating fixture and cannot invoke the production helper.
 
 `test/updateHelperFixtures.py` exercises real OpenSSL Ed25519 signatures,
 dpkg-built archives, safe filesystem copies and archive streaming, replacing only
@@ -106,18 +80,79 @@ These checks are not privileged packaged ARM64/polkit proof. Actual root-owned
 bootstrap resource ownership/action/prerequisite inspection, cancelled/denied or
 missing graphical agents and staging attacks through real pkexec require the
 separate disposable ARM64 desktop fixture/qualification gate. No local host package
-mutation or authentication was performed; production installation is still off.
+mutation or authentication was performed locally. Production installation requires every concrete capability and transaction gate.
 
-For disposable packaged ARM64 verification, provision an operator-generated
-**test-only** publisher public key before building/installing that bootstrap
-fixture. Retain its private fixture key privately on that disposable desktop.
-Run `scripts/helperPackagedAcceptance.ts` as the original graphical user with
-`HELPER_ACCEPTANCE_TEST_KEY_FILE` and a strictly newer stable
-`HELPER_ACCEPTANCE_TARGET_VERSION`. The runner validates the protected installed
-helper matches the reviewed source, invokes the actual scoped pkexec repeatedly
-(with administrator approval), checks real valid/tampered/symlink requests and
-compares the complete dpkg inventory before/after. It never writes installed trust,
-installs packages or supplies an alternate helper operation. Authentication
-cancellation/denial and missing-agent scenarios require separate interactive runs
-and retained results; they are not inferred from this runner's success. This
-fixture has not been executed locally on the x64 host.
+For disposable packaged ARM64 qualification, provision an operator-generated
+**test-only** publisher public key before building/installing the bootstrap fixture.
+The explicit `scripts/helperPackagedAcceptance.ts` runner requires
+`HELPER_ACCEPTANCE_DISPOSABLE_INSTALL=1`, `HELPER_ACCEPTANCE_TEST_KEY_FILE`,
+`HELPER_ACCEPTANCE_INSTALLER_FILE` (the complete already-built qualified .deb),
+`HELPER_ACCEPTANCE_TARGET_VERSION` and `HELPER_ACCEPTANCE_TARGET_PACKAGE_VERSION`.
+It invokes actual scoped authentication and performs a real upgrade; never run it
+on the user's ordinary installation. Subsequent staged attacks must preserve the
+new package inventory. It never provisions trust or supplies another helper
+operation. Graphical cancellation/denial, missing agents, full supervisor restart
+and VM power interruption remain separate qualification, not inferred from this
+runner's success. No local ARM64 desktop execution is claimed.
+
+## Restricted installation and independent recovery (#181)
+
+The same fixed install request now continues to a real APT transaction. It loads
+only protected `/usr/lib/shop-things/update/transaction.py` and system
+`python3-apt` through isolated Python. APT receives a private root configuration,
+fixed argv, sanitized environment and one fixed protected protocol-v3 hook at
+`/usr/lib/shop-things/update/apt-hook`. APT internally uses its documented static
+shell hook mechanism; no caller text becomes a command. The hook checks genuine
+owned APT ancestry, every actual archive/index hash and Debian relationship against
+the installed baseline. Simulation output never authorizes dpkg. Unsupported APIs,
+source trust bypasses, dirty package states and prohibited actions fail closed.
+
+Root journal/staging remain `0700` below `/var/lib/shop-things-updater`. The separate
+root-owned `/var/lib/shop-things-updater-receipts/global.json` is a minimal public
+read-only index: schema, initialization marker, monotonic generation and unresolved
+attempt UUID/original UID. It reveals no private package inventory or root staging
+paths. It prevents another desktop UID, or deletion of user progress files, from
+hiding a system-wide pending transaction. Per-UID directories below `users/` grant
+only that original numeric UID read/search with named-user POSIX ACLs. Root owns
+all ancestors/receipts and denies ordinary-user replacement/removal/writes. Caller
+receipts contain independent baseline, every validated plan batch, final package
+state and finite outcome; archive paths are omitted from this projection.
+
+Bootstrap initializes only genuinely new projection state. Missing/corrupt existing
+state is never reset to an empty index. Every accepted attempt publishes pending
+index/intent, then durable validated plan before any hook permits mutation; final
+root outcome and caller receipt precede pending removal. Atomic files and containing
+directories are fsynced. The bounded inventory refuses excess retained attempts
+before accepting another transaction; administrator attention is required rather
+than silently deleting unresolved evidence. Actual ACL qualification belongs in
+native package-policy CI and disposable desktop/VM qualification.
+
+Main reads this projection without authentication or a helper operation, compares
+fresh complete package inventory, and gates remembered database opens before
+`ActionService.start()`. A coherent unchanged outcome restores the same session and
+retained draft. Authentication cancellation without a new receipt is reversible
+only with an initialized coherent unchanged protected generation/no pending state,
+matching fresh full baseline, and confirmed fixed child exit. Helper loss, timeout,
+partial package state or missing evidence retains the held lease and package recovery.
+Main never kills a possibly mutating helper; its fixed helper does not daemonize or
+forward package-manager exit codes as authentication status. Exit codes alone are
+not evidence. Popover closure does not cancel; normal quit/reload cannot interrupt
+an owned install. No root Electron, broad repair, downgrade/replay or legacy removal.
+
+After independent installed outcome, main publishes user diagnostics, finalizes
+old admissions for exit and lets the already-ready original-user supervisor launch
+one child. The supervisor independently reads protected receipts and reconciles
+all relevant configured packages; user `install.json` is diagnostics only. New-app
+readiness follows package and database startup checks or mounted database recovery,
+never mounted package recovery. Install success and launch outcome stay separate.
+Unknown child identity after spawn cannot authorize automatic relaunch.
+
+`update-apt.yml` builds a pinned native ARM64 disposable image without host system
+mounts or privileged host mode. Its real signed fixture repository exercises allowed
+dependency installation, relationship denial, trust bypass, holds, dirty state,
+real lock contention and partial configuration failure with independent sentinels.
+It records actual APT/python-apt versions, root plan and receipt generations. This
+lane cannot establish graphical polkit/session behavior or abrupt VM power durability;
+those remain separate #185 qualification. The explicit packaged helper runner now
+requires `HELPER_ACCEPTANCE_DISPOSABLE_INSTALL=1`: its positive case really mutates
+a disposable fixture, rather than claiming a production verification-only operation.

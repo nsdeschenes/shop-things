@@ -34,6 +34,12 @@ export interface UpdateDiscoveryOptions {
   capabilityReasons: string[];
   request?: (url: string, limit: number) => Promise<Uint8Array>;
   download?: Omit<UpdateDownloadOptions, 'trustedKeys' | 'baselinePackageVersion'>;
+  install?: (
+    candidate: DiscoveredUpdateCandidate,
+    artifact: VerifiedUpdateArtifact,
+    phase: (value: UpdateState['phase']) => void
+  ) => Promise<'retryable' | 'recovery' | 'restarting'>;
+  admissionAllowed?: () => boolean;
   compareDebian?: (left: string, right: string) => Promise<number>;
 }
 
@@ -111,7 +117,18 @@ export class UpdateDiscovery {
     }
   }
 
+  setPackageRecovery() {
+    this.publish({
+      phase: 'package-recovery',
+      errorCode: 'PACKAGE_UNCERTAIN',
+      nextActions: [],
+    });
+  }
   check: UpdateBridge['check'] = () => {
+    if (this.options.admissionAllowed?.() === false) {
+      return this.getState({});
+    }
+
     if (this.attempt) {
       return this.getState({});
     }
@@ -180,6 +197,13 @@ export class UpdateDiscovery {
   };
 
   start: UpdateBridge['start'] = async ({candidateId}) => {
+    if (this.options.admissionAllowed?.() === false) {
+      return {
+        status: 'error',
+        error: {code: 'BUSY', message: 'Resolve the package recovery before updating.'},
+      };
+    }
+
     if (this.attempt || this.transferring) {
       return {
         status: 'error',
@@ -209,6 +233,7 @@ export class UpdateDiscovery {
   };
   retry: UpdateBridge['retry'] = async ({attemptId}) => {
     if (
+      this.options.admissionAllowed?.() === false ||
       !this.attempt ||
       this.attempt.id !== attemptId ||
       this.state.phase !== 'retryable-failure' ||
@@ -272,9 +297,47 @@ export class UpdateDiscovery {
       },
       attempt.controller.signal
     )
-      .then(artifact => {
+      .then(async artifact => {
         attempt.artifact = artifact;
-        this.publish({...identity, phase: 'staged', progress: 1, nextActions: []});
+        if (!this.options.install) {
+          this.publish({...identity, phase: 'staged', progress: 1, nextActions: []});
+          return;
+        }
+
+        try {
+          const result = await this.options.install(
+            attempt.candidate,
+            artifact,
+            phase => {
+              this.publish({...identity, phase, nextActions: []});
+            }
+          );
+          this.publish({
+            ...identity,
+            phase:
+              result === 'retryable'
+                ? 'retryable-failure'
+                : result === 'restarting'
+                  ? 'restarting'
+                  : 'package-recovery',
+            ...(result === 'restarting'
+              ? {}
+              : {
+                  errorCode:
+                    result === 'retryable'
+                      ? ('AUTHENTICATION' as const)
+                      : ('PACKAGE_UNCERTAIN' as const),
+                }),
+            nextActions: result === 'retryable' ? ['retry'] : [],
+          });
+        } catch {
+          this.publish({
+            ...identity,
+            phase: 'package-recovery',
+            errorCode: 'PACKAGE_UNCERTAIN',
+            nextActions: [],
+          });
+        }
       })
       .catch((error: unknown) => {
         const failure =

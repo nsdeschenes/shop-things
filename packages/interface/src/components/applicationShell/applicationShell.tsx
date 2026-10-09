@@ -2,7 +2,7 @@ import {Dialog} from '@base-ui/react/dialog';
 import {ArrowPathIcon, CircleStackIcon, Cog6ToothIcon} from '@heroicons/react/24/outline';
 import * as stylex from '@stylexjs/stylex';
 import {Link, useBlocker, useRouter} from '@tanstack/react-router';
-import {useEffect, useRef, useSyncExternalStore, type ReactNode} from 'react';
+import {useEffect, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
 
 import type {Application} from '../../application/controller';
 import {navigationTarget} from '../../application/protection';
@@ -104,6 +104,31 @@ const styles = stylex.create({
 
 export default function ApplicationShell({application, children}: ApplicationShellProps) {
   const state = useSyncExternalStore(application.subscribe, application.getState);
+  const [packageRecovery, setPackageRecovery] = useState(false);
+  const updateRevision = useRef(-1);
+  useEffect(() => {
+    const updates = application.getClient()?.update;
+    if (!updates) {
+      return;
+    }
+
+    function observe(value: {phase: string; revision: number}) {
+      if (value.revision < updateRevision.current) {
+        return;
+      }
+
+      updateRevision.current = value.revision;
+      setPackageRecovery(value.phase === 'package-recovery');
+    }
+
+    const stop = updates.onStateChanged(observe);
+    void updates.getState({}).then(result => {
+      if (result.status === 'success') {
+        observe(result.value);
+      }
+    });
+    return stop;
+  }, [application, state.phase]);
   const protection = useSyncExternalStore(
     application.protection.subscribe,
     application.protection.getState
@@ -114,6 +139,7 @@ export default function ApplicationShell({application, children}: ApplicationShe
     }
   }, [application, state.phase]);
   const refreshDisabled =
+    packageRecovery ||
     state.phase !== 'ready' ||
     !state.database?.available ||
     Boolean(state.pendingFile) ||
@@ -221,7 +247,9 @@ export default function ApplicationShell({application, children}: ApplicationShe
       </Dialog.Root>
       <header {...stylex.props(styles.header)}>
         <Link
-          inert={Boolean(state.pendingFile || state.refreshingCustomers)}
+          inert={Boolean(
+            packageRecovery || state.pendingFile || state.refreshingCustomers
+          )}
           to="/customers"
           {...stylex.props(styles.brand)}
         >
@@ -284,8 +312,21 @@ export default function ApplicationShell({application, children}: ApplicationShe
             : 'Application unavailable'}
         </p>
       )}
+      {packageRecovery && (
+        <section role="alert" {...stylex.props(styles.database)}>
+          <h2>Package Recovery Required</h2>
+          <p>The update outcome could not be confirmed. Customer work remains closed.</p>
+          <p>
+            Ask your system administrator to inspect the package manager and protected
+            update diagnostics in /var/lib/shop-things-updater-receipts. Repair the system
+            outside Shop Things, then reopen the application.
+          </p>
+        </section>
+      )}
       {state.phase === 'ready' && !state.database?.available && (
-        <DatabaseActions application={application} />
+        <div inert={packageRecovery}>
+          <DatabaseActions application={application} />
+        </div>
       )}
       {state.refreshError && (
         <section role="alert">
@@ -319,7 +360,9 @@ export default function ApplicationShell({application, children}: ApplicationShe
         </section>
       ) : (
         <div
-          inert={Boolean(state.pendingFile || state.refreshingCustomers)}
+          inert={Boolean(
+            packageRecovery || state.pendingFile || state.refreshingCustomers
+          )}
           aria-busy={Boolean(state.pendingFile || state.refreshingCustomers)}
         >
           {children}

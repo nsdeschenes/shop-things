@@ -31,6 +31,8 @@ for source, destination, mode in [
     ('updater-helper.py', '/usr/lib/shop-things/updater-helper', 0o755),
     ('restart-supervisor.py', '/usr/lib/shop-things/update-supervisor', 0o755),
     ('identity.json', '/usr/lib/shop-things/update/identity.json', 0o644),
+    ('transaction.py', '/usr/lib/shop-things/update/transaction.py', 0o644),
+    ('apt-hook', '/usr/lib/shop-things/update/apt-hook', 0o755),
     ('com.shopthings.app.update.policy', '/usr/share/polkit-1/actions/com.shopthings.app.update.policy', 0o644),
     ('policy.json', '/usr/lib/shop-things/update/policy.json', 0o644),
 ]:
@@ -51,3 +53,10 @@ for source, destination, mode in [
         os.close(file)
     os.replace(temporary, destination)
     helper.sync_directory(str(Path(destination).parent))
+
+# Initialize only a genuinely new protected projection; existing malformed or
+# incomplete state is an error, never reset to a falsely clean index.
+spec = importlib.util.spec_from_file_location('transaction', '/usr/lib/shop-things/update/transaction.py')
+transaction = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(transaction)
+transaction.initialize()

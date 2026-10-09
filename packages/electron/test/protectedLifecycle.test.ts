@@ -1,3 +1,5 @@
+import {rm} from 'node:fs/promises';
+
 import type {DraftRequest, DraftResolution} from '@shop-things/contract';
 import {getCustomer, openExistingDatabase, createDatabase} from '@shop-things/db';
 import {expect, test} from 'vitest';
@@ -490,5 +492,27 @@ test('stale document cannot release a held lease and failed reopen exposes retai
   } finally {
     participant.unregister();
     await f.cleanup();
+  }
+});
+
+test('verified install finalization retains closed admissions after document loss', async () => {
+  const drafts = new DraftCoordinator();
+  const participant = simulatedEditor(drafts);
+  const f = await fixture({drafts});
+  try {
+    const original = success(await f.service.handlers['database.create']());
+    const lease = success(await f.service.holdLifecycle());
+    participant.unregister();
+    expect(() => lease.assertCurrent()).toThrow();
+    expect(await lease.finalizeForExit()).toMatchObject({status: 'success'});
+    expect(
+      await f.service.handlers['customers.list']({session: original.session!, query: ''})
+    ).toMatchObject({status: 'error', error: {code: 'BUSY'}});
+    expect(await f.service.requestClose()).toMatchObject({
+      status: 'error',
+      error: {code: 'BUSY'},
+    });
+  } finally {
+    await rm(f.directory, {recursive: true, force: true});
   }
 });

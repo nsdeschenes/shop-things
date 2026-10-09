@@ -2,6 +2,7 @@
 """Normal-user restart supervisor. No package mutation or executable selection."""
 import json
 import os
+from pathlib import Path
 import re
 import secrets
 import shutil
@@ -124,7 +125,28 @@ class Policy:
     def old_alive(self, value):
         return process_identity(value['oldPid']) == value['oldStart']
 
+    def install_receipt(self, directory, attempt):
+        import importlib.util
+        path = Path('/usr/lib/shop-things/update/transaction.py')
+        for item in [path, *path.parents]:
+            info = item.lstat()
+            if info.st_uid != 0 or info.st_mode & 0o022 or stat.S_ISLNK(info.st_mode):
+                raise ValueError('Unsafe protected reconciliation module')
+        spec = importlib.util.spec_from_file_location('transaction', path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        evidence = module.inspect(os.getuid(), attempt)
+        if evidence['outcome'] != 'installed' or not evidence['receipt']:
+            raise ValueError('Protected relevant package installation is not confirmed')
+        root = evidence['receipt']
+        return {'schemaVersion': 1, 'attemptId': attempt, 'outcome': 'installed',
+                'manifestDigest': root['manifestDigest'], 'appVersion': root['appVersion'],
+                'packageName': 'shop-things', 'packageVersion': root['packageVersion'], 'architecture': 'arm64'}
+
     def verify_installed(self, receipt):
+        protected = self.install_receipt(None, receipt['attemptId'])
+        if protected != receipt:
+            raise ValueError('Protected receipt identity changed')
         result = subprocess.run(['/usr/bin/dpkg-query', '--admindir=/var/lib/dpkg', '-W', '-f=${Package}\t${Version}\t${Architecture}\t${db:Status-Status}\n', 'shop-things'], check=True, capture_output=True, timeout=10, env={'PATH':'/usr/bin:/bin','LC_ALL':'C','LANG':'C'})
         expected = 'shop-things\t' + receipt['packageVersion'] + '\tarm64\tinstalled\n'
         if result.stdout.decode('utf-8', errors='strict') != expected:
@@ -259,7 +281,7 @@ class Supervisor:
             while self.policy.old_alive(self.value):
                 time.sleep(self.policy.poll_seconds)
             try:
-                receipt = read_private_json(os.path.join(self.directory, 'install.json'))
+                receipt = self.policy.install_receipt(self.directory, self.value['attemptId'])
                 self.receipt = verify_receipt(receipt, self.value['attemptId'])
                 self.policy.verify_installed(self.receipt)
             except Exception as error:

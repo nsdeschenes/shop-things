@@ -12,8 +12,12 @@ import {acknowledgeRestartReady} from './restartSupervisor.js';
 import {FileDatabaseSettings} from './settings.js';
 import {inspectUpdateCapabilities} from './updateCapabilities.js';
 import {UpdateDiscovery} from './updateDiscovery.js';
+import {installVerifiedUpdate} from './updateInstallation.js';
+import {inspectPackageEvidence} from './updateReconciliation.js';
 
 let updates: UpdateDiscovery | null = null;
+let packageUsable = false;
+let installOwnsLifecycle = false;
 let window: BrowserWindow | null = null;
 let service: ActionService | null = null;
 let stopIpc: (() => void) | null = null;
@@ -151,6 +155,7 @@ void app.whenReady().then(async () => {
       : join(dirname(fileURLToPath(import.meta.url)), '../../db/migrations'),
     dialogs: createNativeDialogs(() => window),
     drafts,
+    normalUseAllowed: () => packageUsable,
     logError: error => {
       console.error(error);
     },
@@ -161,17 +166,58 @@ void app.whenReady().then(async () => {
     appVersion: app.getVersion(),
   });
   const {trustedKeys, packageVersion, packageIdentityAvailable} = capabilities;
-  const capabilityReasons = [
-    'Installation is not available yet.',
-    ...capabilities.reasons,
-  ];
+  const capabilityReasons = capabilities.reasons;
 
   updates = new UpdateDiscovery({
     appVersion: app.getVersion(),
     packageVersion,
     trustedKeys,
     capabilityReasons,
-    ...(packageIdentityAvailable && process.arch === 'arm64'
+    admissionAllowed: () => packageUsable,
+    ...(capabilityReasons.length === 0 && packageIdentityAvailable
+      ? {
+          install: async (candidate, artifact, phase) => {
+            if (!service) {
+              return 'recovery';
+            }
+
+            installOwnsLifecycle = true;
+            const result = await installVerifiedUpdate(
+              {
+                service,
+                updatesDirectory: join(app.getPath('userData'), 'updates'),
+                capabilities: async () =>
+                  (
+                    await inspectUpdateCapabilities({
+                      packaged: app.isPackaged,
+                      appVersion: app.getVersion(),
+                    })
+                  ).reasons.length === 0,
+                exit: () => {
+                  backendClosed = true;
+                  shuttingDown = true;
+                  app.quit();
+                },
+              },
+              candidate,
+              artifact,
+              phase
+            );
+            if (result === 'retryable') {
+              installOwnsLifecycle = false;
+            }
+
+            if (result === 'recovery') {
+              packageUsable = false;
+            }
+
+            return result;
+          },
+        }
+      : {}),
+    ...(capabilityReasons.length === 0 &&
+    packageIdentityAvailable &&
+    process.arch === 'arm64'
       ? {download: {directory: join(app.getPath('userData'), 'updates')}}
       : {}),
   });
@@ -185,6 +231,10 @@ void app.whenReady().then(async () => {
     onDocumentChanged,
     onRendererReady: async () => {
       await starting;
+      if (!packageUsable) {
+        throw new Error('Package reconciliation is incomplete.');
+      }
+
       await acknowledgeRestartReady();
     },
     ready: async () => {
@@ -194,9 +244,32 @@ void app.whenReady().then(async () => {
       console.error(error);
     },
   });
-  starting = service.start().catch(error => {
-    console.error(error);
-  });
+  const idleService = service;
+  starting = (async () => {
+    try {
+      if (app.isPackaged && process.platform === 'linux' && process.arch === 'arm64') {
+        const evidence = await inspectPackageEvidence(
+          process.env.SHOP_THINGS_RESTART_ATTEMPT
+        );
+        packageUsable =
+          evidence.outcome === 'clean' ||
+          evidence.outcome === 'installed' ||
+          evidence.outcome === 'unchanged';
+      } else {
+        packageUsable = true;
+      }
+
+      if (packageUsable) {
+        await idleService.start();
+      } else {
+        updates?.setPackageRecovery();
+      }
+    } catch (error) {
+      packageUsable = false;
+      updates?.setPackageRecovery();
+      console.error(error);
+    }
+  })();
   createWindow();
   updates.startChecking();
   Menu.setApplicationMenu(
@@ -233,6 +306,19 @@ function closeBackend(quit: boolean): Promise<void> {
   quitRequested ||= quit;
   shutdown ??= (async () => {
     await starting;
+    if (!packageUsable && !installOwnsLifecycle) {
+      service?.closeUnprotected();
+      backendClosed = true;
+      if (quitRequested) {
+        shuttingDown = true;
+        app.quit();
+      } else {
+        window?.close();
+      }
+
+      return;
+    }
+
     const result = await service?.requestClose();
     if (result?.status === 'success') {
       backendClosed = true;
