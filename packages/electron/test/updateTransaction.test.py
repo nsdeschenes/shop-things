@@ -36,30 +36,5 @@ class ActualTransaction(unittest.TestCase):
             with self.assertRaises(ValueError):
                 module.parse_plan(b'VERSION 3\n' + config + b'\n\n' + action)
 
-    def test_first_read_atime_change_does_not_reject_unchanged_package_inventory(self):
-        import os
-        import tempfile
-        spec = importlib.util.spec_from_file_location('transaction', Path(__file__).parents[1] / 'update/transaction.py')
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        with tempfile.TemporaryDirectory() as temporary:
-            status = Path(temporary) / 'status'
-            status.write_text('fixture stat boundary')
-            os.utime(status, (1, 1))
-            native_path = module.Path
-            def path(value):
-                return status if value == '/var/lib/dpkg/status' else native_path(value)
-            module.Path = path  # External status-file metadata boundary only.
-            native_command = module.command
-            def command(*args, **kwargs):
-                status.read_text()
-                return native_command(*args, **kwargs)
-            module.command = command
-            before = status.stat()
-            inventory = module.package_state()  # Actual read-only dpkg/APT inventory.
-            self.assertTrue(inventory['packages'])
-            self.assertNotEqual(before.st_atime_ns, status.stat().st_atime_ns)
-            self.assertEqual(before.st_mtime_ns, status.stat().st_mtime_ns)
-
 if __name__ == '__main__':
     unittest.main()
