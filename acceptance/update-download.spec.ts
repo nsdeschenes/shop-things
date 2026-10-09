@@ -368,6 +368,12 @@ test('uncertain package outcome holds admissions and recovery without automatic 
   const {app, directory} = await fixture(true);
   try {
     const page = await app.firstWindow();
+    await page.getByRole('link', {name: 'Add customer'}).click();
+    const draft = page.getByRole('textbox', {name: 'First name'});
+    await draft.fill('Retained uncertain draft');
+    await app.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceHelperDiscard', true);
+    });
     await page.getByRole('button', {name: 'Check for updates'}).click();
     await page.getByRole('button', {name: 'Update', exact: true}).click();
     await app.evaluate(() =>
@@ -394,6 +400,32 @@ test('uncertain package outcome holds admissions and recovery without automatic 
         Boolean(Reflect.get(globalThis, 'acceptanceInstalledExit'))
       )
     ).toBe(false);
+    await expect(draft).toBeDisabled();
+    await expect(
+      page.getByRole('button', {name: 'Check again', exact: true})
+    ).toBeVisible();
+    await page.getByRole('button', {name: 'Check again', exact: true}).click();
+    await expect(
+      page.getByRole('heading', {name: 'Package Recovery Required'})
+    ).toBeVisible();
+    await expect(draft).toBeDisabled();
+    await app.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceAdministratorResolved', true);
+      Reflect.set(globalThis, 'acceptanceInstallOutcome', 'unchanged');
+    });
+    await page.getByRole('button', {name: 'Check again', exact: true}).click();
+    await expect(page.getByRole('button', {name: 'Retry', exact: true})).toBeVisible();
+    await expect(draft).toBeEnabled();
+    await expect(draft).toHaveValue('Retained uncertain draft');
+    expect(
+      await app.evaluate(() => Reflect.get(globalThis, 'acceptanceInstallInvocations'))
+    ).toBe(1);
+    expect(
+      await app.evaluate(() => Reflect.get(globalThis, 'acceptanceUpdateRequests').length)
+    ).toBe(1);
+    expect(
+      await app.evaluate(() => Reflect.get(globalThis, 'acceptanceSupervisorCancelled'))
+    ).toBe(true);
   } finally {
     await app.close();
     await rm(directory, {recursive: true, force: true});

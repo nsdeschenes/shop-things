@@ -25,8 +25,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p apt-evidence
-          for scenario in allowed breaks replaces trusted held dirty lock partial; do
+          for scenario in allowed allowed-multiarch allowed-multiarch-transition allowed-all breaks replaces trusted held dirty lock partial; do
             docker run --rm --network none update-apt-fixture "$scenario" | tee "apt-evidence/$scenario.log"
+          done
+      - name: Cut actual helper, locked hook and dpkg processes before selected instructions
+        run: |
+          set -euo pipefail
+          for scenario in cut-helper cut-hook cut-dpkg cut-helper-at-apt; do
+            docker run --rm --network none --cap-add SYS_PTRACE update-apt-fixture "$scenario" | tee "apt-evidence/$scenario.log"
           done
       - name: Preserve actual package evidence
         if: always()

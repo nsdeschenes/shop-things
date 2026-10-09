@@ -89,3 +89,27 @@ These supporting fixtures do not establish privileged package installation,
 packaged ARM64 launch, or GTK desktop proof. Run the controlled supervisor fixture
 against the packaged source and actual GTK3 desktop on the required ARM64 devices;
 record package ownership, runtime versions and outcomes before release approval.
+
+## Interrupted evidence resolution
+
+The administrator-only fixed `/usr/lib/shop-things/update/resolve-update` command
+loads protected `update/recovery.py`, holds the updater and genuine POSIX
+frontend/dpkg locks, and settles only an intact signed retained baseline/actual
+plan against fresh complete installed state. It neither authenticates through the
+updater action nor performs any package operation. It retains the original policy
+digest and verified key fingerprint so target key rotation cannot change the
+original attempt's authority. Private journal, read-only receipt and index precede
+clearing public pending state. Missing evidence remains recovery. See the
+[operator recovery runbook](../../../docs/updates/recovery.md).
+
+The existing document-authorized `update.retry({attemptId})` action performs only
+a read-only recheck while main owns package recovery. On independently proven
+unchanged state it aborts the retained lease and restores the original draft; on
+verified installed state it finalizes that lease and continues the existing
+supervisor. A fresh startup checks protected package state before remembered DB
+opening and renderer readiness. No user progress record grants authority.
+
+External interruption fixtures additionally cut real old-app and supervisor
+processes at durable intent and the spawn-before-PID gap. Exclusive admission
+refuses replay even when a child PID was never durably recorded. This process-loss
+evidence is separate from actual desktop authentication and VM power-loss proof.

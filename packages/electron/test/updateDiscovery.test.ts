@@ -217,3 +217,53 @@ test('selects a retained compatible bridge when the newest signed release requir
   );
   expect(discovery.getCandidate('unknown')).toBeNull();
 });
+
+test('recovery retry coalesces an owner-minted read-only evidence check without update admission', async () => {
+  let finish!: (value: 'ready' | 'recovery') => void;
+  let checks = 0;
+  let network = 0;
+  const discovery = new UpdateDiscovery({
+    appVersion: '0.3.1',
+    packageVersion: '0.3.1',
+    trustedKeys: [keys.publicKey],
+    capabilityReasons: [],
+    admissionAllowed: () => false,
+    request: async () => {
+      network++;
+      return Buffer.from('[]');
+    },
+    recheck: async () => {
+      checks++;
+      return new Promise(resolve => {
+        finish = resolve;
+      });
+    },
+  });
+  discovery.setPackageRecovery();
+  const state = await discovery.getState({});
+  assert(state.status === 'success');
+  assert(state.value.attemptId);
+  expect(state.value.nextActions).toEqual(['retry']);
+  expect(await discovery.retry({attemptId: 'stale'})).toMatchObject({status: 'error'});
+  expect(checks).toBe(0);
+  const first = discovery.retry({attemptId: state.value.attemptId});
+  const second = discovery.retry({attemptId: state.value.attemptId});
+  expect(checks).toBe(1);
+  expect(await discovery.getState({})).toMatchObject({
+    status: 'success',
+    value: {phase: 'reconciling', nextActions: []},
+  });
+  finish('recovery');
+  expect(await first).toMatchObject({
+    status: 'success',
+    value: {phase: 'package-recovery', nextActions: ['retry']},
+  });
+  expect(await second).toEqual(await first);
+  const resolved = discovery.retry({attemptId: state.value.attemptId});
+  finish('ready');
+  expect(await resolved).toMatchObject({
+    status: 'success',
+    value: {phase: 'idle', nextActions: ['check']},
+  });
+  expect(network).toBe(0);
+});

@@ -1,11 +1,12 @@
-import {rm} from 'node:fs/promises';
+import {mkdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
 
 import type {DraftRequest, DraftResolution} from '@shop-things/contract';
 import {expect, test} from 'vitest';
 
 import {DraftCoordinator} from '../src/draftCoordinator.js';
 import {HelperProcessError} from '../src/updateHelperProtocol.js';
-import {installVerifiedUpdate} from '../src/updateInstallation.js';
+import {installVerifiedUpdate, type InstallResult} from '../src/updateInstallation.js';
 import {fixture, success} from './backendFixture.js';
 
 test('cancelled fixed authentication restores retained draft only with unchanged initialized root evidence', async () => {
@@ -100,25 +101,52 @@ test('cancelled fixed authentication restores retained draft only with unchanged
     expect(f.service.status()).toEqual(original);
     expect(retained).toBe('invalid unsaved value');
     expect(frozen).toBe(false);
+    let administratorResolved = false;
+    async function missingContinuation(): Promise<InstallResult> {
+      throw new Error('Missing retained continuation');
+    }
+
+    let continuation = missingContinuation;
+
+    let supervisorCancelled = 0;
     const uncertain = await installVerifiedUpdate(
       {
         service: f.service,
         updatesDirectory: f.directory,
         capabilities: async () => true,
         inspect: async attempt => ({
-          outcome: attempt ? 'uncertain' : 'clean',
+          outcome: attempt
+            ? administratorResolved
+              ? 'unchanged'
+              : 'uncertain'
+            : 'clean',
           generation: attempt ? 5 : 4,
           state: 'full independent baseline',
-          receipt: null,
+          receipt:
+            administratorResolved && attempt
+              ? {
+                  attemptId: artifact.attemptId,
+                  manifestDigest: artifact.manifestDigest,
+                  appVersion: '0.4.0',
+                  packageVersion: '0.4.0',
+                  resolution: 'administrator',
+                }
+              : null,
         }),
+        onRecovery: recheck => {
+          if (recheck) {
+            continuation = recheck;
+          }
+        },
         supervisor: async () => ({
           pid: 45,
           cancel: () => {
-            throw new Error('Do not cancel uncertain supervisor');
+            supervisorCancelled++;
+            expect(administratorResolved).toBe(true);
           },
         }),
         invoke: async () => {
-          throw new HelperProcessError(true);
+          throw new HelperProcessError(false);
         },
         exit: () => {},
       },
@@ -133,7 +161,91 @@ test('cancelled fixed authentication restores retained draft only with unchanged
       error: {code: 'BUSY'},
     });
     expect(retained).toBe('invalid unsaved value');
-    // Uncertain lease is intentionally retained. Its native handle was already closed.
+    expect(supervisorCancelled).toBe(0);
+    administratorResolved = true;
+    expect(await continuation()).toBe('retryable');
+    expect(retained).toBe('invalid unsaved value');
+    expect(frozen).toBe(false);
+    expect(f.service.status()).toEqual(original);
+    expect(supervisorCancelled).toBe(1);
+    expect(await continuation()).toBe('retryable');
+    expect(supervisorCancelled).toBe(1);
+
+    let installed = false;
+    let exits = 0;
+    expect(
+      await installVerifiedUpdate(
+        {
+          service: f.service,
+          updatesDirectory: f.directory,
+          capabilities: async () => true,
+          inspect: async attempt => ({
+            outcome: attempt ? (installed ? 'installed' : 'uncertain') : 'clean',
+            generation: attempt ? 7 : 6,
+            state:
+              installed && attempt
+                ? 'independently verified full intended inventory'
+                : 'full independent baseline',
+            receipt:
+              installed && attempt
+                ? {
+                    attemptId: artifact.attemptId,
+                    manifestDigest: artifact.manifestDigest,
+                    appVersion: '0.4.0',
+                    packageVersion: '0.4.0',
+                    resolution: 'administrator',
+                  }
+                : null,
+          }),
+          onRecovery: recheck => {
+            if (recheck) {
+              continuation = recheck;
+            }
+          },
+          supervisor: async () => ({
+            pid: 46,
+            cancel: () => {
+              throw new Error('Verified install must retain supervisor');
+            },
+          }),
+          invoke: async () => {
+            throw new HelperProcessError(false);
+          },
+          exit: () => {
+            exits++;
+          },
+        },
+        candidate,
+        artifact,
+        () => {}
+      )
+    ).toBe('recovery');
+    expect(frozen).toBe(true);
+    const directory = join(f.directory, artifact.attemptId);
+    await mkdir(directory, {mode: 0o700});
+    await writeFile(
+      join(directory, 'install.json'),
+      JSON.stringify({outcome: 'installed'})
+    );
+    await writeFile(join(directory, 'install.json.new'), 'retained crash evidence');
+    expect(await continuation()).toBe('recovery');
+    expect(exits).toBe(0);
+    expect(retained).toBe('invalid unsaved value');
+    installed = true;
+    const first = continuation();
+    const second = continuation();
+    expect(first).toBe(second);
+    expect(await first).toBe('restarting');
+    expect(exits).toBe(1);
+    expect(await continuation()).toBe('restarting');
+    expect(exits).toBe(1);
+    expect(
+      JSON.parse(await readFile(join(directory, 'install.json'), 'utf8'))
+    ).toMatchObject({attemptId: artifact.attemptId, outcome: 'installed'});
+    expect(await readFile(join(directory, 'install.json.new'), 'utf8')).toBe(
+      'retained crash evidence'
+    );
+    expect(f.service.status()).toMatchObject({available: false, session: null});
   } finally {
     await rm(f.directory, {recursive: true, force: true});
   }

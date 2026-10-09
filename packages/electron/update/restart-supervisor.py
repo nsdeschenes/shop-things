@@ -100,7 +100,7 @@ def verify_receipt(value, attempt):
         raise ValueError('Installation is not verified')
     if not isinstance(value['manifestDigest'], str) or not re.fullmatch(r'[0-9a-f]{64}', value['manifestDigest']):
         raise ValueError('Invalid manifest digest')
-    if not isinstance(value['appVersion'], str) or len(value['appVersion']) > 64 or not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\+[0-9A-Za-z.-]+)?', value['appVersion']):
+    if not isinstance(value['appVersion'], str) or len(value['appVersion']) > 128 or not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?', value['appVersion']):
         raise ValueError('Invalid application version')
     if not isinstance(value['packageVersion'], str) or not re.fullmatch(r'[0-9][0-9A-Za-z.+:~\-]{0,127}', value['packageVersion']):
         raise ValueError('Invalid package version')
@@ -201,11 +201,12 @@ class Supervisor:
         lock = os.open(os.path.join(self.directory, 'supervisor.lock'), os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
         os.fsync(lock)
         os.close(lock)
-        parent = os.open(self.value['updatesDirectory'], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
-            os.fsync(parent)
-        finally:
-            os.close(parent)
+        for directory in (self.directory, self.value['updatesDirectory']):
+            parent = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(parent)
+            finally:
+                os.close(parent)
         self.record_path = os.path.join(self.directory, 'launch.json')
         self.runtime = tempfile.mkdtemp(prefix='shop-things-restart-', dir='/tmp')
         self.socket_path = os.path.join(self.runtime, 'ready.sock')

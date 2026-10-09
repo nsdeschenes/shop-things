@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 import {constants} from 'node:fs';
 import {mkdir, open, rename} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -24,6 +25,8 @@ export interface InstallationOptions {
   invoke?: typeof invokeUpdateHelper;
   supervisor?: typeof startRestartSupervisor;
   exit: () => void;
+  appVersion?: string;
+  onRecovery?: (recheck: (() => Promise<InstallResult>) | null) => void;
 }
 export async function durableUserInstallRecord(
   directory: string,
@@ -46,8 +49,9 @@ export async function durableUserInstallRecord(
       throw new Error('Update diagnostics are not private.');
     }
 
+    const temporary = join(path, 'install.json.' + randomUUID() + '.new');
     const file = await open(
-      join(path, 'install.json.new'),
+      temporary,
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
       0o600
     );
@@ -63,7 +67,7 @@ export async function durableUserInstallRecord(
       await file.close();
     }
 
-    await rename(join(path, 'install.json.new'), join(path, 'install.json'));
+    await rename(temporary, join(path, 'install.json'));
     await folder.sync();
   } finally {
     await folder.close();
@@ -87,28 +91,52 @@ export async function installVerifiedUpdate(
     return 'retryable';
   }
 
-  let before;
+  const lease = held.value;
+  let before: Awaited<ReturnType<typeof inspect>>;
+  function retainPreparation() {
+    options.onRecovery?.(async () => {
+      try {
+        const fresh = await inspect();
+        if (
+          fresh.outcome === 'uncertain' ||
+          !fresh.state ||
+          !options.appVersion ||
+          JSON.parse(fresh.state).appVersion !== options.appVersion
+        ) {
+          return 'recovery';
+        }
+
+        await lease.abort();
+        options.onRecovery?.(null);
+        return 'retryable';
+      } catch {
+        return 'recovery';
+      }
+    });
+    return 'recovery' as const;
+  }
+
   try {
     before = await inspect();
     if (before.outcome !== 'clean' || before.state === null) {
-      return 'recovery';
+      return retainPreparation();
     }
   } catch {
-    return 'recovery';
+    return retainPreparation();
   }
 
   phase('quiescent');
-  let supervisor;
+  let supervisor: Awaited<ReturnType<typeof startRestartSupervisor>> | undefined;
   try {
-    held.value.assertCurrent();
+    lease.assertCurrent();
     supervisor = await (options.supervisor ?? startRestartSupervisor)({
       attemptId: artifact.attemptId,
       updatesDirectory: options.updatesDirectory,
     });
-    held.value.assertCurrent();
+    lease.assertCurrent();
   } catch {
     supervisor?.cancel();
-    await held.value.abort();
+    await lease.abort();
     return 'retryable';
   }
 
@@ -156,63 +184,95 @@ export async function installVerifiedUpdate(
     clearInterval(timer);
   }
 
-  phase('reconciling');
-  let after;
-  try {
-    after = await inspect(artifact.attemptId);
-  } catch {
-    return 'recovery';
-  }
-
-  if (!exited) {
-    return 'recovery';
-  }
-
-  if (
-    after.outcome === 'installed' &&
-    after.receipt?.attemptId === artifact.attemptId &&
-    after.receipt.manifestDigest === artifact.manifestDigest &&
-    after.receipt.appVersion === candidate.manifest.appVersion &&
-    after.receipt.packageVersion === candidate.manifest.packageVersion
-  ) {
+  async function reconcile(): Promise<InstallResult> {
+    phase('reconciling');
+    let after;
     try {
-      await durableUserInstallRecord(options.updatesDirectory, artifact.attemptId, {
-        schemaVersion: 1,
-        attemptId: artifact.attemptId,
-        outcome: 'installed',
-        manifestDigest: artifact.manifestDigest,
-        appVersion: candidate.manifest.appVersion,
-        packageName: 'shop-things',
-        packageVersion: candidate.manifest.packageVersion,
-        architecture: 'arm64',
-      });
-      const finalized = await held.value.finalizeForExit();
-      if (finalized.status !== 'success') {
-        return 'recovery';
-      }
-
-      phase('restarting');
-      options.exit();
-      return 'restarting';
+      after = await inspect(artifact.attemptId);
     } catch {
       return 'recovery';
     }
+
+    if (!exited && after.receipt?.resolution !== 'administrator') {
+      return 'recovery';
+    }
+
+    if (
+      after.outcome === 'installed' &&
+      after.receipt?.attemptId === artifact.attemptId &&
+      after.receipt.manifestDigest === artifact.manifestDigest &&
+      after.receipt.appVersion === candidate.manifest.appVersion &&
+      after.receipt.packageVersion === candidate.manifest.packageVersion
+    ) {
+      try {
+        await durableUserInstallRecord(options.updatesDirectory, artifact.attemptId, {
+          schemaVersion: 1,
+          attemptId: artifact.attemptId,
+          outcome: 'installed',
+          manifestDigest: artifact.manifestDigest,
+          appVersion: candidate.manifest.appVersion,
+          packageName: 'shop-things',
+          packageVersion: candidate.manifest.packageVersion,
+          architecture: 'arm64',
+        });
+        const finalized = await lease.finalizeForExit();
+        if (finalized.status !== 'success') {
+          return 'recovery';
+        }
+
+        phase('restarting');
+        options.exit();
+        return 'restarting';
+      } catch {
+        return 'recovery';
+      }
+    }
+
+    const provenUnchanged =
+      after.outcome === 'unchanged' &&
+      after.receipt?.attemptId === artifact.attemptId &&
+      after.receipt.manifestDigest === artifact.manifestDigest &&
+      after.state === before.state;
+    const authorizationDidNotMutate =
+      after.outcome === 'clean' &&
+      after.receipt === null &&
+      after.generation === before.generation &&
+      after.state === before.state;
+    if (provenUnchanged || authorizationDidNotMutate) {
+      supervisor?.cancel();
+      await lease.abort();
+      return 'retryable';
+    }
+
+    return 'recovery';
   }
 
-  const provenUnchanged =
-    after.outcome === 'unchanged' &&
-    after.receipt?.attemptId === artifact.attemptId &&
-    after.state === before.state;
-  const authorizationDidNotMutate =
-    after.outcome === 'clean' &&
-    after.receipt === null &&
-    after.generation === before.generation &&
-    after.state === before.state;
-  if (provenUnchanged || authorizationDidNotMutate) {
-    supervisor.cancel();
-    await held.value.abort();
-    return 'retryable';
+  let settled: InstallResult | null = null;
+  let pending: Promise<InstallResult> | null = null;
+  function recheck() {
+    if (settled) {
+      return Promise.resolve(settled);
+    }
+
+    pending ??= reconcile()
+      .then(result => {
+        if (result !== 'recovery') {
+          settled = result;
+          options.onRecovery?.(null);
+        }
+
+        return result;
+      })
+      .finally(() => {
+        pending = null;
+      });
+    return pending;
   }
 
-  return 'recovery';
+  const result = await recheck();
+  if (result === 'recovery') {
+    options.onRecovery?.(recheck);
+  }
+
+  return result;
 }

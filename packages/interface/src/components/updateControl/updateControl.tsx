@@ -139,7 +139,7 @@ export default function UpdateControl({updates}: {updates: UpdateBridge | null})
                                   : state.phase === 'restarting'
                                     ? 'Update installed. Restarting Shop Things…'
                                     : state.phase === 'package-recovery'
-                                      ? 'The package state needs system recovery. Customer work remains closed.'
+                                      ? 'An administrator must resolve the package state. Customer work remains closed. Check again after system recovery.'
                                       : state.phase === 'staged'
                                         ? 'Download verified. Installation is not available yet.'
                                         : state.phase === 'retryable-failure'
@@ -183,7 +183,8 @@ export default function UpdateControl({updates}: {updates: UpdateBridge | null})
                   Update
                 </Button>
               )}
-              {state.phase === 'retryable-failure' &&
+              {(state.phase === 'retryable-failure' ||
+                state.phase === 'package-recovery') &&
                 state.nextActions.includes('retry') && (
                   <Button
                     onClick={() => {
@@ -193,7 +194,7 @@ export default function UpdateControl({updates}: {updates: UpdateBridge | null})
                       }
                     }}
                   >
-                    Retry
+                    {state.phase === 'package-recovery' ? 'Check again' : 'Retry'}
                   </Button>
                 )}
               {state.phase === 'check-failed' && (

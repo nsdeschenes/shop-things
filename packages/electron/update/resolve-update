@@ -1,0 +1,25 @@
+#!/usr/bin/python3 -I
+"""Manual administrator entry. No package mutation or automatic authentication."""
+import importlib.util
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+try:
+    if os.geteuid() != 0 or len(sys.argv) != 2 or os.uname().sysname != 'Linux' or os.uname().machine != 'aarch64':
+        raise ValueError('Explicit ARM64 administrator execution is required')
+    os.environ.clear()
+    os.environ.update({'PATH': '/usr/bin:/bin', 'LC_ALL': 'C', 'LANG': 'C'})
+    path = Path('/usr/lib/shop-things/update/recovery.py')
+    for item in [path, *path.parents]:
+        info = item.lstat()
+        if info.st_uid != 0 or info.st_mode & 0o022 or stat.S_ISLNK(info.st_mode):
+            raise ValueError('Protected recovery module is unavailable')
+    spec = importlib.util.spec_from_file_location('recovery', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    print(json.dumps(module.resolve(sys.argv[1]), separators=(',', ':')))
+except Exception:
+    print('Shop Things could not verify this protected attempt. No package operation was performed.', file=sys.stderr)
+    sys.exit(1)

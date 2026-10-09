@@ -40,6 +40,7 @@ export interface UpdateDiscoveryOptions {
     phase: (value: UpdateState['phase']) => void
   ) => Promise<'retryable' | 'recovery' | 'restarting'>;
   admissionAllowed?: () => boolean;
+  recheck?: () => Promise<'retryable' | 'recovery' | 'restarting' | 'ready'>;
   compareDebian?: (left: string, right: string) => Promise<number>;
 }
 
@@ -66,6 +67,8 @@ function isObject(value: unknown): value is Record<string, unknown> {
 export class UpdateDiscovery {
   private state: UpdateState;
   private readonly listeners = new Set<(state: UpdateState) => void>();
+  private recoveryChecking: Promise<Awaited<ReturnType<UpdateBridge['retry']>>> | null =
+    null;
   private pending: Promise<Awaited<ReturnType<UpdateBridge['check']>>> | null = null;
   private candidate: DiscoveredUpdateCandidate | null = null;
   private attempt: {
@@ -121,7 +124,8 @@ export class UpdateDiscovery {
     this.publish({
       phase: 'package-recovery',
       errorCode: 'PACKAGE_UNCERTAIN',
-      nextActions: [],
+      attemptId: this.attempt?.id ?? randomUUID(),
+      nextActions: this.options.recheck ? ['retry'] : [],
     });
   }
   check: UpdateBridge['check'] = () => {
@@ -232,6 +236,52 @@ export class UpdateDiscovery {
     return this.getState({});
   };
   retry: UpdateBridge['retry'] = async ({attemptId}) => {
+    if (this.state.phase === 'package-recovery' || this.recoveryChecking) {
+      if (!this.options.recheck || this.state.attemptId !== attemptId) {
+        return {
+          status: 'error',
+          error: {code: 'VALIDATION', message: 'This package recovery check expired.'},
+        };
+      }
+
+      this.recoveryChecking ??= (async () => {
+        const identity = {
+          attemptId,
+          ...(this.state.candidateId ? {candidateId: this.state.candidateId} : {}),
+          ...(this.state.targetVersion ? {targetVersion: this.state.targetVersion} : {}),
+        };
+        this.publish({...identity, phase: 'reconciling', nextActions: []});
+        let result: Awaited<ReturnType<NonNullable<UpdateDiscoveryOptions['recheck']>>> =
+          'recovery';
+        try {
+          result = await this.options.recheck!();
+        } catch {}
+
+        this.publish({
+          ...identity,
+          phase:
+            result === 'ready'
+              ? 'idle'
+              : result === 'retryable'
+                ? 'retryable-failure'
+                : result === 'restarting'
+                  ? 'restarting'
+                  : 'package-recovery',
+          ...(result === 'recovery'
+            ? {errorCode: 'PACKAGE_UNCERTAIN' as const}
+            : result === 'retryable'
+              ? {errorCode: 'AUTHENTICATION' as const}
+              : {}),
+          nextActions:
+            result === 'ready' ? ['check'] : result === 'restarting' ? [] : ['retry'],
+        });
+        return this.getState({});
+      })().finally(() => {
+        this.recoveryChecking = null;
+      });
+      return this.recoveryChecking;
+    }
+
     if (
       this.options.admissionAllowed?.() === false ||
       !this.attempt ||
@@ -328,14 +378,17 @@ export class UpdateDiscovery {
                       ? ('AUTHENTICATION' as const)
                       : ('PACKAGE_UNCERTAIN' as const),
                 }),
-            nextActions: result === 'retryable' ? ['retry'] : [],
+            nextActions:
+              result === 'retryable' || (result === 'recovery' && this.options.recheck)
+                ? ['retry']
+                : [],
           });
         } catch {
           this.publish({
             ...identity,
             phase: 'package-recovery',
             errorCode: 'PACKAGE_UNCERTAIN',
-            nextActions: [],
+            nextActions: this.options.recheck ? ['retry'] : [],
           });
         }
       })

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import stat
 import subprocess
 import tempfile
@@ -15,6 +16,7 @@ HOOK = '/usr/lib/shop-things/update/apt-hook'
 ENV = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C', 'LANG': 'C', 'DEBIAN_FRONTEND': 'noninteractive'}
 MAXIMUM = 8 * 1024 * 1024
 PACKAGE = re.compile(r'^[a-z0-9][a-z0-9+.-]{0,127}(?::[a-z0-9-]{1,32})?$')
+VERSION = re.compile(r'^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$', re.ASCII)
 UUID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
 
 
@@ -76,7 +78,7 @@ def sync(path):
 def publish(path, value, uid=None, public=False):
     raw = json.dumps(value, separators=(',', ':'), sort_keys=True).encode()
     require(len(raw) <= MAXIMUM)
-    temporary = str(path) + '.new'
+    temporary = str(path) + '.' + secrets.token_hex(16) + '.new'
     file = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
         with os.fdopen(file, 'wb', closefd=False) as output:
@@ -120,7 +122,7 @@ def initialize():
 def global_index():
     value = read(RECEIPTS + '/global.json')
     require(type(value) is dict and set(value) == {'schemaVersion', 'initialized', 'generation', 'unresolved'} and
-            value['schemaVersion'] == 1 and value['initialized'] is True and
+            type(value['schemaVersion']) is int and value['schemaVersion'] == 1 and value['initialized'] is True and
             type(value['generation']) is int and 0 <= value['generation'] < 9007199254740991 and
             type(value['unresolved']) is list and len(value['unresolved']) <= 64)
     seen = set()
@@ -303,7 +305,8 @@ def archive_control(path):
     require(PACKAGE.fullmatch(value['Package']) and ':' not in value['Package'] and
             0 < len(value['Version']) <= 128 and value['Architecture'] in ('arm64', 'all'))
     value['Multi-Arch'] = value['Multi-Arch'] or 'no'
-    require(value['Multi-Arch'] in ('no', 'same', 'foreign', 'allowed'))
+    require(value['Multi-Arch'] in ('no', 'same', 'foreign', 'allowed') and
+            not (value['Architecture'] == 'all' and value['Multi-Arch'] == 'same'))
     file = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     digest = hashlib.sha256()
     try:
@@ -390,20 +393,25 @@ def receipt_path(uid, attempt):
     return directory + '/' + attempt + '.json'
 
 
+def receipt_projection(journal):
+    # Projection deliberately omits private root paths and process/environment data.
+    projection = {key: journal[key] for key in ('schemaVersion', 'attemptId', 'uid', 'generation', 'manifestDigest',
+                    'appVersion', 'packageVersion', 'baselineAppVersion', 'finalAppVersion', 'baseline', 'plan', 'phase', 'outcome', 'errorCode', 'final', 'policyDigest', 'verifiedKeyDigest', 'resolution')}
+    projection['plan'] = [[{**row, 'action': 'archive' if row['action'].startswith('/') else 'configure'} for row in batch] for batch in journal['plan']]
+    return projection
+
+
 def persist(journal):
     require(journal['generation'] < 9007199254740991)
     journal['generation'] += 1
     publish(STATE + '/' + journal['attemptId'] + '/journal.json', journal)
     path = receipt_path(journal['uid'], journal['attemptId'])
-    # Projection deliberately omits private root paths and process/environment data.
-    projection = {key: journal[key] for key in ('schemaVersion', 'attemptId', 'uid', 'generation', 'manifestDigest',
-                    'appVersion', 'packageVersion', 'baselineAppVersion', 'finalAppVersion', 'baseline', 'plan', 'phase', 'outcome', 'errorCode', 'final')}
-    projection['plan'] = [[{**row, 'action': 'archive' if row['action'].startswith('/') else 'configure'} for row in batch] for batch in journal['plan']]
+    projection = receipt_projection(journal)
     publish(path, projection, uid=journal['uid'])
     directory = str(Path(path).parent)
     index_path = directory + '/index.json'
     inventory = read(index_path) if Path(index_path).exists() else {'schemaVersion': 1, 'attempts': []}
-    require(set(inventory) == {'schemaVersion', 'attempts'} and inventory['schemaVersion'] == 1 and
+    require(set(inventory) == {'schemaVersion', 'attempts'} and type(inventory['schemaVersion']) is int and inventory['schemaVersion'] == 1 and
             type(inventory['attempts']) is list and len(inventory['attempts']) < 64)
     rows = [row for row in inventory['attempts'] if row['attemptId'] != journal['attemptId']]
     rows.append({'attemptId': journal['attemptId'], 'generation': journal['generation'], 'outcome': journal['outcome']})
@@ -492,9 +500,16 @@ def expected_state(journal):
     packages = {item['package']: dict(item) for item in journal['baseline']['packages']}
     for batch in journal['plan']:
         for row in batch:
-            name = row['package']
-            existing = next((key for key, item in packages.items() if key.split(':')[0] == name.split(':')[0] and item['architecture'] in (row['newArchitecture'], 'all')), None)
-            key = existing or name
+            name = row['package'].split(':')[0]
+            existing = [key for key, item in packages.items() if key.split(':')[0] == name and
+                        (item['architecture'] == row['oldArchitecture'] if row['oldVersion'] != '-' else
+                         item['architecture'] == row['newArchitecture'] or (item['architecture'] == 'all' and item['status'][1] != 'i'))]
+            require(len(existing) <= 1, 'Ambiguous qualified package tuple')
+            if existing:
+                del packages[existing[0]]
+            # dpkg binary:Package qualifies Multi-Arch:same. Supported new
+            # architectures are native arm64/all, so neither needs a foreign key.
+            key = name + ':' + row['newArchitecture'] if row['newMultiArch'] == 'same' else name
             packages[key] = {'package': key, 'version': row['newVersion'], 'architecture': row['newArchitecture'],
                              'multiArch': 'no' if row['newMultiArch'] == 'none' else row['newMultiArch'], 'status': 'ii '}
     return {'packages': sorted(packages.values(), key=lambda item: item['package']),
@@ -526,7 +541,7 @@ def install(verified, uid):
         config = controlled_config(attempt)
         journal = {'schemaVersion': 1, 'attemptId': verified['attemptId'], 'uid': uid, 'generation': 0,
                    'manifestDigest': verified['manifestDigest'], 'appVersion': verified['appVersion'],
-                   'packageVersion': verified['packageVersion'], 'baselineAppVersion': identity['appVersion'], 'finalAppVersion': None, 'baseline': baseline, 'plan': [], 'observedPlans': [],
+                   'packageVersion': verified['packageVersion'], 'policyDigest': verified['policyDigest'], 'verifiedKeyDigest': verified['verifiedKeyDigest'], 'resolution': None, 'baselineAppVersion': identity['appVersion'], 'finalAppVersion': None, 'baseline': baseline, 'plan': [], 'observedPlans': [],
                    'phase': 'pending', 'outcome': 'pending', 'errorCode': None, 'final': None}
         index['generation'] += 1
         index['unresolved'] = [{'attemptId': journal['attemptId'], 'uid': uid}]
@@ -580,26 +595,31 @@ def install(verified, uid):
 
 def validate_receipt(value, uid, attempt):
     require(type(value) is dict and set(value) == {'schemaVersion', 'attemptId', 'uid', 'generation', 'manifestDigest',
-            'appVersion', 'packageVersion', 'baselineAppVersion', 'finalAppVersion', 'baseline', 'plan', 'phase', 'outcome', 'errorCode', 'final'})
-    require(value['schemaVersion'] == 1 and value['uid'] == uid and value['attemptId'] == attempt and
+            'appVersion', 'packageVersion', 'baselineAppVersion', 'finalAppVersion', 'baseline', 'plan', 'phase', 'outcome', 'errorCode', 'final', 'policyDigest', 'verifiedKeyDigest', 'resolution'})
+    require(type(value['schemaVersion']) is int and value['schemaVersion'] == 1 and type(value['uid']) is int and value['uid'] == uid and value['attemptId'] == attempt and
             UUID.fullmatch(attempt) and type(value['generation']) is int and 0 < value['generation'] < 9007199254740991 and
             type(value['manifestDigest']) is str and re.fullmatch('[0-9a-f]{64}', value['manifestDigest']) and
             value['outcome'] in ('pending', 'installed', 'unchanged', 'uncertain') and
             value['phase'] in ('pending', 'mutation-possible', 'complete', 'recovery') and
             type(value['plan']) is list and len(value['plan']) <= 32)
-    require(type(value['appVersion']) is str and len(value['appVersion']) <= 128 and
+    require(all(type(value[key]) is str and re.fullmatch('[0-9a-f]{64}', value[key]) for key in ('policyDigest', 'verifiedKeyDigest')) and value['resolution'] in (None, 'administrator'))
+    require(type(value['appVersion']) is str and len(value['appVersion']) <= 128 and VERSION.fullmatch(value['appVersion']) and
             type(value['packageVersion']) is str and len(value['packageVersion']) <= 128)
-    for inventory in [value['baseline']] + ([value['final']] if value['final'] else []):
+    for inventory in [value['baseline']] + ([value['final']] if value['final'] is not None else []):
         require(type(inventory) is dict and set(inventory) == {'packages', 'automatic'} and
                 type(inventory['packages']) is list and len(inventory['packages']) <= 32768 and
-                type(inventory['automatic']) is list and len(inventory['automatic']) <= 32768)
+                type(inventory['automatic']) is list and len(inventory['automatic']) <= 32768 and
+                all(type(name) is str and PACKAGE.fullmatch(name) for name in inventory['automatic']) and
+                len(set(inventory['automatic'])) == len(inventory['automatic']))
         seen = set()
         for row in inventory['packages']:
             require(type(row) is dict and set(row) == {'package', 'version', 'architecture', 'multiArch', 'status'} and
                     type(row['package']) is str and PACKAGE.fullmatch(row['package']) and row['package'] not in seen and
-                    all(type(row[key]) is str and len(row[key]) <= 128 for key in ('version', 'architecture', 'multiArch', 'status')))
+                    all(type(row[key]) is str and 0 < len(row[key]) <= 128 for key in ('version', 'architecture', 'multiArch', 'status')) and
+                    row['status'] in ('ii ', 'hi ', 'rc ', 'pc ') and row['multiArch'] in ('no', 'same', 'foreign', 'allowed'))
             seen.add(row['package'])
     require(value['errorCode'] in (None, 'TRANSACTION_REJECTED', 'PACKAGE_RECOVERY'))
+    require(value['resolution'] is None or (value['outcome'] in ('installed', 'unchanged') and value['phase'] == 'complete'))
     for batch in value['plan']:
         require(type(batch) is list and 0 < len(batch) <= 4096)
         for row in batch:
@@ -612,8 +632,8 @@ def validate_receipt(value, uid, attempt):
             if row['action'] == 'archive':
                 require(type(row['sha256']) is str and re.fullmatch('[0-9a-f]{64}', row['sha256']) and
                         type(row['byteLength']) is int and 0 < row['byteLength'] <= 1073741824)
-    require(type(value['baselineAppVersion']) is str and len(value['baselineAppVersion']) <= 128 and
-            (value['finalAppVersion'] is None or (type(value['finalAppVersion']) is str and len(value['finalAppVersion']) <= 128)))
+    require(type(value['baselineAppVersion']) is str and len(value['baselineAppVersion']) <= 128 and VERSION.fullmatch(value['baselineAppVersion']) and
+            (value['finalAppVersion'] is None or (type(value['finalAppVersion']) is str and len(value['finalAppVersion']) <= 128 and VERSION.fullmatch(value['finalAppVersion']))))
     if value['outcome'] == 'installed':
         targets = [row for batch in value['plan'] for row in batch if row['action'] == 'archive' and row['package'].split(':')[0] == 'shop-things']
         require(value['finalAppVersion'] == value['appVersion'] and value['phase'] == 'complete' and len(targets) == 1 and targets[0]['newVersion'] == value['packageVersion'] and
@@ -637,10 +657,10 @@ def inspect(uid, attempt=None):
         verify_acl(inventory_path, uid, False)
         inventory = read(inventory_path)
         require(type(inventory) is dict and set(inventory) == {'schemaVersion', 'attempts'} and
-                inventory['schemaVersion'] == 1 and type(inventory['attempts']) is list and len(inventory['attempts']) <= 64)
+                type(inventory['schemaVersion']) is int and inventory['schemaVersion'] == 1 and type(inventory['attempts']) is list and len(inventory['attempts']) <= 64)
         for row in inventory['attempts']:
             require(type(row) is dict and set(row) == {'attemptId', 'generation', 'outcome'} and
-                    type(row['attemptId']) is str and UUID.fullmatch(row['attemptId']) and row['attemptId'] not in records)
+                    type(row['attemptId']) is str and UUID.fullmatch(row['attemptId']) and row['attemptId'] not in records and type(row['generation']) is int and 0 < row['generation'] < 9007199254740991 and row['outcome'] in ('pending', 'installed', 'unchanged', 'uncertain'))
             path = directory + '/' + row['attemptId'] + '.json'
             verify_acl(path, uid, False)
             record = validate_receipt(read(path), uid, row['attemptId'])
@@ -649,8 +669,12 @@ def inspect(uid, attempt=None):
     if any(row['uid'] != uid for row in before['unresolved']):
         return {'outcome': 'uncertain', 'generation': before['generation'], 'state': None, 'receipt': None}
     current_identity = read('/usr/lib/shop-things/update/identity.json')
-    require(type(current_identity) is dict and set(current_identity) == {'schemaVersion', 'packageName', 'appVersion'} and current_identity['schemaVersion'] == 1 and current_identity['packageName'] == 'shop-things' and type(current_identity['appVersion']) is str and re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\+[A-Za-z0-9.-]+)?', current_identity['appVersion']))
+    require(type(current_identity) is dict and set(current_identity) == {'schemaVersion', 'packageName', 'appVersion'} and type(current_identity['schemaVersion']) is int and current_identity['schemaVersion'] == 1 and current_identity['packageName'] == 'shop-things' and type(current_identity['appVersion']) is str and len(current_identity['appVersion']) <= 128 and VERSION.fullmatch(current_identity['appVersion']))
     fresh = package_state()
+    apps = [row for row in fresh['packages'] if row['package'].split(':')[0] == 'shop-things']
+    require(len(apps) == 1 and apps[0]['architecture'] == 'arm64' and apps[0]['status'] in ('ii ', 'hi '), 'Configured ARM64 shop-things is required')
+    require(command(['/usr/bin/dpkg-query', '--search', '/opt/Shop Things/shop-things'], 4096).decode().strip() in ('shop-things: /opt/Shop Things/shop-things', 'shop-things:arm64: /opt/Shop Things/shop-things'), 'Installed executable ownership changed')
+    protected('/opt/Shop Things/shop-things')
     require(current_identity == read('/usr/lib/shop-things/update/identity.json'))
     require(before == global_index(), 'Protected package generation changed during inspection')
     snapshot = {**fresh, 'appVersion': current_identity['appVersion']}

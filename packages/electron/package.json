@@ -66,6 +66,8 @@
           "identity.json",
           "updater-helper.py",
           "transaction.py",
+          "recovery.py",
+          "resolve-update",
           "apt-hook",
           "bootstrap.py",
           "com.shopthings.app.update.policy",

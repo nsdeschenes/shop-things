@@ -1,5 +1,9 @@
 """Controlled process-boundary fixtures; no privileged or GTK desktop proof."""
 import importlib.util
+import ctypes
+import select
+import signal
+import shutil
 import pathlib
 import json
 import os
@@ -236,5 +240,101 @@ class ProcessTests(unittest.TestCase):
         self.policy.old_running=False
         self.instance.run()
 
+def external_worker(directory, cut):
+    value = json.loads(pathlib.Path(directory, 'request.json').read_text())
+    class ExternalPolicy(FixturePolicy):
+        def validate_parent(self, value):
+            supervisor.Policy.validate_parent(self, value)
+        def old_alive(self, value):
+            return supervisor.Policy.old_alive(self, value)
+        def launch(self, environment):
+            child = super().launch(environment)
+            if cut == 'spawn-before-pid':
+                print(json.dumps({'cut':cut, 'supervisor':os.getpid(), 'child':child.pid, 'childStart':supervisor.process_identity(child.pid)}), flush=True)
+                os.kill(os.getpid(), signal.SIGSTOP)
+            return child
+    policy = ExternalPolicy('slow' if cut == 'spawn-before-pid' else 'ready')
+    original_record = supervisor.Supervisor.record
+    def record(instance, phase, diagnostics=''):
+        original_record(instance, phase, diagnostics)
+        if phase == cut:
+            print(json.dumps({'cut':cut, 'supervisor':os.getpid()}), flush=True)
+            os.kill(os.getpid(), signal.SIGSTOP)
+    supervisor.Supervisor.record = record
+    instance = supervisor.Supervisor(value, policy)
+    supervisor.durable_json(os.path.join(instance.directory, 'install.json'), ProcessTests().receipt())
+    instance.run(lambda ready:print(json.dumps({'waiting':True, 'supervisor':os.getpid(), 'runtime':instance.runtime}), flush=True))
+    print(json.dumps({'finished':True}), flush=True)
+
+class InterruptionTests(unittest.TestCase):
+    def test_real_old_app_loss_and_supervisor_cuts_do_not_replay_attempt(self):
+        # Reap our deliberately orphaned observer children; this is external harness
+        # policy and grants no packaged entry or authentication authority.
+        self.assertEqual(ctypes.CDLL(None).prctl(36, 1, 0, 0, 0), 0)
+        for cut in ('waiting', 'launch-intent', 'spawn-before-pid', 'ready'):
+            with self.subTest(cut=cut), tempfile.TemporaryDirectory() as directory:
+                os.chmod(directory,0o700)
+                driver = subprocess.Popen(['/usr/bin/python3','-I',str(pathlib.Path(__file__).resolve()),'--old-app',directory,cut],stdout=subprocess.PIPE)
+                owned = []
+                runtime = None
+                try:
+                    def message():
+                        self.assertTrue(select.select([driver.stdout],[],[],5)[0], 'Missing controlled process marker')
+                        return json.loads(driver.stdout.readline())
+                    first = message()
+                    self.assertTrue(first['waiting'])
+                    runtime = first['runtime']
+                    worker = first['supervisor']
+                    owned.append(worker)
+                    record_path = pathlib.Path(directory,ATTEMPT,'launch.json')
+                    if cut == 'waiting':
+                        self.assertEqual(json.loads(record_path.read_text())['phase'],'waiting-for-old-exit')
+                        os.kill(worker,signal.SIGKILL)
+                        driver.kill()
+                        driver.wait(timeout=5)
+                    else:
+                        driver.kill()
+                        driver.wait(timeout=5)
+                        marker = message()
+                        self.assertEqual(marker['cut'],cut)
+                        record = json.loads(record_path.read_text())
+                        self.assertEqual(record['installOutcome'],'installed')
+                        if cut == 'spawn-before-pid':
+                            owned.append(marker['child'])
+                            self.assertEqual(record['phase'],'launch-intent')
+                            self.assertIsNone(record['child'])
+                            self.assertEqual(supervisor.process_identity(marker['child']),marker['childStart'])
+                        if cut == 'ready':
+                            owned.append(record['child']['pid'])
+                            self.assertEqual(record['phase'],'ready')
+                        os.kill(worker,signal.SIGKILL)
+                    # A missing child PID is uncertainty, never permission to replay.
+                    value = json.loads(pathlib.Path(directory,'request.json').read_text())
+                    with self.assertRaises(FileExistsError):
+                        supervisor.Supervisor(value,FixturePolicy())
+                    if cut == 'spawn-before-pid':
+                        self.assertEqual(supervisor.process_identity(marker['child']),marker['childStart'])
+                finally:
+                    if driver.poll() is None:
+                        driver.kill()
+                    driver.wait(timeout=5)
+                    for pid in reversed(owned):
+                        try: os.kill(pid,signal.SIGKILL)
+                        except ProcessLookupError: pass
+                    for pid in owned:
+                        try: os.waitpid(pid,0)
+                        except ChildProcessError: pass
+                    driver.stdout.close()
+                    if runtime:
+                        shutil.rmtree(runtime)
+
 if __name__ == '__main__':
-    unittest.main()
+    if len(sys.argv) == 4 and sys.argv[1] == '--old-app':
+        directory, cut = sys.argv[2:]
+        pathlib.Path(directory,'request.json').write_text(json.dumps({'protocol':1,'attemptId':ATTEMPT,'oldPid':os.getpid(),'oldStart':supervisor.process_identity(os.getpid()),'updatesDirectory':directory}))
+        subprocess.Popen(['/usr/bin/python3','-I',str(pathlib.Path(__file__).resolve()),'--worker',directory,cut])
+        signal.pause()
+    elif len(sys.argv) == 4 and sys.argv[1] == '--worker':
+        external_worker(sys.argv[2],sys.argv[3])
+    else:
+        unittest.main()
