@@ -1,6 +1,8 @@
 """Disposable real ARM64 APT proof. No host mounts or privileged-host mode."""
 import base64
 import hashlib
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
 import json
 import os
@@ -9,6 +11,7 @@ import pwd
 import shutil
 import subprocess
 import sys
+from threading import Thread
 import uuid
 
 case = sys.argv[1]
@@ -47,17 +50,22 @@ victim = package('victim', '1.0.0')
 run('/usr/bin/dpkg', '-i', str(base), str(victim))
 extra = 'Breaks: victim\n' if case == 'breaks' else 'Replaces: victim\n' if case == 'replaces' else ''
 dep = package('fixture-dep', '1.0.0', extra, 'exit 1' if case == 'partial' else 'true')
-target = package('shop-things', '2.0.0', 'Depends: fixture-dep (= 1.0.0)\n', "cp '/opt/Shop Things/resources/update/identity.json' /usr/lib/shop-things/update/identity.json")
 run('/usr/bin/gpg', '--batch', '--passphrase', '', '--quick-gen-key', 'Disposable fixture <noreply@example.com>', 'rsa2048', 'sign', '0')
 key = run('/usr/bin/gpg', '--export')
 Path('/usr/share/keyrings/fixture.gpg').write_bytes(key)
 Path('/fixture/repo/Packages').write_bytes(run('/usr/bin/apt-ftparchive', 'packages', '.', cwd='/fixture/repo'))
 Path('/fixture/repo/Release').write_bytes(run('/usr/bin/apt-ftparchive', 'release', '.', cwd='/fixture/repo'))
 run('/usr/bin/gpg', '--batch', '--yes', '--clearsign', '-o', '/fixture/repo/InRelease', '/fixture/repo/Release')
+# Only dependencies come from the repository; the signed app stays a local input.
+target = package('shop-things', '2.0.0', 'Depends: fixture-dep (= 1.0.0)\n', "cp '/opt/Shop Things/resources/update/identity.json' /usr/lib/shop-things/update/identity.json")
+# file: permits direct repository paths instead of the protected APT archive cache.
+repository = ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler, directory='/fixture/repo'))
+Thread(target=repository.serve_forever, daemon=True).start()
+repository_url = 'http://127.0.0.1:' + str(repository.server_port)
 for source in Path('/etc/apt/sources.list.d').iterdir():
     source.unlink()
 Path('/etc/apt/sources.list').unlink(missing_ok=True)
-Path('/etc/apt/sources.list.d/fixture.list').write_text('deb [signed-by=/usr/share/keyrings/fixture.gpg' + (' trusted=yes' if case == 'trusted' else '') + '] file:/fixture/repo ./\n')
+Path('/etc/apt/sources.list.d/fixture.list').write_text('deb [signed-by=/usr/share/keyrings/fixture.gpg' + (' trusted=yes' if case == 'trusted' else '') + '] ' + repository_url + ' ./\n')
 run('/usr/bin/apt-get', 'update')
 Path('/usr/lib/shop-things/update').mkdir(parents=True)
 for name, destination, mode in [('updater-helper.py', '/usr/lib/shop-things/updater-helper', 0o755),
