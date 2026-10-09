@@ -308,7 +308,7 @@ jobs:
           UPDATE_TRUSTED_PUBLIC_KEYS_JSON: ${{ vars.UPDATE_TRUSTED_PUBLIC_KEYS_JSON }}
         run: node --experimental-strip-types scripts/provision-update-policy.ts
       - name: Build Linux arm64 and smoke test the package
-        run: xvfb-run -a node --experimental-strip-types scripts/acceptance.ts --reuse-source-checks --reuse-renderer-checks
+        run: xvfb-run -a node --experimental-strip-types scripts/acceptance.ts --reuse-source-checks --reuse-renderer-checks --install-disposable-system
         env:
           ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
           SMOKE_EXECUTION_ENVIRONMENT: github-actions-ubuntu-24.04-arm-native-linux-arm64
