@@ -486,13 +486,26 @@ try {
   assert.equal(handles.size, 0);
   phases.push('shipped-pending-migration/source-preserving-migrating-restore');
   // Execute snapshot recovery through the shipped public APIs and actual addon.
+  async function copyPendingFixture(destination: string) {
+    const source = db.openDatabase(paths.pending);
+    try {
+      // Turso can retain committed WAL after close: a raw file copy is incomplete.
+      await db.backupDatabase(source.db, destination);
+    } finally {
+      source.close();
+    }
+  }
+
   const startupPath = join(directory, 'startup-pending.db');
-  await cp(paths.pending, startupPath);
+  await copyPendingFixture(startupPath);
   await settings.write(startupPath);
   const startupService = makeService();
   await startupService.start();
   const startupSession = startupService.status().session;
-  assert.ok(startupSession);
+  assert.ok(
+    startupSession,
+    JSON.stringify({startup: startupService.status(), diagnostics})
+  );
   const snapshots = await db.listMigrationSnapshots(migrationBackupDirectory);
   assert.equal(snapshots.unavailableCount, 0);
   const startupSnapshot = snapshots.snapshots.find(
@@ -564,7 +577,7 @@ try {
     'Pending'
   );
   const laterPath = join(directory, 'later-pending.db');
-  await cp(paths.pending, laterPath);
+  await copyPendingFixture(laterPath);
   openPath = laterPath;
   const laterState = success(await startupService.handlers['database.open']());
   assert.ok(laterState.session);
@@ -574,7 +587,7 @@ try {
     )
   );
   const failedPath = join(directory, 'failed-pending.db');
-  await cp(paths.pending, failedPath);
+  await copyPendingFixture(failedPath);
   const unavailableBackup = join(directory, 'unavailable-backup');
   await writeFile(unavailableBackup, 'not a directory');
   await assert.rejects(
@@ -650,7 +663,7 @@ try {
   success(await startupService.requestClose());
 
   const writerPath = join(directory, 'writer-pending.db');
-  await cp(paths.pending, writerPath);
+  await copyPendingFixture(writerPath);
   const owner = db.openDatabase(writerPath);
   function externalWriter() {
     return spawnSync(
