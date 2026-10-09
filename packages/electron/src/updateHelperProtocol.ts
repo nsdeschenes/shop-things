@@ -119,7 +119,14 @@ export async function invokeUpdateHelper(
             'attemptId,errorCode,outcome,protocol,type' ||
           !(
             value.errorCode === null ||
-            (typeof value.errorCode === 'string' && value.errorCode.length <= 64)
+            [
+              'VERIFICATION',
+              'PROTOCOL',
+              'CAPABILITY',
+              'PACKAGE_LOCK',
+              'TRANSACTION_REJECTED',
+              'PACKAGE_RECOVERY',
+            ].includes(value.errorCode)
           )
         ) {
           throw new HelperProcessError(true);

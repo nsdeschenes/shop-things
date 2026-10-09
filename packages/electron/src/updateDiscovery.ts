@@ -11,6 +11,11 @@ import {
   type VerifiedUpdateArtifact,
 } from './updateDownload.js';
 import {
+  retryableInstallation,
+  installationErrorCode,
+  type InstallResult,
+} from './updateInstallationResult.js';
+import {
   stableVersion,
   verifyUpdateManifest,
   type UpdateManifest,
@@ -38,9 +43,9 @@ export interface UpdateDiscoveryOptions {
     candidate: DiscoveredUpdateCandidate,
     artifact: VerifiedUpdateArtifact,
     phase: (value: UpdateState['phase']) => void
-  ) => Promise<'retryable' | 'recovery' | 'restarting'>;
+  ) => Promise<InstallResult>;
   admissionAllowed?: () => boolean;
-  recheck?: () => Promise<'retryable' | 'recovery' | 'restarting' | 'ready'>;
+  recheck?: () => Promise<InstallResult | 'ready'>;
   compareDebian?: (left: string, right: string) => Promise<number>;
 }
 
@@ -262,15 +267,15 @@ export class UpdateDiscovery {
           phase:
             result === 'ready'
               ? 'idle'
-              : result === 'retryable'
+              : retryableInstallation(result)
                 ? 'retryable-failure'
                 : result === 'restarting'
                   ? 'restarting'
                   : 'package-recovery',
           ...(result === 'recovery'
             ? {errorCode: 'PACKAGE_UNCERTAIN' as const}
-            : result === 'retryable'
-              ? {errorCode: 'AUTHENTICATION' as const}
+            : retryableInstallation(result)
+              ? {errorCode: installationErrorCode(result)}
               : {}),
           nextActions:
             result === 'ready' ? ['check'] : result === 'restarting' ? [] : ['retry'],
@@ -364,22 +369,21 @@ export class UpdateDiscovery {
           );
           this.publish({
             ...identity,
-            phase:
-              result === 'retryable'
-                ? 'retryable-failure'
-                : result === 'restarting'
-                  ? 'restarting'
-                  : 'package-recovery',
+            phase: retryableInstallation(result)
+              ? 'retryable-failure'
+              : result === 'restarting'
+                ? 'restarting'
+                : 'package-recovery',
             ...(result === 'restarting'
               ? {}
               : {
-                  errorCode:
-                    result === 'retryable'
-                      ? ('AUTHENTICATION' as const)
-                      : ('PACKAGE_UNCERTAIN' as const),
+                  errorCode: retryableInstallation(result)
+                    ? installationErrorCode(result)
+                    : ('PACKAGE_UNCERTAIN' as const),
                 }),
             nextActions:
-              result === 'retryable' || (result === 'recovery' && this.options.recheck)
+              retryableInstallation(result) ||
+              (result === 'recovery' && this.options.recheck)
                 ? ['retry']
                 : [],
           });

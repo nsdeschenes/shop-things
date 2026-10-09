@@ -1,4 +1,4 @@
-const retrySeconds = /^\d+$/;
+import {rateLimitRetryAt} from './updateRateLimit.js';
 
 export class UpdateNetworkError extends Error {
   constructor(
@@ -62,23 +62,9 @@ export async function requestUpdateBytes(
         current = new URL(location, current).href;
       }
 
-      if (
-        (!response.ok && response.headers.has('retry-after')) ||
-        response.status === 429 ||
-        (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0')
-      ) {
-        const retry = response.headers.get('retry-after');
-        const reset = Number(response.headers.get('x-ratelimit-reset')) * 1000;
-        const parsed =
-          retry && retrySeconds.test(retry)
-            ? Date.now() + Number(retry) * 1000
-            : retry
-              ? Date.parse(retry)
-              : reset;
-        throw new UpdateNetworkError(
-          'RATE_LIMIT',
-          Number.isFinite(parsed) && parsed > Date.now() ? parsed : Date.now() + 60000
-        );
+      const retryAt = rateLimitRetryAt(response);
+      if (retryAt !== null) {
+        throw new UpdateNetworkError('RATE_LIMIT', retryAt);
       }
 
       if (!response.ok || !response.body) {

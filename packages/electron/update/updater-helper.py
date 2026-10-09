@@ -291,6 +291,7 @@ def verify_request(request, uid):
 def main():
     os.umask(0o077)
     request = None
+    verified = None
     try:
         require(len(sys.argv) == 1, 'Caller options are not supported')
         require(os.geteuid() == 0 and os.uname().sysname == 'Linux' and os.uname().machine == 'aarch64', 'Helper requires scoped ARM64 authorization')
@@ -309,7 +310,7 @@ def main():
         result = transaction.install(verified, uid)
     except Exception:
         # No paths, raw request, key material or arbitrary tool output in diagnostics.
-        result = {'protocol': 1, 'type': 'outcome', 'outcome': 'rejected', 'errorCode': 'VERIFICATION'}
+        result = {'protocol': 1, 'type': 'outcome', 'outcome': 'rejected', 'errorCode': 'TRANSACTION_REJECTED' if verified is not None else 'VERIFICATION'}
         if type(request) is dict and type(request.get('attemptId')) is str and UUID.fullmatch(request['attemptId']):
             result['attemptId'] = request['attemptId']
     print(json.dumps(result, separators=(',', ':')), flush=True)

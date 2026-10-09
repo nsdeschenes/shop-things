@@ -3,6 +3,7 @@ import {afterEach, expect, test, vi} from 'vitest';
 import {requestUpdateBytes} from '../src/updateNetwork.js';
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -86,4 +87,31 @@ test('aborts each request after 30 seconds and external shutdown prevents furthe
   controller.abort();
   expect(await stopped).toMatchObject({code: 'NETWORK'});
   expect(fetcher).toHaveBeenCalledTimes(4);
+});
+
+test('metadata transport interprets decimal, date, reset and missing rate-limit deadlines', async () => {
+  vi.spyOn(Date, 'now').mockReturnValue(100000);
+  for (const [headers, retryAt] of [
+    [{'retry-after': '120'}, 220000],
+    [{'retry-after': 'Thu, 01 Jan 1970 00:03:00 GMT'}, 180000],
+    [{'x-ratelimit-reset': '200'}, 200000],
+    [{}, 160000],
+  ] as const) {
+    vi.stubGlobal('fetch', async () => new Response(null, {status: 429, headers}));
+    await expect(
+      requestUpdateBytes('https://github.com/fixture', 1024)
+    ).rejects.toMatchObject({code: 'RATE_LIMIT', retryAt});
+  }
+
+  vi.stubGlobal(
+    'fetch',
+    async () =>
+      new Response(null, {
+        status: 403,
+        headers: {'x-ratelimit-remaining': '0', 'retry-after': '0'},
+      })
+  );
+  await expect(
+    requestUpdateBytes('https://github.com/fixture', 1024)
+  ).rejects.toMatchObject({code: 'RATE_LIMIT', retryAt: 160000});
 });

@@ -8,11 +8,13 @@ import {isTrustedRendererUrl, trackAuthorizedDocument} from './document.js';
 import {DraftCoordinator} from './draftCoordinator.js';
 import {registerIpc} from './ipc.js';
 import {createNativeDialogs} from './nativeDialogs.js';
+import {readRestartDiagnostic, restartDiagnosticMessage} from './restartDiagnostics.js';
 import {acknowledgeRestartReady} from './restartSupervisor.js';
 import {FileDatabaseSettings} from './settings.js';
 import {inspectUpdateCapabilities} from './updateCapabilities.js';
 import {UpdateDiscovery} from './updateDiscovery.js';
 import {installVerifiedUpdate} from './updateInstallation.js';
+import {retryableInstallation, type InstallResult} from './updateInstallationResult.js';
 import {inspectPackageEvidence} from './updateReconciliation.js';
 
 let updates: UpdateDiscovery | null = null;
@@ -168,9 +170,7 @@ void app.whenReady().then(async () => {
   const {trustedKeys, packageVersion, packageIdentityAvailable} = capabilities;
   const capabilityReasons = capabilities.reasons;
 
-  let recheckInstallation:
-    | (() => Promise<'retryable' | 'recovery' | 'restarting'>)
-    | null = null;
+  let recheckInstallation: (() => Promise<InstallResult>) | null = null;
   async function reconcileStartup() {
     const evidence = await inspectPackageEvidence(
       process.env.SHOP_THINGS_RESTART_ATTEMPT
@@ -191,7 +191,7 @@ void app.whenReady().then(async () => {
     recheck: async () => {
       if (recheckInstallation) {
         const result = await recheckInstallation();
-        if (result === 'retryable') {
+        if (retryableInstallation(result)) {
           installOwnsLifecycle = false;
           packageUsable = true;
         }
@@ -240,7 +240,7 @@ void app.whenReady().then(async () => {
               artifact,
               phase
             );
-            if (result === 'retryable') {
+            if (retryableInstallation(result)) {
               installOwnsLifecycle = false;
             }
 
@@ -302,6 +302,27 @@ void app.whenReady().then(async () => {
     }
   })();
   createWindow();
+  // Informational history is never startup/package authority and never relaunches.
+  if (app.isPackaged && !process.env.SHOP_THINGS_RESTART_ATTEMPT) {
+    void starting.then(async () => {
+      const history = await readRestartDiagnostic(
+        join(app.getPath('userData'), 'updates')
+      );
+      if (history && window && packageUsable) {
+        void dialog
+          .showMessageBox(window, {
+            type: 'info',
+            title: 'Previous Update Restart',
+            message: restartDiagnosticMessage(history),
+            detail:
+              'This launch checks installed packages and customer work independently. Unsaved edits from the earlier session may be lost.',
+            buttons: ['Continue'],
+          })
+          .catch(() => {});
+      }
+    });
+  }
+
   updates.startChecking();
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([

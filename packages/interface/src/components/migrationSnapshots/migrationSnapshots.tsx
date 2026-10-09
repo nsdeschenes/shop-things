@@ -49,6 +49,7 @@ export default function MigrationSnapshots({application}: {application: Applicat
     queryOptions({
       queryKey: ['migration-snapshots', state.database?.version],
       enabled: !disabled,
+      staleTime: 0,
       retry: false,
       queryFn: async () => {
         const result = await application.listMigrationSnapshots();

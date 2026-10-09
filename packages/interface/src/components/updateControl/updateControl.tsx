@@ -1,9 +1,10 @@
 import {Popover} from '@base-ui/react/popover';
 import {ArrowUpTrayIcon} from '@heroicons/react/24/outline';
-import type {UpdateBridge, UpdateState} from '@shop-things/contract';
+import type {UpdateBridge} from '@shop-things/contract';
 import * as stylex from '@stylexjs/stylex';
-import {useEffect, useState} from 'react';
+import {useState} from 'react';
 
+import useUpdateState from '../../application/useUpdateState';
 import {colors} from '../../styles/colors.stylex';
 import Button from '../button/button';
 
@@ -26,41 +27,10 @@ const styles = stylex.create({
   message: {marginBottom: 12},
   actions: {gap: 8, display: 'flex'},
 });
-const initial: UpdateState = {
-  revision: 0,
-  phase: 'idle',
-  capabilityReasons: [],
-  nextActions: ['check'],
-};
-
 export default function UpdateControl({updates}: {updates: UpdateBridge | null}) {
-  const [state, setState] = useState(initial);
+  const [state, setState] = useUpdateState(updates);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    if (!updates) {
-      return;
-    }
-
-    function accept(next: UpdateState) {
-      if (active) {
-        setState(previous => (next.revision >= previous.revision ? next : previous));
-      }
-    }
-
-    const stop = updates.onStateChanged(accept);
-    void updates.getState({}).then(result => {
-      if (result.status === 'success') {
-        accept(result.value);
-      }
-    });
-    return () => {
-      active = false;
-      stop();
-    };
-  }, [updates]);
-
   async function check() {
     setError(null);
     if (['idle', 'current', 'available', 'check-failed'].includes(state.phase)) {
@@ -143,15 +113,19 @@ export default function UpdateControl({updates}: {updates: UpdateBridge | null})
                                       : state.phase === 'staged'
                                         ? 'Download verified. Installation is not available yet.'
                                         : state.phase === 'retryable-failure'
-                                          ? state.errorCode === 'AUTHENTICATION'
-                                            ? 'The update did not change the installed packages. Retry when ready.'
-                                            : state.errorCode === 'VERIFICATION'
-                                              ? 'Update verification failed. Retry to download a fresh copy.'
-                                              : state.errorCode === 'STORAGE'
-                                                ? 'Could not store the update. Check free disk space and retry.'
-                                                : state.errorCode === 'RATE_LIMIT'
-                                                  ? 'The release service has limited requests. Wait before retrying.'
-                                                  : 'Could not download the update. Check your connection and retry.'
+                                          ? state.errorCode === 'PACKAGE_LOCK'
+                                            ? 'Another installation is running. Wait for it to finish, then retry.'
+                                            : state.errorCode === 'TRANSACTION_REJECTED'
+                                              ? 'The package transaction was rejected. No installed packages changed. Check the system package configuration and retry.'
+                                              : state.errorCode === 'AUTHENTICATION'
+                                                ? 'The update did not change the installed packages. Retry when ready.'
+                                                : state.errorCode === 'VERIFICATION'
+                                                  ? 'Update verification failed. Retry to download a fresh copy.'
+                                                  : state.errorCode === 'STORAGE'
+                                                    ? 'Could not store the update. Check free disk space and retry.'
+                                                    : state.errorCode === 'RATE_LIMIT'
+                                                      ? 'The release service has limited requests. Wait before retrying.'
+                                                      : 'Could not download the update. Check your connection and retry.'
                                           : state.phase === 'check-failed'
                                             ? 'Could not check for updates. Try again.'
                                             : 'Check for a newer version of Shop Things.'}

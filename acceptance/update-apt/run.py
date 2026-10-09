@@ -235,6 +235,9 @@ elif case == 'partial':
     assert Path('/fixture/mutations').exists()
     assert journal['phase'] == 'recovery'
 else:
+    if case == 'lock':
+        assert outcome['outcome'] == 'unchanged' and outcome['errorCode'] == 'PACKAGE_LOCK', outcome
+        assert transaction.inspect(caller.pw_uid, request['attemptId'])['receipt']['errorCode'] == 'PACKAGE_LOCK'
     assert outcome['outcome'] in ('rejected', 'unchanged'), outcome
     assert not Path('/fixture/mutations').exists()
     if before is not None:

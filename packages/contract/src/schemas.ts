@@ -284,6 +284,7 @@ export const updateStateSchema = z.strictObject({
       'STORAGE',
       'AUTHENTICATION',
       'PACKAGE_LOCK',
+      'TRANSACTION_REJECTED',
       'PACKAGE_UNCERTAIN',
       'LAUNCH_FAILED',
     ])

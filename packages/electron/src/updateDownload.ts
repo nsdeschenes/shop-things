@@ -6,8 +6,7 @@ import {dirname, join} from 'node:path';
 
 import type {DiscoveredUpdateCandidate} from './updateDiscovery.js';
 import {verifyUpdateManifest, type UpdateManifest} from './updateManifest.js';
-
-const retrySeconds = /^\d+$/;
+import {rateLimitRetryAt} from './updateRateLimit.js';
 const attemptToken = /^[A-Za-z0-9_-]{1,128}$/;
 export class UpdateDownloadError extends Error {
   constructor(
@@ -249,22 +248,9 @@ async function transfer(
     }
 
     clearTimeout(request);
-    if (
-      (!response.ok && response.headers.has('retry-after')) ||
-      response.status === 429 ||
-      (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0')
-    ) {
-      const retry = response.headers.get('retry-after');
-      const parsed =
-        retry && retrySeconds.test(retry)
-          ? Date.now() + Number(retry) * 1000
-          : retry
-            ? Date.parse(retry)
-            : Number(response.headers.get('x-ratelimit-reset')) * 1000;
-      throw new UpdateDownloadError(
-        'RATE_LIMIT',
-        Number.isFinite(parsed) && parsed > Date.now() ? parsed : Date.now() + 60000
-      );
+    const retryAt = rateLimitRetryAt(response);
+    if (retryAt !== null) {
+      throw new UpdateDownloadError('RATE_LIMIT', retryAt);
     }
 
     if (!response.ok || !response.body) {

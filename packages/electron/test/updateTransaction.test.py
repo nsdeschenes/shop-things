@@ -36,5 +36,13 @@ class ActualTransaction(unittest.TestCase):
             with self.assertRaises(ValueError):
                 module.parse_plan(b'VERSION 3\n' + config + b'\n\n' + action)
 
+    def test_bounded_unchanged_reason_distinguishes_real_dpkg_lock_from_other_rejection(self):
+        spec = importlib.util.spec_from_file_location('transaction', Path(__file__).parents[1] / 'update/transaction.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(module.unchanged_error(b'E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 123'), 'PACKAGE_LOCK')
+        self.assertEqual(module.unchanged_error(b'E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), is another process using it?'), 'PACKAGE_LOCK')
+        self.assertEqual(module.unchanged_error(b'E: Actual downgrade rejected'), 'TRANSACTION_REJECTED')
+
 if __name__ == '__main__':
     unittest.main()
