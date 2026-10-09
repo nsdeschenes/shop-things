@@ -134,10 +134,10 @@ export default function ApplicationShell({application, children}: ApplicationShe
     application.protection.getState
   );
   useEffect(() => {
-    if (state.phase === 'ready') {
+    if (state.phase === 'ready' && !packageRecovery) {
       void application.getClient()?.app.ready({});
     }
-  }, [application, state.phase]);
+  }, [application, state.phase, packageRecovery]);
   const refreshDisabled =
     packageRecovery ||
     state.phase !== 'ready' ||

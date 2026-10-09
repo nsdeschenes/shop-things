@@ -168,12 +168,45 @@ void app.whenReady().then(async () => {
   const {trustedKeys, packageVersion, packageIdentityAvailable} = capabilities;
   const capabilityReasons = capabilities.reasons;
 
+  let recheckInstallation:
+    | (() => Promise<'retryable' | 'recovery' | 'restarting'>)
+    | null = null;
+  async function reconcileStartup() {
+    const evidence = await inspectPackageEvidence(
+      process.env.SHOP_THINGS_RESTART_ATTEMPT
+    );
+    return (
+      evidence.outcome !== 'uncertain' &&
+      evidence.state !== null &&
+      JSON.parse(evidence.state).appVersion === app.getVersion()
+    );
+  }
+
   updates = new UpdateDiscovery({
     appVersion: app.getVersion(),
     packageVersion,
     trustedKeys,
     capabilityReasons,
     admissionAllowed: () => packageUsable,
+    recheck: async () => {
+      if (recheckInstallation) {
+        const result = await recheckInstallation();
+        if (result === 'retryable') {
+          installOwnsLifecycle = false;
+          packageUsable = true;
+        }
+
+        return result;
+      }
+
+      if (installOwnsLifecycle || !(await reconcileStartup())) {
+        return 'recovery';
+      }
+
+      packageUsable = true;
+      await service!.start();
+      return 'ready';
+    },
     ...(capabilityReasons.length === 0 && packageIdentityAvailable
       ? {
           install: async (candidate, artifact, phase) => {
@@ -185,6 +218,10 @@ void app.whenReady().then(async () => {
             const result = await installVerifiedUpdate(
               {
                 service,
+                appVersion: app.getVersion(),
+                onRecovery: recheck => {
+                  recheckInstallation = recheck;
+                },
                 updatesDirectory: join(app.getPath('userData'), 'updates'),
                 capabilities: async () =>
                   (
@@ -248,13 +285,7 @@ void app.whenReady().then(async () => {
   starting = (async () => {
     try {
       if (app.isPackaged && process.platform === 'linux' && process.arch === 'arm64') {
-        const evidence = await inspectPackageEvidence(
-          process.env.SHOP_THINGS_RESTART_ATTEMPT
-        );
-        packageUsable =
-          evidence.outcome === 'clean' ||
-          evidence.outcome === 'installed' ||
-          evidence.outcome === 'unchanged';
+        packageUsable = await reconcileStartup();
       } else {
         packageUsable = true;
       }

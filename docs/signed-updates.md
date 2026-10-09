@@ -97,3 +97,6 @@ acceptance provenance, complete/incomplete drafts, immutable/protection refusal,
 wrong tags, altered installers, and old-key/protocol bridge compatibility.
 Generated test keys are test-only. These checks do not establish production
 environment provisioning, actual publication, or privileged ARM64 qualification.
+
+Interrupted installation and explicit administrator evidence resolution are documented
+in [the recovery runbook](updates/recovery.md).

@@ -162,59 +162,7 @@ def package_identity(path):
         process.wait()
 
 
-def verify_request(request, uid):
-    exact(request, ['protocol', 'attemptId', 'manifest', 'signature', 'candidatePath'])
-    require(type(request['protocol']) is int and request['protocol'] == 1 and
-            type(request['attemptId']) is str and UUID.fullmatch(request['attemptId']), 'Unknown helper protocol/attempt')
-    raw = []
-    for name, limit in [('manifest', 65536), ('signature', 64)]:
-        value = request[name]
-        require(type(value) is str and len(value) <= ((limit + 2) // 3) * 4, 'Invalid encoded bounds')
-        decoded = base64.b64decode(value, validate=True)
-        require(base64.b64encode(decoded).decode() == value and 0 < len(decoded) <= limit, 'Noncanonical input')
-        raw.append(decoded)
-    require(len(raw[1]) == 64, 'Invalid signature size')
-    policy = strict_json(protected_bytes(POLICY, 65536))
-    exact(policy, ['schemaVersion', 'helperProtocol', 'trustedKeys'])
-    require(type(policy['schemaVersion']) is int and policy['schemaVersion'] == 1 and
-            type(policy['helperProtocol']) is int and policy['helperProtocol'] == 1 and
-            type(policy['trustedKeys']) is list and 0 < len(policy['trustedKeys']) <= 16, 'Invalid trust policy')
-    os.makedirs(STATE, mode=0o700, exist_ok=True)
-    info = os.lstat(STATE)
-    require(stat.S_ISDIR(info.st_mode) and info.st_uid == ROOT_UID and not info.st_mode & 0o077, 'Unsafe system state')
-    # Validate protected state ancestors, avoiding user-owned or symlink parents.
-    state_probe = str(Path(STATE) / 'probe')
-    try:
-        probe = open_path(state_probe, ROOT_UID, True)
-        os.close(probe)
-        raise ValueError('Unexpected state probe')
-    except FileNotFoundError:
-        pass
-    attempt = str(Path(STATE) / request['attemptId'])
-    os.mkdir(attempt, 0o700)  # Exclusive: an old attempt is never replayable.
-    sync_directory(STATE)
-    manifest_path = str(Path(attempt) / 'manifest.json')
-    signature_path = str(Path(attempt) / 'manifest.sig')
-    write_private(manifest_path, raw[0])
-    write_private(signature_path, raw[1])
-    trusted = False
-    seen = set()
-    for index, pem in enumerate(policy['trustedKeys']):
-        require(type(pem) is str and len(pem) <= 4096 and pem.startswith('-----BEGIN PUBLIC KEY-----\n') and pem.endswith('-----END PUBLIC KEY-----\n') and pem not in seen, 'Only unique public SPKI keys are allowed')
-        seen.add(pem)
-        key_path = str(Path(attempt) / ('key-' + str(index) + '.pem'))
-        write_private(key_path, pem.encode())
-        canonical = tool(['/usr/bin/openssl', 'pkey', '-pubin', '-in', key_path, '-pubout'])
-        require(canonical == pem.encode(), 'Noncanonical public key')
-        der = tool(['/usr/bin/openssl', 'pkey', '-pubin', '-in', key_path, '-pubout', '-outform', 'DER'])
-        require(len(der) == 44 and der[:12] == bytes.fromhex('302a300506032b6570032100'), 'Public key must be Ed25519')
-        try:
-            tool(['/usr/bin/openssl', 'pkeyutl', '-verify', '-rawin', '-pubin', '-inkey', key_path, '-in', manifest_path, '-sigfile', signature_path])
-            trusted = True
-        except ValueError:
-            pass
-    require(trusted, 'Signature is not trusted')
-    manifest = strict_json(raw[0])
+def validate_manifest(manifest):
     exact(manifest, ['schemaVersion', 'applicationId', 'repository', 'channel', 'appVersion', 'packageName', 'packageVersion', 'platform', 'architecture', 'helperProtocol', 'artifact'])
     require(type(manifest['schemaVersion']) is int and manifest['schemaVersion'] == 1 and
             manifest['applicationId'] == 'com.shopthings.app' and manifest['repository'] == 'nsdeschenes/shop-things' and
@@ -238,6 +186,67 @@ def verify_request(request, uid):
     require(artifact['filename'] == 'shop-things-' + version + '-linux-arm64.deb' and
             type(artifact['byteLength']) is int and 0 < artifact['byteLength'] <= 1073741824 and
             type(artifact['sha256']) is str and re.fullmatch('[a-f0-9]{64}', artifact['sha256']), 'Invalid artifact')
+    return version, package_version, artifact
+
+
+def verify_request(request, uid):
+    exact(request, ['protocol', 'attemptId', 'manifest', 'signature', 'candidatePath'])
+    require(type(request['protocol']) is int and request['protocol'] == 1 and
+            type(request['attemptId']) is str and UUID.fullmatch(request['attemptId']), 'Unknown helper protocol/attempt')
+    raw = []
+    for name, limit in [('manifest', 65536), ('signature', 64)]:
+        value = request[name]
+        require(type(value) is str and len(value) <= ((limit + 2) // 3) * 4, 'Invalid encoded bounds')
+        decoded = base64.b64decode(value, validate=True)
+        require(base64.b64encode(decoded).decode() == value and 0 < len(decoded) <= limit, 'Noncanonical input')
+        raw.append(decoded)
+    require(len(raw[1]) == 64, 'Invalid signature size')
+    policy_raw = protected_bytes(POLICY, 65536)
+    policy = strict_json(policy_raw)
+    exact(policy, ['schemaVersion', 'helperProtocol', 'trustedKeys'])
+    require(type(policy['schemaVersion']) is int and policy['schemaVersion'] == 1 and
+            type(policy['helperProtocol']) is int and policy['helperProtocol'] == 1 and
+            type(policy['trustedKeys']) is list and 0 < len(policy['trustedKeys']) <= 16, 'Invalid trust policy')
+    os.makedirs(STATE, mode=0o700, exist_ok=True)
+    info = os.lstat(STATE)
+    require(stat.S_ISDIR(info.st_mode) and info.st_uid == ROOT_UID and not info.st_mode & 0o077, 'Unsafe system state')
+    # Validate protected state ancestors, avoiding user-owned or symlink parents.
+    state_probe = str(Path(STATE) / 'probe')
+    try:
+        probe = open_path(state_probe, ROOT_UID, True)
+        os.close(probe)
+        raise ValueError('Unexpected state probe')
+    except FileNotFoundError:
+        pass
+    attempt = str(Path(STATE) / request['attemptId'])
+    os.mkdir(attempt, 0o700)  # Exclusive: an old attempt is never replayable.
+    sync_directory(STATE)
+    write_private(str(Path(attempt) / 'policy.json'), policy_raw)
+    manifest_path = str(Path(attempt) / 'manifest.json')
+    signature_path = str(Path(attempt) / 'manifest.sig')
+    write_private(manifest_path, raw[0])
+    write_private(signature_path, raw[1])
+    trusted = False
+    verified_key_digest = None
+    seen = set()
+    for index, pem in enumerate(policy['trustedKeys']):
+        require(type(pem) is str and len(pem) <= 4096 and pem.startswith('-----BEGIN PUBLIC KEY-----\n') and pem.endswith('-----END PUBLIC KEY-----\n') and pem not in seen, 'Only unique public SPKI keys are allowed')
+        seen.add(pem)
+        key_path = str(Path(attempt) / ('key-' + str(index) + '.pem'))
+        write_private(key_path, pem.encode())
+        canonical = tool(['/usr/bin/openssl', 'pkey', '-pubin', '-in', key_path, '-pubout'])
+        require(canonical == pem.encode(), 'Noncanonical public key')
+        der = tool(['/usr/bin/openssl', 'pkey', '-pubin', '-in', key_path, '-pubout', '-outform', 'DER'])
+        require(len(der) == 44 and der[:12] == bytes.fromhex('302a300506032b6570032100'), 'Public key must be Ed25519')
+        try:
+            tool(['/usr/bin/openssl', 'pkeyutl', '-verify', '-rawin', '-pubin', '-inkey', key_path, '-in', manifest_path, '-sigfile', signature_path])
+            trusted = True
+            verified_key_digest = hashlib.sha256(pem.encode()).hexdigest()
+        except ValueError:
+            pass
+    require(trusted, 'Signature is not trusted')
+    manifest = strict_json(raw[0])
+    version, package_version, artifact = validate_manifest(manifest)
     baseline = installed_baseline()
     require(tuple(map(int, version.split('+')[0].split('.'))) > tuple(map(int, baseline['appVersion'].split('+')[0].split('.'))), 'App must advance independently')
     tool(['/usr/bin/dpkg', '--compare-versions', package_version, 'gt', baseline['packageVersion']])
@@ -275,7 +284,8 @@ def verify_request(request, uid):
     require(package_identity(staged)['appVersion'] == version, 'Embedded application version mismatch')
     return {'protocol': 1, 'type': 'outcome', 'attemptId': request['attemptId'], 'outcome': 'install-disabled',
             'errorCode': 'INSTALL_DISABLED', 'manifestDigest': hashlib.sha256(raw[0]).hexdigest(),
-            'appVersion': version, 'packageVersion': package_version, 'baseline': baseline}
+            'appVersion': version, 'packageVersion': package_version, 'baseline': baseline,
+            'policyDigest': hashlib.sha256(policy_raw).hexdigest(), 'verifiedKeyDigest': verified_key_digest}
 
 
 def main():

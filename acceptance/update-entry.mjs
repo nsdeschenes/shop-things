@@ -76,6 +76,14 @@ const updates = new UpdateDiscovery({
   capabilityReasons: fixture.guardedInstall ? [] : ['Installation is not available yet.'],
   ...(fixture.guardedInstall
     ? {
+        recheck: async () => {
+          const result = await globalThis.acceptanceRecheckInstall();
+          if (result === 'retryable') {
+            globalThis.acceptanceInstallOwnsLease = false;
+          }
+
+          return result;
+        },
         install: async (candidate, artifact, phase) => {
           globalThis.acceptanceInstallOwnsLease = true;
           const result = await installVerifiedUpdate(
@@ -83,6 +91,9 @@ const updates = new UpdateDiscovery({
               service,
               updatesDirectory: join(app.getPath('userData'), 'updates'),
               capabilities: async () => true,
+              onRecovery: recheck => {
+                globalThis.acceptanceRecheckInstall = recheck;
+              },
               inspect: async attempt => ({
                 outcome: attempt
                   ? (globalThis.acceptanceInstallOutcome ?? 'clean')
@@ -90,12 +101,16 @@ const updates = new UpdateDiscovery({
                 generation: attempt && globalThis.acceptanceInstallOutcome ? 2 : 1,
                 state: 'independent full fixture package inventory',
                 receipt:
-                  attempt && globalThis.acceptanceInstallOutcome === 'installed'
+                  attempt &&
+                  ['installed', 'unchanged'].includes(globalThis.acceptanceInstallOutcome)
                     ? {
                         attemptId: attempt,
                         manifestDigest: artifact.manifestDigest,
                         appVersion: candidate.manifest.appVersion,
                         packageVersion: candidate.manifest.packageVersion,
+                        resolution: globalThis.acceptanceAdministratorResolved
+                          ? 'administrator'
+                          : null,
                       }
                     : null,
               }),
@@ -113,6 +128,8 @@ const updates = new UpdateDiscovery({
                   throw new Error('Supervisor must be ready');
                 }
 
+                globalThis.acceptanceInstallInvocations =
+                  (globalThis.acceptanceInstallInvocations ?? 0) + 1;
                 globalThis.acceptanceInstallRequest = request;
                 await new Promise(resolve => {
                   globalThis.acceptanceReleaseInstall = resolve;

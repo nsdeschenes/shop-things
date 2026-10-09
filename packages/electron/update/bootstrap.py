@@ -32,6 +32,8 @@ for source, destination, mode in [
     ('restart-supervisor.py', '/usr/lib/shop-things/update-supervisor', 0o755),
     ('identity.json', '/usr/lib/shop-things/update/identity.json', 0o644),
     ('transaction.py', '/usr/lib/shop-things/update/transaction.py', 0o644),
+    ('recovery.py', '/usr/lib/shop-things/update/recovery.py', 0o644),
+    ('resolve-update', '/usr/lib/shop-things/update/resolve-update', 0o755),
     ('apt-hook', '/usr/lib/shop-things/update/apt-hook', 0o755),
     ('com.shopthings.app.update.policy', '/usr/share/polkit-1/actions/com.shopthings.app.update.policy', 0o644),
     ('policy.json', '/usr/lib/shop-things/update/policy.json', 0o644),

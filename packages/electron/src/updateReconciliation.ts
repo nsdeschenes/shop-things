@@ -2,6 +2,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 
 import {attemptPattern, protectedSystemFile} from './updateHelperProtocol.js';
+import {parseUniqueJson, stableVersion} from './updateManifest.js';
 
 export const transactionModulePath = '/usr/lib/shop-things/update/transaction.py';
 const digestPattern = /^[a-f0-9]{64}$/;
@@ -15,6 +16,7 @@ export interface PackageEvidence {
     manifestDigest: string;
     appVersion: string;
     packageVersion: string;
+    resolution: 'administrator' | null;
   } | null;
 }
 function record(value: unknown): value is Record<string, unknown> {
@@ -43,7 +45,7 @@ export async function inspectPackageEvidence(
       maxBuffer: 8 * 1024 * 1024,
     }
   );
-  const value: unknown = JSON.parse(result.stdout);
+  const value: unknown = parseUniqueJson(result.stdout);
   if (
     !record(value) ||
     Object.keys(value).sort().join(',') !== 'generation,outcome,receipt,state' ||
@@ -70,6 +72,8 @@ export async function inspectPackageEvidence(
       !digestPattern.test(item.manifestDigest) ||
       typeof item.appVersion !== 'string' ||
       item.appVersion.length > 128 ||
+      !stableVersion.test(item.appVersion) ||
+      (item.resolution !== null && item.resolution !== 'administrator') ||
       typeof item.packageVersion !== 'string' ||
       item.packageVersion.length > 128
     ) {
@@ -81,6 +85,7 @@ export async function inspectPackageEvidence(
       manifestDigest: item.manifestDigest,
       appVersion: item.appVersion,
       packageVersion: item.packageVersion,
+      resolution: item.resolution,
     };
   }
 
