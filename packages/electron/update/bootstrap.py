@@ -11,7 +11,9 @@ require = lambda value: None if value else (_ for _ in ()).throw(ValueError('Uns
 require(os.geteuid() == 0)
 for parent in [Path('/opt'), Path('/opt/Shop Things'), SOURCE.parent, SOURCE]:
     info = parent.lstat()
-    require(stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022)
+    if not (stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022):
+        # Only fixed public installation paths and metadata; no caller input.
+        raise ValueError(f'Unsafe bootstrap installation: {parent} uid={info.st_uid} gid={info.st_gid} mode={stat.S_IMODE(info.st_mode):04o}')
 helper_path = SOURCE / 'updater-helper.py'
 info = helper_path.lstat()
 require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022)
