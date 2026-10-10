@@ -1,4 +1,43 @@
 # Changelog
+## 1.0.0
+
+### Breaking Changes 🛠
+
+- (customers) Require a number for every saved customer by @nsdeschenes in [#153](https://github.com/nsdeschenes/shop-things/pull/153)
+- (electron) Name the Debian package shop-things by @nsdeschenes in [#162](https://github.com/nsdeschenes/shop-things/pull/162)
+
+### New Features ✨
+
+- (interface) Open customers by number from the header by @nsdeschenes in [#189](https://github.com/nsdeschenes/shop-things/pull/189)
+
+### Internal Changes 🔧
+
+#### Interface
+
+- Type-check the generated route tree by @nsdeschenes in [#172](https://github.com/nsdeschenes/shop-things/pull/172)
+- Derive draft protection registration readiness by @nsdeschenes in [#164](https://github.com/nsdeschenes/shop-things/pull/164)
+- Remove query dependency suppressions by @nsdeschenes in [#161](https://github.com/nsdeschenes/shop-things/pull/161)
+
+#### Lint
+
+- Remove component export enforcement by @nsdeschenes in [#170](https://github.com/nsdeschenes/shop-things/pull/170)
+- Remove default export enforcement by @nsdeschenes in [#169](https://github.com/nsdeschenes/shop-things/pull/169)
+- Remove obsolete node test exception by @nsdeschenes in [#166](https://github.com/nsdeschenes/shop-things/pull/166)
+- Enable no-misused-spread enforcement by @nsdeschenes in [#163](https://github.com/nsdeschenes/shop-things/pull/163)
+- Remove redundant restricted-imports override by @nsdeschenes in [#160](https://github.com/nsdeschenes/shop-things/pull/160)
+
+#### Scripts
+
+- Isolate real builds in current-source fixtures by @nsdeschenes in [#188](https://github.com/nsdeschenes/shop-things/pull/188)
+- Select the locked development runtime by @nsdeschenes in [#187](https://github.com/nsdeschenes/shop-things/pull/187)
+- Split acceptance assertions into scenario tests by @nsdeschenes in [#167](https://github.com/nsdeschenes/shop-things/pull/167)
+
+#### Other
+
+- (acceptance) Remove unbound startup method suppression by @nsdeschenes in [#165](https://github.com/nsdeschenes/shop-things/pull/165)
+- (contract) Remove unnecessary negative-test suppression by @nsdeschenes in [#173](https://github.com/nsdeschenes/shop-things/pull/173)
+- (types) Narrow declaration checking exceptions by @nsdeschenes in [#171](https://github.com/nsdeschenes/shop-things/pull/171)
+
 ## 0.3.1
 
 ### New Features ✨
