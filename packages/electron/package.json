@@ -1,6 +1,6 @@
 {
   "name": "electron",
-  "version": "0.3.1",
+  "version": "1.0.0",
   "description": "Customer records and saved database workflows",
   "homepage": "https://github.com/nsdeschenes/shop-things",
   "license": "GPL-3.0-only",
