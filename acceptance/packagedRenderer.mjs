@@ -390,7 +390,7 @@ try {
   await expect(
     page.getByRole('heading', {name: 'Packaged Saved', exact: true})
   ).toBeVisible();
-  await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+  await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
   await page.getByRole('textbox', {name: 'City', exact: true}).fill('Saved city');
   await page.getByRole('button', {name: 'Save', exact: true}).click();
   await page.getByRole('link', {name: 'Packaged Saved', exact: true}).click();
@@ -415,7 +415,7 @@ try {
   await page.getByRole('link', {name: 'Packaged Saved', exact: true}).click();
   await expect(page).toHaveURL(/#\/customers\/1$/);
   await passed(expectedCases[1]);
-  await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+  await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
   await page.getByRole('link', {name: 'Database settings'}).click();
   const settingsRoute = page.url();
   const before = await status();
@@ -438,7 +438,7 @@ try {
   await passed(expectedCases[2]);
   await page.getByRole('link', {name: 'Shop Things'}).click();
   await page.getByRole('link', {name: 'Packaged Saved', exact: true}).click();
-  await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+  await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
   await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
   const route = page.url();
   await application.evaluate(({Menu}) =>

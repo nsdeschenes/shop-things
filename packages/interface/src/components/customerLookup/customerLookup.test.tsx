@@ -175,6 +175,53 @@ test('header reports navigation failures in a dismissible toast and allows retry
   expect(router.state.location.pathname).toBe('/customers/2');
 });
 
+test.each(['missing', 'error'])(
+  'a held %s lookup retains keyboard focus and allows editing and retry',
+  async outcome => {
+    const {user, input, router, client, notifications, expectNotification} =
+      await fixture();
+    const list = client.customers.list;
+    let release!: () => void;
+    const held = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    client.customers.list = async args => {
+      await held;
+      return outcome === 'missing'
+        ? list(args)
+        : {status: 'error', error: {code: 'INTERNAL', message: 'Read failed'}};
+    };
+
+    await user.type(input, '999{Enter}');
+    expect(input).toBeEnabled();
+    expect(input).toHaveAttribute('readonly');
+    expect(input).toHaveFocus();
+    expect(screen.getByRole('button', {name: 'Go'})).toBeDisabled();
+    await user.type(input, '1{Enter}');
+    expect(input).toHaveValue('999');
+    await act(async () => release());
+    await waitFor(() => expect(input).not.toHaveAttribute('readonly'));
+    expect(input).toBeEnabled();
+    expect(input).toHaveFocus();
+    expect(router.state.location.pathname).toBe('/customers');
+    await user.keyboard('{F6}');
+    await expectNotification(
+      outcome === 'missing'
+        ? 'Customer number 999 was not found.'
+        : 'Could not open the customer. Try again.'
+    );
+    await user.click(notifications.getByRole('button', {name: 'Dismiss error'}));
+    expect(input).toHaveFocus();
+    client.customers.list = list;
+    await user.clear(input);
+    await user.type(input, '42{Enter}');
+    expect(await screen.findByRole('textbox', {name: 'First name'})).toHaveValue(
+      'Target'
+    );
+    expect(router.state.location.pathname).toBe('/customers/2');
+  }
+);
+
 test('repeated lookup reads fresh saved numbers and does not open a matching name', async () => {
   const {user, input, router, client, record, notifications, expectNotification} =
     await fixture();
@@ -191,7 +238,7 @@ test('repeated lookup reads fresh saved numbers and does not open a matching nam
   await user.click(notifications.getByRole('button', {name: 'Dismiss error'}));
   await user.clear(input);
   await user.type(input, '77{Enter}');
-  await waitFor(() => expect(input).toBeEnabled());
+  await waitFor(() => expect(input).not.toHaveAttribute('readonly'));
   expect(notifications.queryByText('Could not open customer')).not.toBeInTheDocument();
   expect(router.state.location.pathname).toBe('/customers/2');
 });
@@ -205,7 +252,7 @@ test('customer lookup protects unsaved edits until discard is approved', async (
   await user.clear(name);
   await user.type(name, 'Unsaved');
   await user.type(input, '42{Enter}');
-  await waitFor(() => expect(input).toBeEnabled());
+  await waitFor(() => expect(input).not.toHaveAttribute('readonly'));
   expect(router.state.location.pathname).toBe('/customers/1');
   expect(name).toHaveValue('Unsaved');
   expect(application.protection.isDirty()).toBe(true);
@@ -282,7 +329,9 @@ test('a pending lookup disables repeat submission and cannot navigate after data
 
   await user.type(input, '42{Enter}');
   const go = screen.getByRole('button', {name: 'Go'});
-  expect(input).toBeDisabled();
+  expect(input).toBeEnabled();
+  expect(input).toHaveAttribute('readonly');
+  expect(input).toHaveFocus();
   expect(go).toBeDisabled();
   await user.click(go);
   const replacement = createPreviewClient();

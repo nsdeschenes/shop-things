@@ -69,7 +69,7 @@ test('cold real Vite development boots the live renderer and retains invalid edi
     await expect(page.getByText('Live mode', {exact: false})).toHaveCount(0);
     expect(page.url()).toBe(url + '#/customers');
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+    await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
     const balance = page.getByRole('textbox', {name: 'Balance ($)', exact: true});
     await balance.fill('-');
     const before = page.url();

@@ -14,12 +14,12 @@ test('Edit validates duplicate, missing and invalid numbers and persists exact t
   try {
     const page = await application.firstWindow();
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+    await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
     await expect(page.getByRole('textbox', {name: 'Phone'})).toHaveValue(
       '+1 (902) 555-1234'
     );
     await expect(page.getByRole('combobox', {name: 'Province'})).toHaveValue('NS');
-    const number = page.getByRole('textbox', {name: 'Customer number'});
+    const number = page.getByRole('textbox', {name: 'Customer number', exact: true});
     await page.getByRole('textbox', {name: 'Phone'}).fill('9025551234');
     await number.fill('1');
     await page.getByRole('textbox', {name: 'Last name'}).fill('Edited');
@@ -56,7 +56,7 @@ test('Edit validates duplicate, missing and invalid numbers and persists exact t
     await expect(
       page.getByRole('textbox', {name: 'Customer number', exact: true})
     ).toHaveValue('3');
-    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+    await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
     await number.fill('');
     await expect(number).toHaveValue('');
     await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
@@ -120,7 +120,7 @@ test('held Update freezes editing and rejects retained stale revisions', async (
   try {
     const page = await application.firstWindow();
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+    await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
     const name = page.getByRole('textbox', {name: 'First name'});
     await page.getByRole('textbox', {name: 'Phone'}).fill('9025551234');
     await name.fill('Submitted');
@@ -138,9 +138,13 @@ test('held Update freezes editing and rejects retained stale revisions', async (
       .toBe('shop-things:customers.update');
     await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
     await expect(name).toBeDisabled();
-    await expect(page.getByRole('textbox', {name: 'Customer number'})).toBeDisabled();
+    await expect(
+      page.getByRole('textbox', {name: 'Customer number', exact: true})
+    ).toBeDisabled();
     await page.keyboard.type('Ignored');
-    await page.locator('form').evaluate(form => form.requestSubmit());
+    await page
+      .getByRole('form', {name: 'Customer details', exact: true})
+      .evaluate((form: HTMLFormElement) => form.requestSubmit());
     await page.getByRole('link', {name: 'Back to customers'}).click();
     await expect(
       page.getByRole('heading', {name: 'Alpha One', exact: true})
@@ -164,7 +168,7 @@ test('held Update freezes editing and rejects retained stale revisions', async (
           ).length
       )
     ).toBe(1);
-    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+    await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
     await name.fill('Retained draft');
     const external = await page.evaluate(async () => {
       const client = Reflect.get(window, 'shopThings');
@@ -207,8 +211,8 @@ test('Chromium preview edits temporary saved records with exact contact and numb
   await page.getByRole('textbox', {name: 'First name'}).fill('Temporary');
   await page.getByRole('button', {name: 'Save'}).click();
   await page.getByRole('link', {name: 'Temporary', exact: true}).click();
-  await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
-  const number = page.getByRole('textbox', {name: 'Customer number'});
+  await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
+  const number = page.getByRole('textbox', {name: 'Customer number', exact: true});
   await number.fill('-');
   await number.press('Tab');
   await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();

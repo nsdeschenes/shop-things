@@ -136,7 +136,8 @@ export default function CustomerLookup({application}: {application: Application}
           placeholder="Customer number"
           inputMode="numeric"
           value={customerNumber}
-          disabled={disabled || lookup.status === 'loading'}
+          disabled={disabled}
+          readOnly={lookup.status === 'loading'}
           onValueChange={setCustomerNumber}
         />
       </div>

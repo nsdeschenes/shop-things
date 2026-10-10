@@ -179,7 +179,7 @@ try {
   record('FIRST_PID ' + first);
   expect(report.events.find(entry => entry.spawn)?.spawn.connected).toBe(true);
   await page.getByRole('link', {name: 'Watcher Proof'}).click();
-  await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+  await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
   await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
   const before = await hash();
   await writeFile(source, original + '\n// watcher supporting probe\n');

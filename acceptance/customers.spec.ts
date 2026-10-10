@@ -90,6 +90,104 @@ test('saved customer list/search/detail through actual bundled hash renderer IPC
   }
 });
 
+test('header lookup opens exact saved numbers and retains focus through held reads and error toasts', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-customer-lookup-'));
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
+  });
+  try {
+    const page = await application.firstWindow();
+    await page.getByRole('link', {name: 'Alpha One', exact: true}).click();
+    await page.getByRole('textbox', {name: 'Customer number', exact: true}).fill('42');
+    await page.getByRole('textbox', {name: 'Phone', exact: true}).fill('9025551234');
+    await page.getByRole('textbox', {name: 'Phone', exact: true}).press('Tab');
+    await page.getByRole('button', {name: 'Save', exact: true}).click();
+    await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
+    await page.getByRole('region', {name: 'Notifications'}).focus();
+    await page.getByLabel('Dismiss notification', {exact: true}).click();
+    const input = page.getByRole('textbox', {
+      name: 'Go to customer number',
+      exact: true,
+    });
+    const go = page.getByRole('button', {name: 'Go', exact: true});
+    await input.fill(' 0042 ');
+    await go.click();
+    await expect(
+      page.getByRole('heading', {name: 'Alpha One', exact: true})
+    ).toBeVisible();
+    expect(new URL(page.url()).hash).toBe('#/customers/2');
+    await expect(
+      page.getByRole('textbox', {name: 'Customer number', exact: true})
+    ).toHaveValue('42');
+    for (const outcome of ['missing', 'error']) {
+      const value = outcome === 'missing' ? '4' : '42';
+      await application.evaluate((_, outcome) => {
+        Reflect.set(globalThis, 'acceptanceFault', {
+          channel: 'shop-things:customers.list',
+          hold: true,
+          ...(outcome === 'error'
+            ? {error: {code: 'INTERNAL', message: 'Lookup read failed'}}
+            : {}),
+        });
+      }, outcome);
+      await input.fill(value);
+      await input.press('Enter');
+      await expect
+        .poll(() =>
+          application.evaluate(
+            () => Reflect.get(globalThis, 'acceptanceHeldRead')?.channel
+          )
+        )
+        .toBe('shop-things:customers.list');
+      await expect(input).toBeEnabled();
+      await expect(input).toHaveAttribute('readonly', '');
+      await expect(input).toBeFocused();
+      await expect(go).toBeDisabled();
+      await page.keyboard.type('1');
+      await page.keyboard.press('Enter');
+      await expect(input).toHaveValue(value);
+      await application.evaluate(() => {
+        Reflect.get(globalThis, 'acceptanceReleaseRead')();
+        Reflect.set(globalThis, 'acceptanceHeldRead', null);
+      });
+      await expect(input).not.toHaveAttribute('readonly');
+      await expect(input).toBeFocused();
+      await expect(go).toBeEnabled();
+      expect(new URL(page.url()).hash).toBe('#/customers/2');
+      const notifications = page.getByRole('region', {name: 'Notifications'});
+      const description =
+        outcome === 'missing'
+          ? 'Customer number 4 was not found.'
+          : 'Could not open the customer. Try again.';
+      await expect(notifications.getByText(description, {exact: true})).toBeVisible();
+      await page.keyboard.press('F6');
+      const toast = notifications.getByRole('alertdialog', {
+        name: 'Could not open customer',
+        exact: true,
+      });
+      await expect(toast).toHaveAccessibleDescription(description);
+      await toast
+        .getByRole('button', {name: 'Dismiss error', exact: true})
+        .press('Enter');
+      await expect(toast).toHaveCount(0);
+      await expect(input).toBeFocused();
+    }
+
+    await page.getByRole('link', {name: 'Back to customers', exact: true}).click();
+    await input.fill('42');
+    await input.press('Enter');
+    await expect(
+      page.getByRole('heading', {name: 'Alpha One', exact: true})
+    ).toBeVisible();
+    expect(new URL(page.url()).hash).toBe('#/customers/2');
+  } finally {
+    await application.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
 test('superseded reads stay loading for new targets and cannot paint obsolete success or failure', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-customer-delay-'));
   const application = await launchElectron(directory, {
