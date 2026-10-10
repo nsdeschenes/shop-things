@@ -1,26 +1,20 @@
 import * as stylex from '@stylexjs/stylex';
 import {isCancelledError} from '@tanstack/react-query';
 import {useRouter} from '@tanstack/react-router';
-import {useEffect, useId, useRef, useState, useSyncExternalStore} from 'react';
+import {useEffect, useRef, useState, useSyncExternalStore} from 'react';
 
 import type {Application} from '../../application/controller';
 import {customerKeys, customerListOptions} from '../../application/customers';
 import {spacing} from '../../styles/spacing.stylex';
-import {typography} from '../../styles/typography.stylex';
 import Button from '../button/button';
 import Input from '../input/input';
 
-type LookupState =
-  | {status: 'idle'}
-  | {status: 'loading'}
-  | {status: 'error'; message: string};
+type LookupState = {status: 'idle'} | {status: 'loading'};
 
 const decimalDigits = /^\d+$/;
 const styles = stylex.create({
-  form: {gap: spacing.space6, display: 'flex', flexDirection: 'column'},
   controls: {gap: spacing.space6, alignItems: 'center', display: 'flex'},
   input: {width: 160},
-  error: {fontSize: typography.fontSizeSmall, maxWidth: 240},
 });
 
 export default function CustomerLookup({application}: {application: Application}) {
@@ -30,7 +24,6 @@ export default function CustomerLookup({application}: {application: Application}
     application.protection.getState
   );
   const router = useRouter();
-  const errorId = useId();
   const [customerNumber, setCustomerNumber] = useState('');
   const [lookup, setLookup] = useState<LookupState>({status: 'idle'});
   const mounted = useRef(false);
@@ -62,7 +55,10 @@ export default function CustomerLookup({application}: {application: Application}
     const rawNumber = customerNumber.trim();
     const number = Number(rawNumber);
     if (!decimalDigits.test(rawNumber) || !Number.isSafeInteger(number) || number <= 0) {
-      setLookup({status: 'error', message: 'Enter a positive whole customer number.'});
+      application.toasts.error({
+        title: 'Could not open customer',
+        description: 'Enter a positive whole customer number.',
+      });
       return;
     }
 
@@ -91,7 +87,10 @@ export default function CustomerLookup({application}: {application: Application}
 
       const record = customers.find(value => value.customer.customerNumber === number);
       if (!record) {
-        setLookup({status: 'error', message: `Customer number ${number} was not found.`});
+        application.toasts.error({
+          title: 'Could not open customer',
+          description: `Customer number ${number} was not found.`,
+        });
         return;
       }
 
@@ -102,61 +101,48 @@ export default function CustomerLookup({application}: {application: Application}
         })
         .catch(() => {
           if (isRelevant()) {
-            setLookup({
-              status: 'error',
-              message: 'Could not open the customer. Try again.',
+            application.toasts.error({
+              title: 'Could not open customer',
+              description: 'Could not open the customer. Try again.',
             });
           }
         });
     } catch (failure) {
-      if (isRelevant()) {
-        setLookup(
-          isCancelledError(failure)
-            ? {status: 'idle'}
-            : {status: 'error', message: 'Could not open the customer. Try again.'}
-        );
+      if (isRelevant() && !isCancelledError(failure)) {
+        application.toasts.error({
+          title: 'Could not open customer',
+          description: 'Could not open the customer. Try again.',
+        });
       }
     } finally {
       submitting.current = false;
       if (mounted.current) {
-        setLookup(current => (current.status === 'loading' ? {status: 'idle'} : current));
+        setLookup({status: 'idle'});
       }
     }
   }
 
   return (
     <form
-      {...stylex.props(styles.form)}
+      {...stylex.props(styles.controls)}
       onSubmit={event => {
         event.preventDefault();
         void openCustomer();
       }}
     >
-      <div {...stylex.props(styles.controls)}>
-        <div {...stylex.props(styles.input)}>
-          <Input
-            aria-label="Go to customer number"
-            aria-describedby={lookup.status === 'error' ? errorId : undefined}
-            aria-invalid={lookup.status === 'error' || undefined}
-            placeholder="Customer number"
-            inputMode="numeric"
-            value={customerNumber}
-            disabled={disabled || lookup.status === 'loading'}
-            onValueChange={value => {
-              setCustomerNumber(value);
-              setLookup({status: 'idle'});
-            }}
-          />
-        </div>
-        <Button type="submit" disabled={disabled} busy={lookup.status === 'loading'}>
-          Go
-        </Button>
+      <div {...stylex.props(styles.input)}>
+        <Input
+          aria-label="Go to customer number"
+          placeholder="Customer number"
+          inputMode="numeric"
+          value={customerNumber}
+          disabled={disabled || lookup.status === 'loading'}
+          onValueChange={setCustomerNumber}
+        />
       </div>
-      {lookup.status === 'error' && (
-        <p id={errorId} role="alert" {...stylex.props(styles.error)}>
-          {lookup.message}
-        </p>
-      )}
+      <Button type="submit" disabled={disabled} busy={lookup.status === 'loading'}>
+        Go
+      </Button>
     </form>
   );
 }
