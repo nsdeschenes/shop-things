@@ -14,7 +14,7 @@ test('real IPC header refresh rejects dirty drafts, fails, freezes, then adopts 
   try {
     const page = await application.firstWindow();
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+    await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
     const name = page.getByRole('textbox', {name: 'First name'});
     await name.fill('Retained draft');
     expect(
@@ -89,7 +89,7 @@ test('real IPC header refresh rejects dirty drafts, fails, freezes, then adopts 
     await expect(
       page.getByRole('heading', {name: 'Fresh reference One', exact: true})
     ).toBeVisible();
-    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+    await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
     await name.fill('Copy this draft');
     expect(
       await page.evaluate(async () => {
@@ -135,7 +135,7 @@ test('unavailable real database retains mounted draft across cancelled and faile
     await search.fill('Alpha');
     await search.press('Enter');
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+    await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
     const name = page.getByRole('textbox', {name: 'First name'});
     await name.fill('Unavailable draft');
     await application.evaluate(() =>
@@ -183,7 +183,7 @@ test('Chromium preview header refresh disables dirty drafts and preserves canoni
   await page.getByRole('textbox', {name: 'First name'}).fill('Saved preview');
   await page.getByRole('button', {name: 'Save'}).click();
   await page.getByRole('link', {name: 'Saved preview', exact: true}).click();
-  await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+  await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
   const name = page.getByRole('textbox', {name: 'First name'});
   await name.fill('Preview draft');
   const reload = page.getByRole('button', {name: 'Refresh customers'});

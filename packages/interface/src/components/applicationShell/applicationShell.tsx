@@ -12,6 +12,7 @@ import {controls} from '../../styles/controls.stylex';
 import {spacing} from '../../styles/spacing.stylex';
 import {typography} from '../../styles/typography.stylex';
 import Button from '../button/button';
+import CustomerLookup from '../customerLookup/customerLookup';
 import DatabaseActions from '../databaseActions/databaseActions';
 import LoadingOverlay from '../loadingOverlay/loadingOverlay';
 
@@ -52,7 +53,12 @@ const styles = stylex.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
   },
-  headerActions: {gap: spacing.space12, alignItems: 'center', display: 'flex'},
+  headerActions: {
+    gap: spacing.space12,
+    alignItems: 'center',
+    display: 'flex',
+    flexWrap: 'wrap',
+  },
   refreshIcon: {height: 20, width: 20},
   databaseLink: {
     borderRadius: 6,
@@ -224,6 +230,7 @@ export default function ApplicationShell({application, children}: ApplicationShe
         </Link>
         {state.phase === 'ready' && state.database?.available && (
           <div {...stylex.props(styles.headerActions)}>
+            <CustomerLookup key={state.database.session} application={application} />
             <Button
               aria-label="Refresh customers"
               title={

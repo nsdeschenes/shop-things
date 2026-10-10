@@ -18,7 +18,7 @@ test('Create persists exact contacts and decimal balances across guarded reload 
     await search.fill('Ada');
     await search.press('Enter');
     await page.getByRole('link', {name: 'Add customer'}).click();
-    const number = page.getByRole('textbox', {name: 'Customer number'});
+    const number = page.getByRole('textbox', {name: 'Customer number', exact: true});
     await expect(number).toBeDisabled();
     await expect(number).toHaveValue('4');
     await expect(number).toHaveAccessibleDescription(
@@ -113,7 +113,9 @@ test('actual Save freezes edits, prevents duplicates and protects failure versus
     await expect(page.getByRole('textbox', {name: 'Comments'})).toBeDisabled();
     await expect(page.getByRole('checkbox', {name: 'Donate'})).toBeDisabled();
     await page.keyboard.type('Ignored');
-    await page.locator('form').evaluate(form => form.requestSubmit());
+    await page
+      .getByRole('form', {name: 'Customer details', exact: true})
+      .evaluate((form: HTMLFormElement) => form.requestSubmit());
     await page.getByRole('link', {name: 'Cancel'}).click();
     await expect(
       page.getByRole('heading', {name: 'New Customer', exact: true})

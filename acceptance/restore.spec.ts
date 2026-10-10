@@ -145,7 +145,7 @@ test('Settings navigation protects dirty drafts and restore cancellations preser
     await page.getByRole('textbox', {name: 'Search customers'}).fill('Alpha');
     await page.getByRole('textbox', {name: 'Search customers'}).press('Enter');
     await page.getByRole('link', {name: 'Alpha One'}).click();
-    await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+    await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
     const balance = page.getByRole('textbox', {name: 'Balance ($)', exact: true});
     await balance.fill('-');
     const before = await stateAndRecord(page);

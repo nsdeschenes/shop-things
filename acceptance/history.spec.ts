@@ -12,7 +12,7 @@ test('approved Back mounts the prior editor only after Stay preserves the invali
   await expect(
     page.getByRole('heading', {name: 'History Probe', exact: true})
   ).toBeVisible();
-  await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+  await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
   const balance = page.getByRole('textbox', {name: 'Balance ($)', exact: true});
   await balance.fill('-');
   await page.evaluate(() => history.back());
@@ -34,7 +34,7 @@ test('approved Back mounts the prior editor only after Stay preserves the invali
   await expect(
     page.getByRole('heading', {name: 'History Probe', exact: true})
   ).toBeVisible();
-  await page.getByRole('textbox', {name: 'Customer number'}).waitFor();
+  await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
   await expect(page.getByRole('textbox', {name: 'Balance ($)', exact: true})).toHaveValue(
     '0.00'
   );
