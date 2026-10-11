@@ -54,12 +54,11 @@ test('Settings remains usable while startup is held, saves for restart, retains 
   };
 
   const application = createApplication('http://localhost', true, {client});
-  renderRoute('/settings', application);
+  renderRoute('/settings/monitoring', application);
   const user = userEvent.setup();
   try {
     expect(await screen.findByRole('heading', {name: 'Settings'})).toBeVisible();
     expect(application.getState().phase).toBe('loading');
-    await user.click(screen.getByRole('tab', {name: 'Monitoring'}));
     const input = screen.getByRole('textbox', {name: 'Sentry DSN'});
     await waitFor(() => expect(input).toBeEnabled());
     await user.type(input, 'https://public@host/1');
@@ -89,9 +88,8 @@ test('Settings remains usable while startup is held, saves for restart, retains 
 });
 
 test('preview monitoring is inert without storage or native saves', async () => {
-  renderRoute('/settings');
+  renderRoute('/settings/monitoring');
   expect(await screen.findByRole('heading', {name: 'Settings'})).toBeVisible();
-  await userEvent.setup().click(screen.getByRole('tab', {name: 'Monitoring'}));
   expect(screen.getByRole('textbox', {name: 'Sentry DSN'})).toBeDisabled();
   expect(screen.getByRole('button', {name: 'Save monitoring'})).toBeDisabled();
   expect(screen.getByRole('spinbutton', {name: 'Error sampling (%)'})).toBeDisabled();
@@ -132,10 +130,9 @@ test('sampling-only edits validate, retain failed saves and persist for restart'
   };
 
   const application = createApplication('http://localhost', true, {client});
-  renderRoute('/settings', application);
+  renderRoute('/settings/monitoring', application);
   const user = userEvent.setup();
   try {
-    await user.click(await screen.findByRole('tab', {name: 'Monitoring'}));
     const errors = await screen.findByRole('spinbutton', {name: 'Error sampling (%)'});
     const traces = screen.getByRole('spinbutton', {name: 'Trace sampling (%)'});
     const logs = screen.getByRole('spinbutton', {name: 'Log sampling (%)'});
@@ -208,10 +205,9 @@ test.each(['success', 'error'] as const)(
         complete = resolve;
       });
     const application = createApplication('http://localhost', true, {client});
-    renderRoute('/settings', application);
+    renderRoute('/settings/monitoring', application);
     try {
       await screen.findByRole('heading', {name: 'Settings'});
-      await userEvent.setup().click(screen.getByRole('tab', {name: 'Monitoring'}));
       expect(screen.getByRole('status')).toHaveTextContent(
         'Monitoring status is unknown for this session.'
       );
@@ -256,10 +252,9 @@ test('DSN validation is linked to the field, clears on edit and stays separate f
   };
 
   const application = createApplication('http://localhost', true, {client});
-  renderRoute('/settings', application);
+  renderRoute('/settings/monitoring', application);
   const user = userEvent.setup();
   try {
-    await user.click(await screen.findByRole('tab', {name: 'Monitoring'}));
     const input = await screen.findByRole('textbox', {name: 'Sentry DSN'});
     await waitFor(() => expect(input).toBeEnabled());
     await user.type(input, 'invalid-dsn');

@@ -1,7 +1,3 @@
-import {createFileRoute, redirect} from '@tanstack/react-router';
+import {createFileRoute} from '@tanstack/react-router';
 
-export const Route = createFileRoute('/settings/database')({
-  beforeLoad: () => {
-    throw redirect({to: '/settings'});
-  },
-});
+export const Route = createFileRoute('/settings/database')({});

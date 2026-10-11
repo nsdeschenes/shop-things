@@ -126,7 +126,7 @@ export default function ApplicationShell({application, children}: ApplicationShe
     protection.saving;
   const router = useRouter();
   const pathname = useRouterState({select: state => state.location.pathname});
-  const settingsView = pathname === '/settings' || pathname === '/settings/database';
+  const settingsView = pathname === '/settings' || pathname.startsWith('/settings/');
   const committedNavigation = useRef(false);
 
   useBlocker({

@@ -8,7 +8,7 @@ import {
   ArrowLeftIcon,
 } from '@heroicons/react/24/outline';
 import * as stylex from '@stylexjs/stylex';
-import {Link, useNavigate} from '@tanstack/react-router';
+import {Link, useNavigate, useRouterState} from '@tanstack/react-router';
 import {useRef, useSyncExternalStore} from 'react';
 
 import type {Application} from '../../application/controller';
@@ -39,6 +39,7 @@ const styles = stylex.create({
     borderWidth: 0,
     paddingBlock: 12,
     paddingInline: 16,
+    textDecoration: 'none',
     backgroundColor: 'transparent',
     color: {
       default: colors.textMuted,
@@ -192,6 +193,8 @@ export default function DatabaseSettings({application}: {application: Applicatio
     application.protection.getState
   );
   const navigate = useNavigate();
+  const pathname = useRouterState({select: state => state.location.pathname});
+  const tab = pathname === '/settings/monitoring' ? 'monitoring' : 'database';
   const restoreButton = useRef<HTMLButtonElement>(null);
   const database = state.database;
   const filename =
@@ -243,12 +246,22 @@ export default function DatabaseSettings({application}: {application: Applicatio
           Application monitoring, customer records, backups, and file transfers.
         </p>
       </div>
-      <Tabs.Root defaultValue="database">
-        <Tabs.List aria-label="Settings" activateOnFocus {...stylex.props(styles.tabs)}>
-          <Tabs.Tab value="database" {...stylex.props(styles.tab)}>
+      <Tabs.Root value={tab}>
+        <Tabs.List aria-label="Settings" {...stylex.props(styles.tabs)}>
+          <Tabs.Tab
+            value="database"
+            nativeButton={false}
+            render={<Link to="/settings/database" />}
+            {...stylex.props(styles.tab)}
+          >
             Database
           </Tabs.Tab>
-          <Tabs.Tab value="monitoring" {...stylex.props(styles.tab)}>
+          <Tabs.Tab
+            value="monitoring"
+            nativeButton={false}
+            render={<Link to="/settings/monitoring" />}
+            {...stylex.props(styles.tab)}
+          >
             Monitoring
           </Tabs.Tab>
         </Tabs.List>

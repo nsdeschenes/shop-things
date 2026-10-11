@@ -13,7 +13,9 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as CustomersCustomerIdRouteImport } from './routes/customers_.$customerId'
 import { Route as CustomersImportRouteImport } from './routes/customers_.import'
 import { Route as CustomersNewRouteImport } from './routes/customers_.new'
+import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsDatabaseRouteImport } from './routes/settings.database'
+import { Route as SettingsMonitoringRouteImport } from './routes/settings.monitoring'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -45,9 +47,19 @@ const CustomersNewRoute = CustomersNewRouteImport.update({
   path: '/customers/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsIndexRoute = SettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsDatabaseRoute = SettingsDatabaseRouteImport.update({
   id: '/database',
   path: '/database',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsMonitoringRoute = SettingsMonitoringRouteImport.update({
+  id: '/monitoring',
+  path: '/monitoring',
   getParentRoute: () => SettingsRoute,
 } as any)
 
@@ -59,15 +71,18 @@ export interface FileRoutesByFullPath {
   '/customers/import': typeof CustomersImportRoute
   '/customers/new': typeof CustomersNewRoute
   '/settings/database': typeof SettingsDatabaseRoute
+  '/settings/monitoring': typeof SettingsMonitoringRoute
+  '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/customers': typeof CustomersRoute
-  '/settings': typeof SettingsRouteWithChildren
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/customers/import': typeof CustomersImportRoute
   '/customers/new': typeof CustomersNewRoute
   '/settings/database': typeof SettingsDatabaseRoute
+  '/settings/monitoring': typeof SettingsMonitoringRoute
+  '/settings': typeof SettingsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -78,6 +93,8 @@ export interface FileRoutesById {
   '/customers_/import': typeof CustomersImportRoute
   '/customers_/new': typeof CustomersNewRoute
   '/settings/database': typeof SettingsDatabaseRoute
+  '/settings/monitoring': typeof SettingsMonitoringRoute
+  '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -89,15 +106,18 @@ export interface FileRouteTypes {
     | '/customers/import'
     | '/customers/new'
     | '/settings/database'
+    | '/settings/monitoring'
+    | '/settings/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/customers'
-    | '/settings'
     | '/customers/$customerId'
     | '/customers/import'
     | '/customers/new'
     | '/settings/database'
+    | '/settings/monitoring'
+    | '/settings'
   id:
     | '__root__'
     | '/'
@@ -107,6 +127,8 @@ export interface FileRouteTypes {
     | '/customers_/import'
     | '/customers_/new'
     | '/settings/database'
+    | '/settings/monitoring'
+    | '/settings/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -162,6 +184,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CustomersNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/': {
+      id: '/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof SettingsIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/database': {
       id: '/settings/database'
       path: '/database'
@@ -169,15 +198,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsDatabaseRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/monitoring': {
+      id: '/settings/monitoring'
+      path: '/monitoring'
+      fullPath: '/settings/monitoring'
+      preLoaderRoute: typeof SettingsMonitoringRouteImport
+      parentRoute: typeof SettingsRoute
+    }
   }
 }
 
 interface SettingsRouteChildren {
   SettingsDatabaseRoute: typeof SettingsDatabaseRoute
+  SettingsMonitoringRoute: typeof SettingsMonitoringRoute
+  SettingsIndexRoute: typeof SettingsIndexRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsDatabaseRoute: SettingsDatabaseRoute,
+  SettingsMonitoringRoute: SettingsMonitoringRoute,
+  SettingsIndexRoute: SettingsIndexRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(

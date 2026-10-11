@@ -7,6 +7,8 @@ import {expect, test} from '@playwright/test';
 
 import launchElectron from './launchElectron.js';
 
+const monitoringTabUrl = /#\/settings\/monitoring$/;
+
 test('production monitoring activates only on cold restart and delivers private signals from both processes', async ({
   browserName: _browserName,
 }, testInfo) => {
@@ -669,6 +671,12 @@ test('Settings can save while actual database startup is held and corrupt monito
       'true'
     );
     await page.getByRole('tab', {name: 'Monitoring'}).click();
+    await expect(page).toHaveURL(monitoringTabUrl);
+    await page.reload();
+    await expect(page.getByRole('tab', {name: 'Monitoring'})).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
     const input = page.getByRole('textbox', {name: 'Sentry DSN'});
     await input.fill('http://public@localhost:9000/1');
     await page.getByRole('button', {name: 'Save monitoring'}).click();

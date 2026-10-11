@@ -16,6 +16,9 @@ const requireElectron = createRequire(
 );
 const {createServer} = await import(requireInterface.resolve('vite'));
 
+const databaseTabUrl = /#\/settings\/database$/;
+const monitoringTabUrl = /#\/settings\/monitoring$/;
+
 test('cold real Vite development boots the live renderer and retains invalid edits on native Stay', async () => {
   const testInfo = test.info();
   test.setTimeout(45000);
@@ -86,6 +89,15 @@ test('cold real Vite development boots the live renderer and retains invalid edi
       'aria-selected',
       'true'
     );
+    await expect(page).toHaveURL(url + '#/settings/database');
+    await expect(page.getByRole('tab', {name: 'Database'})).toHaveAttribute(
+      'href',
+      databaseTabUrl
+    );
+    await expect(page.getByRole('tab', {name: 'Monitoring'})).toHaveAttribute(
+      'href',
+      monitoringTabUrl
+    );
     await page.screenshot({
       path: testInfo.outputPath('settings-database.png'),
       fullPage: true,
@@ -93,6 +105,18 @@ test('cold real Vite development boots the live renderer and retains invalid edi
     await page.getByRole('tab', {name: 'Database'}).focus();
     await page.getByRole('tab', {name: 'Database'}).press('ArrowRight');
     await expect(page.getByRole('tab', {name: 'Monitoring'})).toBeFocused();
+    await page.getByRole('tab', {name: 'Monitoring'}).press('Enter');
+    await expect(page.getByRole('tab', {name: 'Monitoring'})).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    await expect(page).toHaveURL(url + '#/settings/monitoring');
+    await page.goBack();
+    await expect(page.getByRole('tab', {name: 'Database'})).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    await page.goForward();
     await expect(page.getByRole('tab', {name: 'Monitoring'})).toHaveAttribute(
       'aria-selected',
       'true'

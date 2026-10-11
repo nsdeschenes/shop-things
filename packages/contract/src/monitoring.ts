@@ -20,6 +20,8 @@ const operationNames = new Set([
   'restore.copy',
   '/',
   '/settings',
+  '/settings/database',
+  '/settings/monitoring',
   '/customers',
   '/customers/$customerId',
   '/customers/import',
