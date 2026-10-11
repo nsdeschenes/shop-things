@@ -27,7 +27,11 @@ export default defineConfig({
     react(),
   ],
   // Release cold optimized modules before this application's browser crawl can stall.
-  optimizeDeps: {holdUntilCrawlEnd: false},
+  optimizeDeps: {
+    holdUntilCrawlEnd: false,
+    // HMR is disabled, so lazy Tabs must not replace the mounted React dependency graph.
+    include: ['@base-ui/react/tabs'],
+  },
   server: {
     // Electron's cooperative watcher owns updates before a document can replace drafts.
     hmr: false,
