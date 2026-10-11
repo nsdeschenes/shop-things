@@ -6,6 +6,7 @@ import type {
   CustomerReference,
 } from '@shop-things/contract';
 import {
+  defaultTelemetrySampling,
   createCustomerInputSchema,
   updateCustomerInputSchema,
 } from '@shop-things/contract/schemas';
@@ -195,6 +196,21 @@ export default function createPreviewClient(
         customers.splice(customers.indexOf(record), 1);
         return {status: 'success', value: {deleted: true}};
       },
+    },
+    telemetry: {
+      status: async () => ({
+        status: 'success',
+        value: {
+          environment: 'development',
+          savedDsn: null,
+          activeDsn: null,
+          savedSampling: {...defaultTelemetrySampling},
+          activeSampling: {...defaultTelemetrySampling},
+          activeEnabled: false,
+          restartRequired: false,
+        },
+      }),
+      save: async () => ({status: 'cancelled'}),
     },
     database: {
       status: async () => ({status: 'success', value: structuredClone(state)}),

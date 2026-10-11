@@ -9,10 +9,13 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CustomersRouteImport } from './routes/customers'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as CustomersCustomerIdRouteImport } from './routes/customers_.$customerId'
 import { Route as CustomersImportRouteImport } from './routes/customers_.import'
 import { Route as CustomersNewRouteImport } from './routes/customers_.new'
+import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsDatabaseRouteImport } from './routes/settings.database'
+import { Route as SettingsMonitoringRouteImport } from './routes/settings.monitoring'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,6 +25,11 @@ const IndexRoute = IndexRouteImport.update({
 const CustomersRoute = CustomersRouteImport.update({
   id: '/customers',
   path: '/customers',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CustomersCustomerIdRoute = CustomersCustomerIdRouteImport.update({
@@ -39,19 +47,32 @@ const CustomersNewRoute = CustomersNewRouteImport.update({
   path: '/customers/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsIndexRoute = SettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsDatabaseRoute = SettingsDatabaseRouteImport.update({
-  id: '/settings/database',
-  path: '/settings/database',
-  getParentRoute: () => rootRouteImport,
+  id: '/database',
+  path: '/database',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsMonitoringRoute = SettingsMonitoringRouteImport.update({
+  id: '/monitoring',
+  path: '/monitoring',
+  getParentRoute: () => SettingsRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/customers': typeof CustomersRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/customers/import': typeof CustomersImportRoute
   '/customers/new': typeof CustomersNewRoute
   '/settings/database': typeof SettingsDatabaseRoute
+  '/settings/monitoring': typeof SettingsMonitoringRoute
+  '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -60,25 +81,33 @@ export interface FileRoutesByTo {
   '/customers/import': typeof CustomersImportRoute
   '/customers/new': typeof CustomersNewRoute
   '/settings/database': typeof SettingsDatabaseRoute
+  '/settings/monitoring': typeof SettingsMonitoringRoute
+  '/settings': typeof SettingsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/customers': typeof CustomersRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/customers_/$customerId': typeof CustomersCustomerIdRoute
   '/customers_/import': typeof CustomersImportRoute
   '/customers_/new': typeof CustomersNewRoute
   '/settings/database': typeof SettingsDatabaseRoute
+  '/settings/monitoring': typeof SettingsMonitoringRoute
+  '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/customers'
+    | '/settings'
     | '/customers/$customerId'
     | '/customers/import'
     | '/customers/new'
     | '/settings/database'
+    | '/settings/monitoring'
+    | '/settings/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -87,23 +116,28 @@ export interface FileRouteTypes {
     | '/customers/import'
     | '/customers/new'
     | '/settings/database'
+    | '/settings/monitoring'
+    | '/settings'
   id:
     | '__root__'
     | '/'
     | '/customers'
+    | '/settings'
     | '/customers_/$customerId'
     | '/customers_/import'
     | '/customers_/new'
     | '/settings/database'
+    | '/settings/monitoring'
+    | '/settings/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CustomersRoute: typeof CustomersRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
   CustomersCustomerIdRoute: typeof CustomersCustomerIdRoute
   CustomersImportRoute: typeof CustomersImportRoute
   CustomersNewRoute: typeof CustomersNewRoute
-  SettingsDatabaseRoute: typeof SettingsDatabaseRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -120,6 +154,13 @@ declare module '@tanstack/react-router' {
       path: '/customers'
       fullPath: '/customers'
       preLoaderRoute: typeof CustomersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/customers_/$customerId': {
@@ -143,23 +184,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CustomersNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/': {
+      id: '/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof SettingsIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/database': {
       id: '/settings/database'
-      path: '/settings/database'
+      path: '/database'
       fullPath: '/settings/database'
       preLoaderRoute: typeof SettingsDatabaseRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/monitoring': {
+      id: '/settings/monitoring'
+      path: '/monitoring'
+      fullPath: '/settings/monitoring'
+      preLoaderRoute: typeof SettingsMonitoringRouteImport
+      parentRoute: typeof SettingsRoute
     }
   }
 }
 
+interface SettingsRouteChildren {
+  SettingsDatabaseRoute: typeof SettingsDatabaseRoute
+  SettingsMonitoringRoute: typeof SettingsMonitoringRoute
+  SettingsIndexRoute: typeof SettingsIndexRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsDatabaseRoute: SettingsDatabaseRoute,
+  SettingsMonitoringRoute: SettingsMonitoringRoute,
+  SettingsIndexRoute: SettingsIndexRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CustomersRoute: CustomersRoute,
+  SettingsRoute: SettingsRouteWithChildren,
   CustomersCustomerIdRoute: CustomersCustomerIdRoute,
   CustomersImportRoute: CustomersImportRoute,
   CustomersNewRoute: CustomersNewRoute,
-  SettingsDatabaseRoute: SettingsDatabaseRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -2,6 +2,10 @@ import type {z} from 'zod';
 
 import type {
   actions,
+  telemetrySettingsStateSchema,
+  telemetryEnvironmentSchema,
+  telemetrySamplingSchema,
+  telemetryConfigurationSchema,
   importReviewSchema,
   importRowSchema,
   customerSchema,
@@ -31,6 +35,10 @@ export type ContractError = z.infer<typeof errorSchema>;
 export type DraftRequest = z.infer<typeof draftRequestSchema>;
 export type DraftReply = z.infer<typeof draftReplySchema>;
 export type DraftResolution = z.infer<typeof draftResolutionSchema>;
+export type TelemetryEnvironment = z.infer<typeof telemetryEnvironmentSchema>;
+export type TelemetrySettingsState = z.infer<typeof telemetrySettingsStateSchema>;
+export type TelemetrySampling = z.infer<typeof telemetrySamplingSchema>;
+export type TelemetryConfiguration = z.infer<typeof telemetryConfigurationSchema>;
 export type ActionName = keyof typeof actions;
 export type ActionArguments = {
   [K in ActionName]: z.infer<(typeof actions)[K]['arguments']>;
@@ -51,6 +59,7 @@ export type DraftProtection = {
 };
 
 export type ShopThingsBridge = {
+  telemetry: Group<'telemetry'>;
   customers: Group<'customers'>;
   database: Group<'database'> & {
     onStateChanged: (callback: (state: DatabaseState) => void) => () => void;

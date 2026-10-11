@@ -30,7 +30,10 @@ function RootPending() {
 }
 
 export const Route = createRootRouteWithContext<RouterContext>()({
-  beforeLoad: ({context}) => waitForApplication(context.application),
+  beforeLoad: ({context, location}) =>
+    location.pathname === '/settings' || location.pathname.startsWith('/settings/')
+      ? undefined
+      : waitForApplication(context.application),
   pendingComponent: RootPending,
   pendingMs: 0,
   component: RootLayout,

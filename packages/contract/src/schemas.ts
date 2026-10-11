@@ -157,7 +157,94 @@ export const importReviewSchema = z.strictObject({
   numberChangeCount: nonnegativeInteger,
 });
 
+const dsnSyntax =
+  /^https?:\/\/[a-zA-Z0-9_]+@(?:[a-zA-Z0-9_.-]+|\[[a-zA-Z0-9:.%]+\])(?::[0-9]+)?\/(?:[a-zA-Z0-9_-]+\/)*[0-9]+$/;
+
+export const telemetryDsnSchema = z
+  .string()
+  .max(2048)
+  .refine(value => {
+    try {
+      const url = new URL(value);
+      return (
+        dsnSyntax.test(value) &&
+        (url.protocol === 'https:' || url.protocol === 'http:') &&
+        Boolean(url.hostname) &&
+        !url.password &&
+        !url.search &&
+        !url.hash
+      );
+    } catch {
+      return false;
+    }
+  }, 'Enter a valid HTTP or HTTPS Sentry DSN.');
+
+const samplingPercentage = z.number().min(0).max(100);
+export const defaultTelemetrySampling = Object.freeze({
+  errors: 100,
+  traces: 100,
+  logs: 100,
+  metrics: 100,
+});
+export const telemetrySamplingSchema = z.strictObject({
+  errors: samplingPercentage,
+  traces: samplingPercentage,
+  logs: samplingPercentage.default(defaultTelemetrySampling.logs),
+  metrics: samplingPercentage.default(defaultTelemetrySampling.metrics),
+});
+export const telemetryConfigurationSchema = z.strictObject({
+  dsn: telemetryDsnSchema.nullable(),
+  sampling: telemetrySamplingSchema,
+});
+
+export const telemetryEnvironmentSchema = z.enum(['development', 'production']);
+
+export function telemetryDsnSchemaForEnvironment(
+  environment: z.infer<typeof telemetryEnvironmentSchema>
+) {
+  return telemetryDsnSchema.pipe(
+    z.string().refine(dsn => {
+      const url = new URL(dsn);
+      return (
+        environment === 'development' ||
+        url.protocol === 'https:' ||
+        ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+      );
+    }, 'Use an HTTPS Sentry DSN in production. HTTP is allowed only for localhost, 127.0.0.1, or [::1].')
+  );
+}
+
+export const telemetrySettingsStateSchema = z
+  .strictObject({
+    environment: telemetryEnvironmentSchema,
+    savedDsn: telemetryDsnSchema.nullable(),
+    activeDsn: telemetryDsnSchema.nullable(),
+    savedSampling: telemetrySamplingSchema,
+    activeSampling: telemetrySamplingSchema,
+    activeEnabled: z.boolean(),
+    restartRequired: z.boolean(),
+  })
+  .refine(state => {
+    const dsn = telemetryDsnSchemaForEnvironment(state.environment).nullable();
+    return (
+      dsn.safeParse(state.savedDsn).success && dsn.safeParse(state.activeDsn).success
+    );
+  }, 'Monitoring destination is not allowed in this environment.')
+  .refine(
+    state =>
+      state.activeEnabled === (state.activeDsn !== null) &&
+      state.restartRequired ===
+        (state.savedDsn !== state.activeDsn ||
+          state.savedSampling.errors !== state.activeSampling.errors ||
+          state.savedSampling.traces !== state.activeSampling.traces ||
+          state.savedSampling.logs !== state.activeSampling.logs ||
+          state.savedSampling.metrics !== state.activeSampling.metrics),
+    'Monitoring state does not match its configuration.'
+  );
+
 export const actions = {
+  'telemetry.status': action(z.undefined(), telemetrySettingsStateSchema),
+  'telemetry.save': action(telemetryConfigurationSchema, telemetrySettingsStateSchema),
   'imports.commit': action(
     sessionArguments.extend({importId: token}),
     z.discriminatedUnion('kind', [

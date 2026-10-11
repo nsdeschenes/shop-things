@@ -1,7 +1,7 @@
 import {Dialog} from '@base-ui/react/dialog';
 import {ArrowPathIcon, CircleStackIcon, Cog6ToothIcon} from '@heroicons/react/24/outline';
 import * as stylex from '@stylexjs/stylex';
-import {Link, useBlocker, useRouter} from '@tanstack/react-router';
+import {Link, useBlocker, useRouter, useRouterState} from '@tanstack/react-router';
 import {useEffect, useRef, useSyncExternalStore, type ReactNode} from 'react';
 
 import type {Application} from '../../application/controller';
@@ -125,6 +125,8 @@ export default function ApplicationShell({application, children}: ApplicationShe
     protection.frozen ||
     protection.saving;
   const router = useRouter();
+  const pathname = useRouterState({select: state => state.location.pathname});
+  const settingsView = pathname === '/settings' || pathname.startsWith('/settings/');
   const committedNavigation = useRef(false);
 
   useBlocker({
@@ -246,7 +248,7 @@ export default function ApplicationShell({application, children}: ApplicationShe
               <ArrowPathIcon aria-hidden="true" {...stylex.props(styles.refreshIcon)} />
             </Button>
             <Link
-              to="/settings/database"
+              to="/settings"
               disabled={
                 Boolean(state.pendingFile || state.refreshingCustomers) ||
                 protection.frozen ||
@@ -271,6 +273,16 @@ export default function ApplicationShell({application, children}: ApplicationShe
             </Link>
           </div>
         )}
+        {!(state.phase === 'ready' && state.database?.available) && (
+          <Link
+            to="/settings"
+            aria-label="Settings"
+            {...stylex.props(styles.databaseLink)}
+          >
+            <Cog6ToothIcon aria-hidden="true" {...stylex.props(styles.databaseIcon)} />
+            Settings
+          </Link>
+        )}
       </header>
       {state.mode !== 'live' && (
         <p {...stylex.props(styles.database)}>
@@ -279,7 +291,7 @@ export default function ApplicationShell({application, children}: ApplicationShe
             : 'Application unavailable'}
         </p>
       )}
-      {state.phase === 'ready' && !state.database?.available && (
+      {!settingsView && state.phase === 'ready' && !state.database?.available && (
         <DatabaseActions application={application} />
       )}
       {state.refreshError && (
@@ -296,12 +308,13 @@ export default function ApplicationShell({application, children}: ApplicationShe
         </section>
       )}
       {protection.error && <p role="alert">{protection.error}</p>}
-      {state.mode === 'unavailable' ? (
+      {state.mode === 'unavailable' && !settingsView ? (
         <p>
           Open Shop Things in Electron, or add ?preview=true to the browser URL for a
           temporary preview.
         </p>
-      ) : state.phase === 'loading' ? null : state.phase === 'error' ? (
+      ) : state.phase === 'loading' && !settingsView ? null : state.phase === 'error' &&
+        !settingsView ? (
         <section role="alert">
           <p>{state.error}</p>
           <Button
@@ -320,8 +333,11 @@ export default function ApplicationShell({application, children}: ApplicationShe
           {children}
         </div>
       )}
-      {(state.phase === 'loading' || state.pendingFile || state.refreshingCustomers) && (
+      {((state.phase === 'loading' && !settingsView) ||
+        state.pendingFile ||
+        state.refreshingCustomers) && (
         <LoadingOverlay
+          blocking={state.phase !== 'loading'}
           label={
             state.refreshingCustomers
               ? 'Refreshing customers'

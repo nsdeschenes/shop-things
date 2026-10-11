@@ -5,6 +5,7 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 
 import type {DatabaseState, ShopThingsBridge} from '@shop-things/contract';
 import {createClient, applyNewerDatabaseState} from '@shop-things/contract/client';
+import {defaultTelemetrySampling} from '@shop-things/contract/schemas';
 import {expect, test} from 'vitest';
 
 type BackendModule = typeof import('../src/actionService.js');
@@ -99,6 +100,21 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
     target: InstanceType<BackendModule['ActionService']>
   ): ShopThingsBridge {
     return {
+      telemetry: {
+        status: async () => ({
+          status: 'success',
+          value: {
+            environment: 'development',
+            savedDsn: null,
+            activeDsn: null,
+            savedSampling: {...defaultTelemetrySampling},
+            activeSampling: {...defaultTelemetrySampling},
+            activeEnabled: false,
+            restartRequired: false,
+          },
+        }),
+        save: async () => ({status: 'cancelled'}),
+      },
       customers: {
         list: target.handlers['customers.list'],
         get: target.handlers['customers.get'],

@@ -1,4 +1,6 @@
 import {Toast} from '@base-ui/react/toast';
+import {getClient} from '@shop-things/contract/client';
+import {defaultTelemetrySampling} from '@shop-things/contract/schemas';
 import * as stylex from '@stylexjs/stylex';
 import {QueryClientProvider} from '@tanstack/react-query';
 import {RouterProvider, createRouter} from '@tanstack/react-router';
@@ -7,6 +9,7 @@ import ReactDOM from 'react-dom/client';
 
 import {createApplication} from './application/controller';
 import createApplicationHistory from './application/history';
+import {initializeRendererTelemetry} from './application/telemetry';
 import toastManager from './application/toasts';
 import Toasts from './components/toasts/toasts';
 import {routeTree} from './routeTree.gen';
@@ -24,9 +27,45 @@ const styles = stylex.create({
 
 document.body.classList.add(...(stylex.props(styles.body).className?.split(' ') ?? []));
 
-const application = createApplication(window.location.href);
+let bridge: ReturnType<typeof getClient> | null = null;
+try {
+  if (Reflect.has(window, 'shopThings')) {
+    bridge = getClient();
+  }
+} catch {}
+
+const configuration = await bridge?.telemetry.status();
+const activeDsn =
+  configuration?.status === 'success' ? configuration.value.activeDsn : null;
+const connectionPolicy = document.createElement('meta');
+connectionPolicy.httpEquiv = 'Content-Security-Policy';
+const connectionSources = [
+  ...(import.meta.env.DEV ? ["'self'"] : []),
+  ...(activeDsn ? [new URL(activeDsn).origin] : []),
+];
+connectionPolicy.content = `connect-src ${connectionSources.join(' ') || "'none'"}`;
+document.head.append(connectionPolicy);
+const monitoring = initializeRendererTelemetry(
+  activeDsn,
+  configuration?.status === 'success'
+    ? configuration.value.activeSampling
+    : defaultTelemetrySampling,
+  configuration?.status === 'success' ? configuration.value.environment : 'development'
+);
+try {
+  if (bridge) {
+    bridge = getClient(monitoring.observe);
+  }
+} catch {
+  bridge = null;
+}
+
+const application = createApplication(
+  window.location.href,
+  undefined,
+  bridge ? {client: bridge} : {}
+);
 const queryClient = application.queryClient;
-void application.start();
 window.addEventListener('pagehide', () => application.dispose());
 window.addEventListener('pageshow', event => {
   if (event.persisted) {
@@ -45,6 +84,16 @@ const router = createRouter({
   },
 });
 
+monitoring.instrumentRouter(router);
+void application.start();
+router.subscribe('onResolved', () => {
+  for (const match of router.state.matches) {
+    if (match.status === 'error') {
+      monitoring.captureException(match.error);
+    }
+  }
+});
+
 declare module '@tanstack/react-router' {
   interface Register {
     router: typeof router;
@@ -54,7 +103,11 @@ declare module '@tanstack/react-router' {
 // Render the app
 const rootElement = document.getElementById('root')!;
 if (!rootElement.innerHTML) {
-  const root = ReactDOM.createRoot(rootElement);
+  const root = ReactDOM.createRoot(rootElement, {
+    onCaughtError: monitoring.reportReactError,
+    onUncaughtError: monitoring.reportReactError,
+    onRecoverableError: monitoring.reportReactError,
+  });
   root.render(
     <StrictMode>
       <Toast.Provider toastManager={toastManager}>

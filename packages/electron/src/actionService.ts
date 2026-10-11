@@ -107,10 +107,11 @@ export interface ActionServiceOptions {
   database?: DatabaseOperations;
   logError?: (error: unknown) => void;
   drafts?: DraftCoordinator;
+  phase?: <T>(name: string, work: () => T) => T;
 }
 
 export class ActionService {
-  readonly handlers: ActionHandlers;
+  readonly handlers: Omit<ActionHandlers, 'telemetry.status' | 'telemetry.save'>;
   private readonly database: DatabaseOperations;
   private readonly imports = new Map<string, ImportReview>();
   private active: DatabaseHandle | null = null;
@@ -208,13 +209,20 @@ export class ActionService {
           }
 
           this.requireSession(args.session);
-          const parsed = await readCustomerImport(path, args.session);
+          const parsed = await this.phase('import.read', () =>
+            readCustomerImport(path, args.session)
+          );
           const saved =
             parsed.status === 'ready'
               ? await this.database.listCustomers(this.requireSession(args.session).db)
               : [];
           const review = this.finalizeImport(
-            {...parsed, ...matchCustomerImportRows(parsed.rows, saved)},
+            {
+              ...parsed,
+              ...this.phase('import.match', () =>
+                matchCustomerImportRows(parsed.rows, saved)
+              ),
+            },
             saved
           );
           this.imports.set(review.importId, review);
@@ -526,7 +534,8 @@ export class ActionService {
     }
 
     const path = resolve(selected);
-    await writeCustomerCsv(path, await this.database.listCustomers(handle.db));
+    const customers = await this.database.listCustomers(handle.db);
+    await this.phase('export.write', () => writeCustomerCsv(path, customers));
     return {path};
   }
 
@@ -650,7 +659,7 @@ export class ActionService {
     }
 
     const path = resolve(destination);
-    await copyBackup(resolve(source), path);
+    await this.phase('restore.copy', () => copyBackup(resolve(source), path));
     try {
       await this.prepareCandidate(path, false, lease);
     } catch (error) {
@@ -758,6 +767,10 @@ export class ActionService {
       message:
         'The operation failed. Check the file and folder permissions, then try again.',
     };
+  }
+
+  private phase<T>(name: string, work: () => T): T {
+    return this.options.phase ? this.options.phase(name, work) : work();
   }
 
   private async admit<T>(work: () => Promise<T | null>): Promise<Outcome<T>> {

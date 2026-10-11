@@ -15,7 +15,12 @@ export default function launchElectron(
 ) {
   return _electron.launch({
     executablePath,
-    args: [entry],
+    args: [
+      ...(process.env.SHOP_THINGS_ACCEPTANCE_NO_SANDBOX === 'true'
+        ? ['--no-sandbox']
+        : []),
+      entry,
+    ],
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '',

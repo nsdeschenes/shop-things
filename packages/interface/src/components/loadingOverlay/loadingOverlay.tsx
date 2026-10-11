@@ -3,6 +3,7 @@ import * as stylex from '@stylexjs/stylex';
 import LoadingSpinner from '../loadingSpinner/loadingSpinner';
 
 const styles = stylex.create({
+  nonblocking: {pointerEvents: 'none'},
   overlay: {
     inset: 0,
     placeItems: 'center',
@@ -13,9 +14,15 @@ const styles = stylex.create({
   },
 });
 
-export default function LoadingOverlay({label}: {label: string}) {
+export default function LoadingOverlay({
+  label,
+  blocking = true,
+}: {
+  label: string;
+  blocking?: boolean;
+}) {
   return (
-    <div {...stylex.props(styles.overlay)}>
+    <div {...stylex.props(styles.overlay, !blocking && styles.nonblocking)}>
       <LoadingSpinner label={label} />
     </div>
   );

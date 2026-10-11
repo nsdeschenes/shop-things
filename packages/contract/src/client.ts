@@ -1,6 +1,14 @@
 import type {z} from 'zod';
 
-import type {ShopThingsBridge, Client, DatabaseState, DraftRequest} from './index.js';
+import type {
+  ShopThingsBridge,
+  Client,
+  DatabaseState,
+  DraftRequest,
+  ActionName,
+  ErrorCode,
+} from './index.js';
+import {customerArgumentAttributes} from './monitoring.js';
 import {
   actions,
   databaseStateSchema,
@@ -14,65 +22,141 @@ const internalError = {
   error: {code: 'INTERNAL', message: 'The application could not complete the request.'},
 } as const;
 
-function validatedCall<A, R extends z.ZodType>(
+export type ClientObservation = Readonly<{
+  action: ActionName;
+  durationMs: number;
+  outcome: 'success' | 'cancelled' | 'error';
+  errorCode?: ErrorCode;
+  attributes: Readonly<Record<string, string | number | boolean>>;
+  fault?: {kind: 'transport'; error: unknown} | {kind: 'invalid-result'};
+}>;
+export type ClientObserver = (observation: ClientObservation) => void;
+
+function validatedCall<
+  A,
+  R extends z.ZodType<{
+    status: 'success' | 'cancelled' | 'error';
+    error?: {code: ErrorCode};
+  }>,
+>(
   definition: {arguments: z.ZodType<A>; result: R},
-  call: (args: A) => Promise<unknown>
+  call: (args: A) => Promise<unknown>,
+  action: ActionName,
+  observer?: ClientObserver
 ) {
   return async (args: A): Promise<z.output<R>> => {
-    const parsed = definition.arguments.safeParse(args);
-    if (!parsed.success) {
-      return definition.result.parse({
-        status: 'error',
-        error: {code: 'VALIDATION', message: 'Invalid request arguments.'},
-      });
-    }
+    const started = performance.now();
+    let fault: ClientObservation['fault'];
+    let attributes: ClientObservation['attributes'] = {};
+    async function invoke() {
+      const parsed = definition.arguments.safeParse(args);
+      if (!parsed.success) {
+        return definition.result.parse({
+          status: 'error',
+          error: {code: 'VALIDATION', message: 'Invalid request arguments.'},
+        });
+      }
 
-    try {
-      const result = definition.result.safeParse(await call(parsed.data));
-      return result.success ? result.data : definition.result.parse(internalError);
-    } catch {
+      attributes = Object.freeze(customerArgumentAttributes(action, parsed.data));
+      try {
+        const result = definition.result.safeParse(await call(parsed.data));
+        if (result.success) {
+          return result.data;
+        }
+
+        fault = {kind: 'invalid-result'};
+      } catch (error) {
+        fault = {kind: 'transport', error};
+      }
+
       return definition.result.parse(internalError);
     }
+
+    const result = await invoke();
+    try {
+      observer?.({
+        action,
+        durationMs: performance.now() - started,
+        outcome: result.status,
+        attributes,
+        ...(result.error ? {errorCode: result.error.code} : {}),
+        ...(fault ? {fault} : {}),
+      });
+    } catch {}
+
+    return result;
   };
 }
 
-export function createClient(bridge: ShopThingsBridge): Client {
+export function createClient(
+  bridge: ShopThingsBridge,
+  observer?: ClientObserver
+): Client {
+  function observed<
+    A,
+    R extends z.ZodType<{
+      status: 'success' | 'cancelled' | 'error';
+      error?: {code: ErrorCode};
+    }>,
+  >(
+    name: ActionName,
+    definition: {arguments: z.ZodType<A>; result: R},
+    call: (args: A) => Promise<unknown>
+  ) {
+    return validatedCall(definition, call, name, observer);
+  }
+
   return {
+    telemetry: {
+      status: () =>
+        observed('telemetry.status', actions['telemetry.status'], () =>
+          bridge.telemetry.status()
+        )(undefined),
+      save: observed('telemetry.save', actions['telemetry.save'], args =>
+        bridge.telemetry.save(args)
+      ),
+    },
     customers: {
-      list: validatedCall(actions['customers.list'], args => bridge.customers.list(args)),
-      get: validatedCall(actions['customers.get'], args => bridge.customers.get(args)),
-      create: validatedCall(actions['customers.create'], args =>
+      list: observed('customers.list', actions['customers.list'], args =>
+        bridge.customers.list(args)
+      ),
+      get: observed('customers.get', actions['customers.get'], args =>
+        bridge.customers.get(args)
+      ),
+      create: observed('customers.create', actions['customers.create'], args =>
         bridge.customers.create(args)
       ),
-      update: validatedCall(actions['customers.update'], args =>
+      update: observed('customers.update', actions['customers.update'], args =>
         bridge.customers.update(args)
       ),
-      delete: validatedCall(actions['customers.delete'], args =>
+      delete: observed('customers.delete', actions['customers.delete'], args =>
         bridge.customers.delete(args)
       ),
     },
     database: {
       status: () =>
-        validatedCall(actions['database.status'], () => bridge.database.status())(
-          undefined
-        ),
+        observed('database.status', actions['database.status'], () =>
+          bridge.database.status()
+        )(undefined),
       retry: () =>
-        validatedCall(actions['database.retry'], () => bridge.database.retry())(
-          undefined
-        ),
+        observed('database.retry', actions['database.retry'], () =>
+          bridge.database.retry()
+        )(undefined),
       create: () =>
-        validatedCall(actions['database.create'], () => bridge.database.create())(
+        observed('database.create', actions['database.create'], () =>
+          bridge.database.create()
+        )(undefined),
+      open: () =>
+        observed('database.open', actions['database.open'], () => bridge.database.open())(
           undefined
         ),
-      open: () =>
-        validatedCall(actions['database.open'], () => bridge.database.open())(undefined),
-      backup: validatedCall(actions['database.backup'], args =>
+      backup: observed('database.backup', actions['database.backup'], args =>
         bridge.database.backup(args)
       ),
       restore: () =>
-        validatedCall(actions['database.restore'], () => bridge.database.restore())(
-          undefined
-        ),
+        observed('database.restore', actions['database.restore'], () =>
+          bridge.database.restore()
+        )(undefined),
       onStateChanged(callback) {
         let subscribed = true;
         const unsubscribe = bridge.database.onStateChanged(payload => {
@@ -90,25 +174,27 @@ export function createClient(bridge: ShopThingsBridge): Client {
       },
     },
     imports: {
-      commit: validatedCall(actions['imports.commit'], args =>
+      commit: observed('imports.commit', actions['imports.commit'], args =>
         bridge.imports.commit(args)
       ),
-      prepare: validatedCall(actions['imports.prepare'], args =>
+      prepare: observed('imports.prepare', actions['imports.prepare'], args =>
         bridge.imports.prepare(args)
       ),
-      review: validatedCall(actions['imports.review'], args =>
+      review: observed('imports.review', actions['imports.review'], args =>
         bridge.imports.review(args)
       ),
-      resolve: validatedCall(actions['imports.resolve'], args =>
+      resolve: observed('imports.resolve', actions['imports.resolve'], args =>
         bridge.imports.resolve(args)
       ),
     },
     exports: {
-      csv: validatedCall(actions['exports.csv'], args => bridge.exports.csv(args)),
+      csv: observed('exports.csv', actions['exports.csv'], args =>
+        bridge.exports.csv(args)
+      ),
     },
     drafts: {
       confirmDiscard: () =>
-        validatedCall(actions['drafts.confirmDiscard'], () =>
+        observed('drafts.confirmDiscard', actions['drafts.confirmDiscard'], () =>
           bridge.drafts.confirmDiscard()
         )(undefined),
       registerProtection(protection) {
@@ -159,7 +245,7 @@ export function createClient(bridge: ShopThingsBridge): Client {
   };
 }
 
-export function getClient(): Client {
+export function getClient(observer?: ClientObserver): Client {
   const candidate = Reflect.get(globalThis, 'window');
   const bridge: unknown =
     typeof candidate === 'object' && candidate !== null
@@ -169,7 +255,7 @@ export function getClient(): Client {
     throw new Error('Shop Things preload bridge is unavailable.');
   }
 
-  return createClient(bridge);
+  return createClient(bridge, observer);
 }
 
 function isBridge(value: unknown): value is ShopThingsBridge {
@@ -178,6 +264,7 @@ function isBridge(value: unknown): value is ShopThingsBridge {
   }
 
   const groups = {
+    telemetry: ['status', 'save'],
     customers: ['list', 'get', 'create', 'update', 'delete'],
     database: [
       'status',

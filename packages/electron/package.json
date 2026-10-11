@@ -17,6 +17,8 @@
     "build:preload": "node --experimental-strip-types ../../scripts/preload-build.ts"
   },
   "dependencies": {
+    "@sentry/electron": "8.1.0",
+    "@sentry/node": "11.4.0",
     "@shop-things/contract": "workspace:*",
     "@shop-things/db": "workspace:*"
   },

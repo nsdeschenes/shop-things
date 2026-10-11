@@ -1,28 +1,16 @@
 import {mkdtemp, rm} from 'node:fs/promises';
-import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {fileURLToPath} from 'node:url';
 
-import {_electron, expect, test, type ElectronApplication} from '@playwright/test';
+import {expect, test, type ElectronApplication} from '@playwright/test';
 
-const root = fileURLToPath(new URL('..', import.meta.url));
-const executablePath = createRequire(
-  new URL('../packages/electron/package.json', import.meta.url)
-)('electron');
+import launchElectron from './launchElectron.js';
+
 function launch(directory: string) {
-  return _electron.launch({
-    executablePath,
-    args: [join(root, 'acceptance/electron-entry.mjs')],
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '',
-      SHOP_THINGS_ACCEPTANCE_DATA: directory,
-      SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
-      SHOP_THINGS_ACCEPTANCE_BOUNDARY: 'true',
-      SHOP_THINGS_ACCEPTANCE_RECOVERY: 'true',
-      VITE_DEV_SERVER_URL: '',
-    },
+  return launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
+    SHOP_THINGS_ACCEPTANCE_BOUNDARY: 'true',
+    SHOP_THINGS_ACCEPTANCE_RECOVERY: 'true',
   });
 }
 
@@ -276,7 +264,7 @@ test('one application subscription and participant span route/editor mounts and 
       page.getByRole('button', {name: 'Open database', exact: true})
     ).toBeDisabled();
     await expect(page.getByRole('status', {name: 'Loading database'})).toBeVisible();
-    await expect(page.getByRole('status')).toHaveCount(1);
+    await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(1);
     await application.evaluate(() => Reflect.get(globalThis, 'acceptanceReleaseRead')());
     await expect(page.getByText('Database opened.', {exact: true})).toBeVisible();
     await expect(page.getByText('3 results', {exact: true})).toBeVisible();

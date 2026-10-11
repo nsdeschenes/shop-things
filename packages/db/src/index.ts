@@ -4,6 +4,8 @@ import {Database} from '@tursodatabase/database';
 import {drizzle} from 'drizzle-orm/tursodatabase/database';
 import {migrate} from 'drizzle-orm/tursodatabase/migrator';
 
+import {observeQueries} from './queryObserver.js';
+import type {QueryObserver} from './queryTelemetry.js';
 import {relations} from './relations.js';
 import * as schema from './schema.js';
 
@@ -20,11 +22,21 @@ export interface DatabaseHandle {
   close(): void;
 }
 
-export function openDatabase(databaseFilePath: string): DatabaseHandle {
+export interface OpenDatabaseOptions {
+  queryObserver?: QueryObserver;
+}
+
+export function openDatabase(
+  databaseFilePath: string,
+  options: OpenDatabaseOptions = {}
+): DatabaseHandle {
   const client = new Database(databaseFilePath);
+  const observed = options.queryObserver
+    ? observeQueries(client, options.queryObserver)
+    : client;
 
   return {
-    db: createTypedDatabase(client),
+    db: createTypedDatabase(observed),
     close: () => client.close(),
   };
 }
@@ -42,3 +54,5 @@ export async function runMigrations(
 
 export * from './customers.js';
 export * from './lifecycle.js';
+
+export * from './queryTelemetry.js';

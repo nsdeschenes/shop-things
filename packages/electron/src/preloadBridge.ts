@@ -20,11 +20,6 @@ export interface RendererIpc {
   ): unknown;
 }
 
-const failed = {
-  status: 'error',
-  error: {code: 'INTERNAL', message: 'The application could not complete the request.'},
-} as const;
-
 export function createPreloadBridge(
   ipc: RendererIpc,
   nextId: () => string = () => crypto.randomUUID()
@@ -76,7 +71,10 @@ export function createPreloadBridge(
   ) {
     return async (args: A): Promise<R> => {
       try {
-        await Promise.all(registrations);
+        if (!name.startsWith('telemetry.')) {
+          await Promise.all(registrations);
+        }
+
         const result = definition.result.safeParse(
           await ipc.invoke(`shop-things:${name}`, {
             documentId: await getDocument(),
@@ -90,16 +88,15 @@ export function createPreloadBridge(
         /* Transport failures never expose native details. */
       }
 
-      const result = definition.result.safeParse(failed);
-      if (!result.success) {
-        throw new Error('Invalid contract failure schema.');
-      }
-
-      return result.data;
+      throw new Error('The application transport failed.');
     };
   }
 
   return {
+    telemetry: {
+      status: () => call('telemetry.status', actions['telemetry.status'])(undefined),
+      save: call('telemetry.save', actions['telemetry.save']),
+    },
     customers: {
       list: call('customers.list', actions['customers.list']),
       get: call('customers.get', actions['customers.get']),

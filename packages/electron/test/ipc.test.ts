@@ -1,17 +1,27 @@
+import {mkdtemp, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+
 import {createClient, applyNewerDatabaseState} from '@shop-things/contract/client';
-import {actions} from '@shop-things/contract/schemas';
+import type {ClientObservation} from '@shop-things/contract/client';
+import {actions, defaultTelemetrySampling} from '@shop-things/contract/schemas';
 import {expect, test} from 'vitest';
 
 import {ActionService} from '../src/actionService.js';
 import {DraftCoordinator} from '../src/draftCoordinator.js';
 import {registerIpc} from '../src/ipc.js';
-import type {ApprovedDocument, IpcSender, MainIpc} from '../src/ipc.js';
+import type {ApprovedDocument, IpcSender, MainIpc, IpcOptions} from '../src/ipc.js';
 import {controls} from '../src/ipcWire.js';
 import {createPreloadBridge} from '../src/preloadBridge.js';
+import {FileTelemetrySettings} from '../src/telemetrySettings.js';
 const editorFailure = /editor/;
 import type {DraftRequest, DatabaseState} from '@shop-things/contract';
 
-function fixture() {
+function fixture(
+  telemetrySettings?: FileTelemetrySettings,
+  ready?: () => Promise<void>,
+  observeAction?: IpcOptions['observeAction']
+) {
   const handlers = new Map<
     string,
     (event: IpcSender, ...payloads: unknown[]) => unknown
@@ -77,6 +87,9 @@ function fixture() {
   });
   const stop = registerIpc({
     ipc,
+    ...(telemetrySettings ? {telemetrySettings} : {}),
+    ...(ready ? {ready} : {}),
+    ...(observeAction ? {observeAction} : {}),
     service,
     drafts,
     currentDocument: () => document,
@@ -150,6 +163,43 @@ async function settle() {
     await Promise.resolve();
   }
 }
+
+test('main observes only approved customer argument attributes after authorization and validation', async () => {
+  const observations: {name: string; attributes: unknown}[] = [];
+  const f = fixture(undefined, undefined, async (name, operation, attributes) => {
+    observations.push({name, attributes});
+    return operation();
+  });
+  try {
+    const payload = {
+      documentId: 'document-1',
+      arguments: {
+        reference: {session: 'PRIVATE_SESSION', id: 1, revision: 'PRIVATE_REVISION'},
+        changes: {stock: 0, balance: '-1.2', donate: false, email: 'PRIVATE_EMAIL'},
+      },
+    };
+    expect(await f.invoke('shop-things:customers.update', payload)).toMatchObject({
+      error: {code: 'DATABASE_UNAVAILABLE'},
+    });
+    expect(observations).toEqual([
+      {name: 'customers.update', attributes: {stock: 0, balance: '-1.20', donate: false}},
+    ]);
+    expect(JSON.stringify(observations)).not.toContain('PRIVATE');
+    expect(
+      await f.invoke('shop-things:customers.update', {
+        ...payload,
+        arguments: {...payload.arguments, changes: {stock: -1}},
+      })
+    ).toMatchObject({error: {code: 'VALIDATION'}});
+    f.invalidate();
+    expect(await f.invoke('shop-things:customers.update', payload)).toMatchObject({
+      error: {code: 'UNAUTHORIZED'},
+    });
+    expect(observations).toHaveLength(1);
+  } finally {
+    f.stop();
+  }
+});
 
 test('complete named action surface denies wrong sender/frame/document and malformed input before service', async () => {
   const f = fixture();
@@ -261,6 +311,52 @@ test('injected named bridge validates payload-only versioned state and removes s
   expect(f.sent.length).toBe(count);
   f.stop();
 });
+
+test.each(['rejected', 'malformed'] as const)(
+  'preload preserves sanitized %s IPC faults for the client observer without changing outcomes',
+  async failure => {
+    const f = fixture();
+    const observations: ClientObservation[] = [];
+    const invoke = f.renderer.invoke;
+    f.renderer.invoke = async (channel, ...payloads) => {
+      if (channel === 'shop-things:customers.get') {
+        if (failure === 'rejected') {
+          throw new Error('PRIVATE_SENTINEL_transport');
+        }
+
+        return {status: 'success', value: 'PRIVATE_SENTINEL_response'};
+      }
+
+      return invoke(channel, ...payloads);
+    };
+
+    const client = createClient(createPreloadBridge(f.renderer), observation => {
+      observations.push(observation);
+    });
+    try {
+      expect(await client.customers.get({session: 's', id: 1})).toEqual({
+        status: 'error',
+        error: {
+          code: 'INTERNAL',
+          message: 'The application could not complete the request.',
+        },
+      });
+      expect(observations).toHaveLength(1);
+      expect(observations[0]).toMatchObject({
+        action: 'customers.get',
+        outcome: 'error',
+        fault: {kind: 'transport', error: {message: 'The application transport failed.'}},
+      });
+      expect(await client.customers.list({session: 's', query: ''})).toMatchObject({
+        status: 'error',
+        error: {code: 'DATABASE_UNAVAILABLE'},
+      });
+      expect(observations[1]?.fault).toBeUndefined();
+    } finally {
+      f.stop();
+    }
+  }
+);
 test('draft controls bypass admission and enforce document/registration/request correlation', async () => {
   const f = fixture();
   f.send(controls.draftRegister, {
@@ -356,4 +452,61 @@ test('preload draft callbacks receive validated payloads and rejected preparatio
   await settle();
   await expect(f.drafts.prepare()).rejects.toThrow(editorFailure);
   f.stop();
+});
+
+test('authorized monitoring settings bypass held database readiness and retain exact action trust', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'settings-ipc-'));
+  const settings = new FileTelemetrySettings(join(directory, 'telemetry.json'));
+  const current = fixture(settings, () => new Promise(() => {}));
+  const client = createClient(createPreloadBridge(current.renderer));
+  try {
+    expect(await client.telemetry.status()).toMatchObject({
+      status: 'success',
+      value: {activeEnabled: false},
+    });
+    expect(
+      await client.telemetry.save({
+        dsn: 'http://public@localhost:9000/1',
+        sampling: {errors: 25, traces: 0, logs: 50, metrics: 10},
+      })
+    ).toMatchObject({
+      status: 'success',
+      value: {
+        restartRequired: true,
+        activeEnabled: false,
+        savedSampling: {errors: 25, traces: 0, logs: 50, metrics: 10},
+        activeSampling: defaultTelemetrySampling,
+      },
+    });
+    expect(
+      await client.telemetry.save({
+        dsn: null,
+        sampling: {...defaultTelemetrySampling, errors: 101, traces: 0},
+      })
+    ).toMatchObject({status: 'error', error: {code: 'VALIDATION'}});
+    expect(settings.status().savedSampling).toEqual({
+      errors: 25,
+      traces: 0,
+      logs: 50,
+      metrics: 10,
+    });
+    expect(
+      await current.invoke('shop-things:telemetry.save', {
+        documentId: 'document-1',
+        arguments: {dsn: null},
+        extra: true,
+      })
+    ).toMatchObject({error: {code: 'UNAUTHORIZED'}});
+    current.replaceDocument();
+    expect(
+      await current.invoke('shop-things:telemetry.status', {
+        documentId: 'document-1',
+        arguments: undefined,
+      })
+    ).toMatchObject({error: {code: 'UNAUTHORIZED'}});
+    expect(settings.status().savedDsn).toBe('http://public@localhost:9000/1');
+  } finally {
+    current.stop();
+    await rm(directory, {recursive: true, force: true});
+  }
 });

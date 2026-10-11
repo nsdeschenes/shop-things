@@ -1,3 +1,4 @@
+import {Tabs} from '@base-ui/react/tabs';
 import {
   CircleStackIcon,
   ShieldCheckIcon,
@@ -7,13 +8,15 @@ import {
   ArrowLeftIcon,
 } from '@heroicons/react/24/outline';
 import * as stylex from '@stylexjs/stylex';
-import {Link, useNavigate} from '@tanstack/react-router';
+import {Link, useNavigate, useRouterState} from '@tanstack/react-router';
 import {useRef, useSyncExternalStore} from 'react';
 
 import type {Application} from '../../application/controller';
 import {colors} from '../../styles/colors.stylex';
 import Button from '../button/button';
 import buttonStyles from '../button/buttonStyles';
+import DatabaseActions from '../databaseActions/databaseActions';
+import TelemetrySettings from '../telemetrySettings/telemetrySettings';
 
 const pathSeparator = /[\\/]/;
 const styles = stylex.create({
@@ -24,6 +27,34 @@ const styles = stylex.create({
     maxWidth: 1120,
   },
   pageIntro: {marginBottom: 28},
+  tabs: {
+    gap: 16,
+    display: 'flex',
+    borderBottomColor: colors.border,
+    borderBottomStyle: 'solid',
+    borderBottomWidth: 1,
+    marginBottom: 28,
+  },
+  tab: {
+    borderWidth: 0,
+    paddingBlock: 12,
+    paddingInline: 16,
+    textDecoration: 'none',
+    backgroundColor: 'transparent',
+    color: {
+      default: colors.textMuted,
+      ':is([data-active])': colors.primary,
+      ':hover': colors.primary,
+    },
+    cursor: 'pointer',
+    fontSize: 16,
+    fontWeight: 600,
+    outlineColor: colors.focusRing,
+    outlineOffset: 3,
+    borderBottomColor: {default: 'transparent', ':is([data-active])': colors.primary},
+    borderBottomStyle: 'solid',
+    borderBottomWidth: 2,
+  },
   back: {marginBottom: 20, width: 'fit-content'},
   heading: {
     fontSize: {default: 34, '@media (max-width: 700px)': 28},
@@ -162,6 +193,8 @@ export default function DatabaseSettings({application}: {application: Applicatio
     application.protection.getState
   );
   const navigate = useNavigate();
+  const pathname = useRouterState({select: state => state.location.pathname});
+  const tab = pathname === '/settings/monitoring' ? 'monitoring' : 'database';
   const restoreButton = useRef<HTMLButtonElement>(null);
   const database = state.database;
   const filename =
@@ -198,116 +231,173 @@ export default function DatabaseSettings({application}: {application: Applicatio
     });
   }
 
-  if (!database?.available) {
-    return null;
-  }
-
   return (
     <main {...stylex.props(styles.page)}>
-      <Link to="/customers" {...stylex.props(buttonStyles.base, styles.back)}>
+      <Link
+        to={database?.available ? '/customers' : '/'}
+        {...stylex.props(buttonStyles.base, styles.back)}
+      >
         <ArrowLeftIcon aria-hidden="true" {...stylex.props(styles.smallIcon)} />
-        Back to customers
+        {database?.available ? 'Back to customers' : 'Back to setup'}
       </Link>
       <div {...stylex.props(styles.pageIntro)}>
-        <h1 {...stylex.props(styles.heading)}>Database Settings</h1>
+        <h1 {...stylex.props(styles.heading)}>Settings</h1>
         <p {...stylex.props(styles.description)}>
-          Your customer records, backups, and file transfers.
+          Application monitoring, customer records, backups, and file transfers.
         </p>
       </div>
-      <section aria-label="Active database" {...stylex.props(styles.active)}>
-        <div {...stylex.props(styles.spread)}>
-          <div {...stylex.props(styles.identity)}>
-            <span {...stylex.props(styles.fileSymbol)}>
-              <CircleStackIcon aria-hidden="true" {...stylex.props(styles.largeIcon)} />
-            </span>
-            <div>
-              <h2 {...stylex.props(styles.fileLabel)}>Active Database</h2>
-              <p {...stylex.props(styles.file)}>{filename}</p>
-            </div>
-          </div>
-          <span {...stylex.props(styles.badge)}>
-            <CheckIcon aria-hidden="true" {...stylex.props(styles.smallIcon)} />
-            {state.recoveryRequired ? 'Recovery required' : 'Database open'}
-          </span>
-        </div>
-        <div {...stylex.props(styles.fileFooter)}>
-          {database.selectedPath ? (
-            <details {...stylex.props(styles.detail)}>
-              <summary>File location</summary>
-              <p {...stylex.props(styles.path)}>{database.selectedPath}</p>
-            </details>
+      <Tabs.Root value={tab}>
+        <Tabs.List aria-label="Settings" {...stylex.props(styles.tabs)}>
+          <Tabs.Tab
+            value="database"
+            nativeButton={false}
+            render={<Link to="/settings/database" />}
+            {...stylex.props(styles.tab)}
+          >
+            Database
+          </Tabs.Tab>
+          <Tabs.Tab
+            value="monitoring"
+            nativeButton={false}
+            render={<Link to="/settings/monitoring" />}
+            {...stylex.props(styles.tab)}
+          >
+            Monitoring
+          </Tabs.Tab>
+        </Tabs.List>
+        <Tabs.Panel value="database" keepMounted>
+          <h2 {...stylex.props(styles.title)}>Database Settings</h2>
+          {!database?.available ? (
+            <DatabaseActions application={application} heading="h3" />
           ) : (
-            <p {...stylex.props(styles.description)}>
-              Temporary browser data. File actions are available in the desktop app.
-            </p>
+            <>
+              <section aria-label="Active database" {...stylex.props(styles.active)}>
+                <div {...stylex.props(styles.spread)}>
+                  <div {...stylex.props(styles.identity)}>
+                    <span {...stylex.props(styles.fileSymbol)}>
+                      <CircleStackIcon
+                        aria-hidden="true"
+                        {...stylex.props(styles.largeIcon)}
+                      />
+                    </span>
+                    <div>
+                      <h2 {...stylex.props(styles.fileLabel)}>Active Database</h2>
+                      <p {...stylex.props(styles.file)}>{filename}</p>
+                    </div>
+                  </div>
+                  <span {...stylex.props(styles.badge)}>
+                    <CheckIcon aria-hidden="true" {...stylex.props(styles.smallIcon)} />
+                    {state.recoveryRequired ? 'Recovery required' : 'Database open'}
+                  </span>
+                </div>
+                <div {...stylex.props(styles.fileFooter)}>
+                  {database.selectedPath ? (
+                    <details {...stylex.props(styles.detail)}>
+                      <summary>File location</summary>
+                      <p {...stylex.props(styles.path)}>{database.selectedPath}</p>
+                    </details>
+                  ) : (
+                    <p {...stylex.props(styles.description)}>
+                      Temporary browser data. File actions are available in the desktop
+                      app.
+                    </p>
+                  )}
+                  <div {...stylex.props(styles.actions)}>
+                    <Button
+                      variant="primary"
+                      disabled={disabled}
+                      onClick={() => run('open')}
+                    >
+                      Open database
+                    </Button>
+                    <Button disabled={disabled} onClick={() => run('create')}>
+                      Create database
+                    </Button>
+                  </div>
+                </div>
+              </section>
+              <div {...stylex.props(styles.columns)}>
+                <section {...stylex.props(styles.group)}>
+                  <div {...stylex.props(styles.groupHeader)}>
+                    <div {...stylex.props(styles.groupTitle)}>
+                      <ShieldCheckIcon
+                        aria-hidden="true"
+                        {...stylex.props(styles.icon)}
+                      />
+                      <h2 {...stylex.props(styles.title)}>Backups</h2>
+                    </div>
+                    <p {...stylex.props(styles.description)}>
+                      Save a copy of your database, or open a restored copy.
+                    </p>
+                  </div>
+                  <button
+                    disabled={currentDisabled}
+                    onClick={() => run('backup')}
+                    {...stylex.props(styles.actionLink)}
+                  >
+                    Back up database
+                    <ChevronRightIcon
+                      aria-hidden="true"
+                      {...stylex.props(styles.smallIcon)}
+                    />
+                  </button>
+                  <button
+                    ref={restoreButton}
+                    disabled={disabled}
+                    onClick={() => run('restore')}
+                    {...stylex.props(styles.actionLink)}
+                  >
+                    Restore backup
+                    <ChevronRightIcon
+                      aria-hidden="true"
+                      {...stylex.props(styles.smallIcon)}
+                    />
+                  </button>
+                </section>
+                <section {...stylex.props(styles.group)}>
+                  <div {...stylex.props(styles.groupHeader)}>
+                    <div {...stylex.props(styles.groupTitle)}>
+                      <ArrowDownTrayIcon
+                        aria-hidden="true"
+                        {...stylex.props(styles.icon)}
+                      />
+                      <h2 {...stylex.props(styles.title)}>Customer Files</h2>
+                    </div>
+                    <p {...stylex.props(styles.description)}>
+                      Review an import, or export your customers to CSV.
+                    </p>
+                  </div>
+                  <button
+                    disabled={currentDisabled}
+                    onClick={importCustomers}
+                    {...stylex.props(styles.actionLink)}
+                  >
+                    Import customers
+                    <ChevronRightIcon
+                      aria-hidden="true"
+                      {...stylex.props(styles.smallIcon)}
+                    />
+                  </button>
+                  <button
+                    disabled={currentDisabled}
+                    onClick={() => run('export')}
+                    {...stylex.props(styles.actionLink)}
+                  >
+                    Export all customers
+                    <ChevronRightIcon
+                      aria-hidden="true"
+                      {...stylex.props(styles.smallIcon)}
+                    />
+                  </button>
+                </section>
+              </div>
+            </>
           )}
-          <div {...stylex.props(styles.actions)}>
-            <Button variant="primary" disabled={disabled} onClick={() => run('open')}>
-              Open database
-            </Button>
-            <Button disabled={disabled} onClick={() => run('create')}>
-              Create database
-            </Button>
-          </div>
-        </div>
-      </section>
-      <div {...stylex.props(styles.columns)}>
-        <section {...stylex.props(styles.group)}>
-          <div {...stylex.props(styles.groupHeader)}>
-            <div {...stylex.props(styles.groupTitle)}>
-              <ShieldCheckIcon aria-hidden="true" {...stylex.props(styles.icon)} />
-              <h2 {...stylex.props(styles.title)}>Backups</h2>
-            </div>
-            <p {...stylex.props(styles.description)}>
-              Save a copy of your database, or open a restored copy.
-            </p>
-          </div>
-          <button
-            disabled={currentDisabled}
-            onClick={() => run('backup')}
-            {...stylex.props(styles.actionLink)}
-          >
-            Back up database
-            <ChevronRightIcon aria-hidden="true" {...stylex.props(styles.smallIcon)} />
-          </button>
-          <button
-            ref={restoreButton}
-            disabled={disabled}
-            onClick={() => run('restore')}
-            {...stylex.props(styles.actionLink)}
-          >
-            Restore backup
-            <ChevronRightIcon aria-hidden="true" {...stylex.props(styles.smallIcon)} />
-          </button>
-        </section>
-        <section {...stylex.props(styles.group)}>
-          <div {...stylex.props(styles.groupHeader)}>
-            <div {...stylex.props(styles.groupTitle)}>
-              <ArrowDownTrayIcon aria-hidden="true" {...stylex.props(styles.icon)} />
-              <h2 {...stylex.props(styles.title)}>Customer Files</h2>
-            </div>
-            <p {...stylex.props(styles.description)}>
-              Review an import, or export your customers to CSV.
-            </p>
-          </div>
-          <button
-            disabled={currentDisabled}
-            onClick={importCustomers}
-            {...stylex.props(styles.actionLink)}
-          >
-            Import customers
-            <ChevronRightIcon aria-hidden="true" {...stylex.props(styles.smallIcon)} />
-          </button>
-          <button
-            disabled={currentDisabled}
-            onClick={() => run('export')}
-            {...stylex.props(styles.actionLink)}
-          >
-            Export all customers
-            <ChevronRightIcon aria-hidden="true" {...stylex.props(styles.smallIcon)} />
-          </button>
-        </section>
-      </div>
+        </Tabs.Panel>
+        <Tabs.Panel value="monitoring" keepMounted>
+          <TelemetrySettings application={application} />
+        </Tabs.Panel>
+      </Tabs.Root>
     </main>
   );
 }
