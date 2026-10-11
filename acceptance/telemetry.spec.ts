@@ -382,10 +382,10 @@ test('production monitoring activates only on cold restart and delivers private 
     expect(envelopes.length).toBe(before);
     expect(unselectedDeliveries).toBe(0);
   } finally {
-    await application.close();
-    await new Promise<void>(resolve => server.close(() => resolve()));
-    await new Promise<void>(resolve => unselected.close(() => resolve()));
-    await rm(directory, {recursive: true, force: true});
+    await application.close().catch(() => {});
+    await new Promise<void>(resolve => server.close(() => resolve())).catch(() => {});
+    await new Promise<void>(resolve => unselected.close(() => resolve())).catch(() => {});
+    await rm(directory, {recursive: true, force: true}).catch(() => {});
   }
 });
 
@@ -431,7 +431,7 @@ test('Settings can save while actual database startup is held and corrupt monito
     await application
       .evaluate(() => Reflect.get(globalThis, 'acceptanceReleaseStartup')?.())
       .catch(() => {});
-    await application.close();
-    await rm(directory, {recursive: true, force: true});
+    await application.close().catch(() => {});
+    await rm(directory, {recursive: true, force: true}).catch(() => {});
   }
 });

@@ -40,6 +40,7 @@ export default function TelemetrySettings({application}: {application: Applicati
   const [settings, setSettings] = useState<TelemetrySettingsState | null>(null);
   const [dsn, setDsn] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const live = applicationState.mode === 'live';
@@ -73,9 +74,10 @@ export default function TelemetrySettings({application}: {application: Applicati
   }, [application]);
 
   async function save() {
+    setValidationError(null);
     const value = dsn.trim() || null;
     if (!telemetryDsnSchema.nullable().safeParse(value).success) {
-      setError(
+      setValidationError(
         'Enter a valid HTTP or HTTPS Sentry DSN, or leave it blank to disable monitoring.'
       );
       return;
@@ -133,13 +135,22 @@ export default function TelemetrySettings({application}: {application: Applicati
             autoComplete="off"
             spellCheck={false}
             disabled={!live || !settings || saving}
-            aria-describedby="monitoring-state"
+            aria-describedby={
+              validationError ? 'monitoring-state sentry-dsn-error' : 'monitoring-state'
+            }
+            aria-invalid={validationError ? true : undefined}
             onChange={event => {
               setDsn(event.target.value);
               setSaved(false);
               setError(null);
+              setValidationError(null);
             }}
           />
+          {validationError && (
+            <p id="sentry-dsn-error" role="alert" {...stylex.props(styles.error)}>
+              {validationError}
+            </p>
+          )}
         </div>
         <Button
           variant="primary"
@@ -152,9 +163,11 @@ export default function TelemetrySettings({application}: {application: Applicati
         </Button>
       </form>
       <p id="monitoring-state" role="status" {...stylex.props(styles.status)}>
-        {settings?.activeEnabled
-          ? 'Monitoring is on for this session.'
-          : 'Monitoring is off for this session.'}
+        {settings === null
+          ? 'Monitoring status is unknown for this session.'
+          : settings.activeEnabled
+            ? 'Monitoring is on for this session.'
+            : 'Monitoring is off for this session.'}
         {settings?.restartRequired
           ? ' Restart Shop Things to apply the saved change.'
           : saved

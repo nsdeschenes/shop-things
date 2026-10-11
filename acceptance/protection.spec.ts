@@ -1,26 +1,18 @@
 import {mkdtemp, rm} from 'node:fs/promises';
-import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-import {_electron, expect, test} from '@playwright/test';
+import {expect, test} from '@playwright/test';
+
+import launchElectron from './launchElectron.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
 test('actual IPC protects invalid controlled drafts, reversion, native close/quit and reload', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-protection-'));
-  const application = await _electron.launch({
-    executablePath: createRequire(
-      new URL('../packages/electron/package.json', import.meta.url)
-    )('electron'),
-    args: [join(root, 'acceptance/electron-entry.mjs')],
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '',
-      SHOP_THINGS_ACCEPTANCE_DATA: directory,
-      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/',
-    },
+  const application = await launchElectron(directory, {
+    VITE_DEV_SERVER_URL: 'http://127.0.0.1:5179/',
   });
   try {
     const page = await application.firstWindow();
@@ -75,7 +67,9 @@ test('actual IPC protects invalid controlled drafts, reversion, native close/qui
     await expect(input).toBeEnabled();
     // Explicit clean reversion lets reload proceed without another discard prompt.
     await input.fill('0.00');
+    const reloaded = page.waitForEvent('load');
     await reload();
+    await reloaded;
     await expect(
       page.getByRole('heading', {name: 'Set Up Your Database', exact: true})
     ).toBeVisible();
