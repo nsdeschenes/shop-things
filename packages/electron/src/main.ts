@@ -25,7 +25,8 @@ const documentListeners = new Set<() => void>();
 const abortedLoad = /^ERR_ABORTED\b/;
 const telemetrySettings = new FileTelemetrySettings(
   join(app.getPath('userData'), 'telemetry.json'),
-  console.error
+  console.error,
+  app.isPackaged ? 'production' : 'development'
 );
 const telemetry = createMainTelemetry(
   telemetrySettings,

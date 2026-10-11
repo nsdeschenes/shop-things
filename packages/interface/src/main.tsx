@@ -49,7 +49,8 @@ const monitoring = initializeRendererTelemetry(
   activeDsn,
   configuration?.status === 'success'
     ? configuration.value.activeSampling
-    : defaultTelemetrySampling
+    : defaultTelemetrySampling,
+  configuration?.status === 'success' ? configuration.value.environment : 'development'
 );
 try {
   if (bridge) {

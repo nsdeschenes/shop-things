@@ -197,8 +197,11 @@ export const telemetryConfigurationSchema = z.strictObject({
   sampling: telemetrySamplingSchema,
 });
 
+export const telemetryEnvironmentSchema = z.enum(['development', 'production']);
+
 export const telemetrySettingsStateSchema = z
   .strictObject({
+    environment: telemetryEnvironmentSchema,
     savedDsn: telemetryDsnSchema.nullable(),
     activeDsn: telemetryDsnSchema.nullable(),
     savedSampling: telemetrySamplingSchema,

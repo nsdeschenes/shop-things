@@ -3,6 +3,7 @@ import type {z} from 'zod';
 import type {
   actions,
   telemetrySettingsStateSchema,
+  telemetryEnvironmentSchema,
   telemetrySamplingSchema,
   telemetryConfigurationSchema,
   importReviewSchema,
@@ -34,6 +35,7 @@ export type ContractError = z.infer<typeof errorSchema>;
 export type DraftRequest = z.infer<typeof draftRequestSchema>;
 export type DraftReply = z.infer<typeof draftReplySchema>;
 export type DraftResolution = z.infer<typeof draftResolutionSchema>;
+export type TelemetryEnvironment = z.infer<typeof telemetryEnvironmentSchema>;
 export type TelemetrySettingsState = z.infer<typeof telemetrySettingsStateSchema>;
 export type TelemetrySampling = z.infer<typeof telemetrySamplingSchema>;
 export type TelemetryConfiguration = z.infer<typeof telemetryConfigurationSchema>;

@@ -5,6 +5,7 @@ import {dirname} from 'node:path';
 
 import type {
   TelemetryConfiguration,
+  TelemetryEnvironment,
   TelemetrySampling,
   TelemetrySettingsState,
 } from '@shop-things/contract';
@@ -22,7 +23,8 @@ export class FileTelemetrySettings {
 
   constructor(
     private readonly settingsPath: string,
-    logError?: (error: unknown) => void
+    logError?: (error: unknown) => void,
+    readonly environment: TelemetryEnvironment = 'development'
   ) {
     let configuration: TelemetryConfiguration = {
       dsn: null,
@@ -50,6 +52,7 @@ export class FileTelemetrySettings {
 
   status(): TelemetrySettingsState {
     return {
+      environment: this.environment,
       savedDsn: this.saved.dsn,
       activeDsn: this.startupDsn,
       savedSampling: {...this.saved.sampling},

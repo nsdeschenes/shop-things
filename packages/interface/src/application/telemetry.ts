@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/react';
-import type {TelemetrySampling} from '@shop-things/contract';
+import type {TelemetryEnvironment, TelemetrySampling} from '@shop-things/contract';
 import type {ClientObserver} from '@shop-things/contract/client';
 import {
   dataCollection,
@@ -22,7 +22,8 @@ const browserDiagnosticSpans = /^(?:browser|resource|ui|http|measure)(?:\.|$)/;
 
 export function initializeRendererTelemetry(
   dsn: string | null,
-  sampling: TelemetrySampling
+  sampling: TelemetrySampling,
+  environment: TelemetryEnvironment
 ): {
   observe: ClientObserver;
   captureException: (error: unknown) => void;
@@ -35,6 +36,7 @@ export function initializeRendererTelemetry(
     try {
       Sentry.init({
         dsn: dsn ?? undefined,
+        environment,
         spotlight: false,
         traceLifecycle: 'stream',
         defaultIntegrations: false,
@@ -55,6 +57,7 @@ export function initializeRendererTelemetry(
             level: event.level ?? 'error',
             contexts: safeTrace(event.contexts?.trace),
             platform: 'javascript',
+            environment,
             tags: {process: 'renderer'},
             exception: {
               values:
@@ -90,7 +93,11 @@ export function initializeRendererTelemetry(
               : {}),
             status: span.status,
             is_segment: span.is_segment,
-            attributes: {...safeAttributes(span.attributes), process: 'renderer'},
+            attributes: {
+              ...safeAttributes(span.attributes),
+              process: 'renderer',
+              'sentry.environment': environment,
+            },
           };
         },
         beforeSendLog(log) {
@@ -114,7 +121,7 @@ export function initializeRendererTelemetry(
       Sentry.getClient()?.on('beforeEnvelope', ([, items]) => {
         for (const [header, payload] of items) {
           if (header.type === 'log' || header.type === 'trace_metric') {
-            sanitizeLogMetricPayload(payload);
+            sanitizeLogMetricPayload(payload, environment);
           }
         }
       });

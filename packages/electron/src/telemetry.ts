@@ -26,7 +26,7 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
       initializeTelemetry({
         dsn: settings.startupDsn!,
         release,
-        environment: 'production',
+        environment: settings.environment,
         spotlight: false,
         traceLifecycle: 'stream',
         debug: false,
@@ -54,7 +54,7 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
             contexts: safeTrace(event.contexts?.trace),
             platform: 'node',
             release,
-            environment: 'production',
+            environment: settings.environment,
             tags: {process: 'main'},
             exception: {
               values:
@@ -90,7 +90,11 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
               : {}),
             status: span.status,
             is_segment: span.is_segment,
-            attributes: {...safeAttributes(span.attributes), process: 'main'},
+            attributes: {
+              ...safeAttributes(span.attributes),
+              process: 'main',
+              'sentry.environment': settings.environment,
+            },
           };
         },
         beforeSendLog(log) {
@@ -112,7 +116,7 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
       Sentry.getClient()?.on('beforeEnvelope', ([, items]) => {
         for (const [header, payload] of items) {
           if (header.type === 'log' || header.type === 'trace_metric') {
-            sanitizeLogMetricPayload(payload);
+            sanitizeLogMetricPayload(payload, settings.environment);
           }
         }
       });

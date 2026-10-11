@@ -55,6 +55,7 @@ function makeBridge() {
       status: async () => ({
         status: 'success',
         value: {
+          environment: 'development',
           savedDsn: null,
           activeDsn: null,
           savedSampling: {...defaultTelemetrySampling},
@@ -402,6 +403,7 @@ test('telemetry client contains rejected saves and status calls and rejects inva
   bridge.telemetry.status = async () => ({
     status: 'success',
     value: {
+      environment: 'development',
       savedDsn: null,
       activeDsn: 'invalid-url',
       savedSampling: defaultTelemetrySampling,
@@ -490,6 +492,7 @@ test('sampling percentages are bounded numbers and each signal change requires a
     }
 
     const state = {
+      environment: 'development',
       savedDsn: 'https://public@host/1',
       activeDsn: 'https://public@host/1',
       activeEnabled: true,
@@ -659,11 +662,12 @@ test('final log and metric filtering removes late scope attributes and typed met
           action: {type: 'string', value: 'customers.get'},
           'sentry.trace.parent_span_id': {type: 'string', value: '0123456789abcdef'},
           'sentry.timestamp.sequence': {type: 'integer', value: 4},
+          'sentry.environment': {type: 'string', value: 'PRIVATE_ENVIRONMENT'},
         },
       },
     ],
   };
-  sanitizeLogMetricPayload(payload);
+  sanitizeLogMetricPayload(payload, 'production');
   expect(payload.items[0]?.attributes).toEqual({
     customerNumber: {type: 'integer', value: 73021},
     donate: {type: 'boolean', value: false},
@@ -673,6 +677,7 @@ test('final log and metric filtering removes late scope attributes and typed met
     action: {type: 'string', value: 'customers.get'},
     'sentry.trace.parent_span_id': {type: 'string', value: '0123456789abcdef'},
     'sentry.timestamp.sequence': {type: 'integer', value: 4},
+    'sentry.environment': {type: 'string', value: 'production'},
   });
   expect(JSON.stringify(payload)).not.toContain('PRIVATE');
   const malformed = {
@@ -681,6 +686,11 @@ test('final log and metric filtering removes late scope attributes and typed met
       {attributes: {balance: {value: 'PRIVATE_EMAIL'}, donate: {value: 'PRIVATE_EMAIL'}}},
     ],
   };
-  sanitizeLogMetricPayload(malformed);
-  expect(malformed).toEqual({items: [{attributes: {}}, {attributes: {}}]});
+  sanitizeLogMetricPayload(malformed, 'development');
+  expect(malformed).toEqual({
+    items: [
+      {attributes: {'sentry.environment': {type: 'string', value: 'development'}}},
+      {attributes: {'sentry.environment': {type: 'string', value: 'development'}}},
+    ],
+  });
 });

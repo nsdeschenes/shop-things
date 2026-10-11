@@ -56,6 +56,7 @@ test('production monitoring activates only on cold restart and delivers private 
 
   const dsn = `http://public@127.0.0.1:${address.port}/1`;
   const launchEnvironment = {
+    SENTRY_ENVIRONMENT: 'PRIVATE_SENTINEL_environment',
     SENTRY_USE_ENVIRONMENT: 'true',
     SENTRY_TRACE: `${'a'.repeat(32)}-${'b'.repeat(16)}-1`,
     SENTRY_BAGGAGE: `sentry-trace_id=${'a'.repeat(32)},sentry-public_key=public,sentry-transaction=PRIVATE_SENTINEL_environment,sentry-sampled=true`,
@@ -115,6 +116,7 @@ test('production monitoring activates only on cold restart and delivers private 
     );
     const sentinel = 'PRIVATE_SENTINEL_customer_email_path_sql_query';
     const customerAttributes = {
+      'sentry.environment': 'PRIVATE_SENTINEL_scope_environment',
       customerNumber: 73021,
       stock: 9,
       previousBalance: '-100.00',
@@ -234,6 +236,7 @@ test('production monitoring activates only on cold restart and delivers private 
     await page.getByRole('button', {name: 'Cancel', exact: true}).click();
     await page.evaluate(() => window.shopThings!.database.status());
     type Signal = {
+      environment?: string;
       name?: string;
       trace_id?: string;
       span_id?: string;
@@ -273,6 +276,13 @@ test('production monitoring activates only on cold restart and delivers private 
             `${process} ${type} delivered`
           )
           .toBeGreaterThan(0);
+        expect(
+          signals(type, process).every(item =>
+            type === 'event'
+              ? item.environment === 'development'
+              : item.attributes?.['sentry.environment']?.value === 'development'
+          )
+        ).toBe(true);
       }
     }
 
@@ -627,6 +637,18 @@ test('production monitoring activates only on cold restart and delivers private 
     }
 
     expect(envelopes.join('\n')).not.toContain('PRIVATE_SENTINEL');
+    for (const process of ['main', 'renderer']) {
+      for (const type of ['event', 'span', 'log', 'trace_metric']) {
+        expect(
+          signals(type, process).every(item =>
+            type === 'event'
+              ? item.environment === 'development'
+              : item.attributes?.['sentry.environment']?.value === 'development'
+          )
+        ).toBe(true);
+      }
+    }
+
     const before = envelopes.length;
     application = await launchElectron(directory, launchEnvironment);
     page = await application.firstWindow();
@@ -706,5 +728,141 @@ test('Settings can save while actual database startup is held and corrupt monito
       .catch(() => {});
     await application.close().catch(() => {});
     await rm(directory, {recursive: true, force: true}).catch(() => {});
+  }
+});
+
+test('packaged mode labels every signal from both processes as production', async ({
+  browserName: _browserName,
+}, testInfo) => {
+  test.setTimeout(45000);
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-environment-'));
+  const envelopes: string[] = [];
+  const server = createServer((request, response) => {
+    response.setHeader('Access-Control-Allow-Origin', '*');
+    response.setHeader('Access-Control-Allow-Headers', '*');
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', chunk => {
+      body += chunk;
+    });
+    request.on('end', () => {
+      if (request.method !== 'OPTIONS') {
+        envelopes.push(body);
+      }
+
+      response.end('{}');
+    });
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Collector did not bind.');
+  }
+
+  await writeFile(
+    join(directory, 'telemetry.json'),
+    JSON.stringify({
+      dsn: `http://public@127.0.0.1:${address.port}/1`,
+    })
+  );
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_PACKAGED: 'true',
+    SENTRY_ENVIRONMENT: 'PRIVATE_SENTINEL_environment',
+  });
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByRole('heading', {name: 'Set Up Your Database'})).toBeVisible();
+    expect(await application.evaluate(({app}) => app.isPackaged)).toBe(true);
+    expect(
+      await page.evaluate(() => window.shopThings!.telemetry.status())
+    ).toMatchObject({
+      value: {environment: 'production', activeEnabled: true},
+    });
+    await page.getByRole('link', {name: 'Settings', exact: true}).click();
+    await page.getByRole('tab', {name: 'Monitoring'}).click();
+    await page.evaluate(() => {
+      const carrier = Reflect.get(Reflect.get(globalThis, '__SENTRY__'), '11.4.0');
+      const scope = carrier.acs?.getCurrentScope() ?? carrier.defaultCurrentScope;
+      scope.setAttributes({'sentry.environment': 'development'});
+      setTimeout(() => {
+        throw new RangeError('PRIVATE_SENTINEL_renderer');
+      }, 0);
+    });
+    await application.evaluate(() => {
+      const carrier = Reflect.get(Reflect.get(globalThis, '__SENTRY__'), '11.4.0');
+      const scope = carrier.acs?.getCurrentScope() ?? carrier.defaultCurrentScope;
+      scope.setAttributes({'sentry.environment': 'development'});
+      setTimeout(() => {
+        throw new TypeError('PRIVATE_SENTINEL_main');
+      }, 0);
+    });
+    await page.getByRole('tab', {name: 'Database'}).click();
+    await page.getByRole('tab', {name: 'Monitoring'}).click();
+    await page.getByRole('spinbutton', {name: 'Error sampling (%)'}).fill('99');
+    await page.getByRole('button', {name: 'Save monitoring'}).click();
+    await expect(page.getByRole('status')).toContainText('Restart Shop Things');
+    function signals(type: string, process: string) {
+      return envelopes.flatMap(envelope => {
+        const lines = envelope.trim().split('\n');
+        const found = [];
+        for (let index = 1; index + 1 < lines.length; index += 2) {
+          if (JSON.parse(lines[index]!).type !== type) {
+            continue;
+          }
+
+          const payload = JSON.parse(lines[index + 1]!);
+          found.push(
+            ...(payload.items ?? [payload]).filter(
+              (item: {
+                tags?: {process?: string};
+                attributes?: {process?: {value: string}};
+              }) =>
+                item.tags?.process === process ||
+                item.attributes?.process?.value === process
+            )
+          );
+        }
+
+        return found;
+      });
+    }
+
+    for (const process of ['main', 'renderer']) {
+      for (const type of ['event', 'span', 'log', 'trace_metric']) {
+        await expect
+          .poll(() => signals(type, process).length, {timeout: 25000})
+          .toBeGreaterThan(0);
+        expect(
+          signals(type, process).every(item =>
+            type === 'event'
+              ? item.environment === 'production'
+              : item.attributes?.['sentry.environment']?.value === 'production'
+          )
+        ).toBe(true);
+      }
+
+      for (const type of ['log', 'trace_metric']) {
+        await expect
+          .poll(
+            () =>
+              signals(type, process).some(
+                item => item.attributes?.action?.value === 'telemetry.save'
+              ),
+            {timeout: 15000}
+          )
+          .toBe(true);
+      }
+    }
+
+    await application.close();
+    expect(envelopes.join('\n')).not.toContain('PRIVATE_SENTINEL');
+    await testInfo.attach('production-environment-envelopes.json', {
+      body: JSON.stringify(envelopes, null, 2),
+      contentType: 'application/json',
+    });
+  } finally {
+    await application.close().catch(() => {});
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await rm(directory, {recursive: true, force: true});
   }
 });

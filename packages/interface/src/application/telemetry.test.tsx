@@ -6,7 +6,11 @@ import {expect, test, vi} from 'vitest';
 import {initializeRendererTelemetry} from './telemetry';
 
 test('React render errors remain visible locally when monitoring is disabled', () => {
-  const {reportReactError} = initializeRendererTelemetry(null, defaultTelemetrySampling);
+  const {reportReactError} = initializeRendererTelemetry(
+    null,
+    defaultTelemetrySampling,
+    'development'
+  );
   const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
   const error = new Error('Render failed');
   function BrokenView(): never {

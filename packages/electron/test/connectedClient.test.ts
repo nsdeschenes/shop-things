@@ -104,6 +104,7 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
         status: async () => ({
           status: 'success',
           value: {
+            environment: 'development',
             savedDsn: null,
             activeDsn: null,
             savedSampling: {...defaultTelemetrySampling},

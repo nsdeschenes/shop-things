@@ -201,6 +201,7 @@ export default function createPreviewClient(
       status: async () => ({
         status: 'success',
         value: {
+          environment: 'development',
           savedDsn: null,
           activeDsn: null,
           savedSampling: {...defaultTelemetrySampling},

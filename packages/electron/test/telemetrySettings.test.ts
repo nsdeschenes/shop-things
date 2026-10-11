@@ -16,6 +16,7 @@ test('missing and corrupt settings fail closed, writes are private, ordered and 
   try {
     const settings = new FileTelemetrySettings(path);
     expect(settings.status()).toEqual({
+      environment: 'development',
       savedDsn: null,
       activeDsn: null,
       savedSampling: {...defaultTelemetrySampling},
@@ -32,6 +33,7 @@ test('missing and corrupt settings fail closed, writes are private, ordered and 
       settings.save({dsn: second, sampling: defaultTelemetrySampling}),
     ]);
     expect(settings.status()).toEqual({
+      environment: 'development',
       savedDsn: second,
       activeDsn: null,
       savedSampling: {...defaultTelemetrySampling},
@@ -50,6 +52,7 @@ test('missing and corrupt settings fail closed, writes are private, ordered and 
     const restarted = new FileTelemetrySettings(path);
     await restarted.save({dsn: first, sampling: defaultTelemetrySampling});
     expect(restarted.status()).toEqual({
+      environment: 'development',
       savedDsn: first,
       activeDsn: second,
       savedSampling: {...defaultTelemetrySampling},
@@ -61,6 +64,7 @@ test('missing and corrupt settings fail closed, writes are private, ordered and 
     expect(restarted.status().restartRequired).toBe(false);
     await restarted.save({dsn: null, sampling: defaultTelemetrySampling});
     expect(restarted.status()).toEqual({
+      environment: 'development',
       savedDsn: null,
       activeDsn: second,
       savedSampling: {...defaultTelemetrySampling},
@@ -107,6 +111,7 @@ test('a failed atomic replacement retains saved and active state and the next sa
       })
     ).rejects.toThrow();
     expect(settings.status()).toEqual({
+      environment: 'development',
       savedDsn: first,
       activeDsn: first,
       savedSampling: {...defaultTelemetrySampling},
@@ -145,6 +150,7 @@ test('legacy files keep full sampling and sampling-only saves apply on restart w
     sampling.errors = 99;
     await saved;
     expect(settings.status()).toMatchObject({
+      environment: 'development',
       savedDsn: first,
       activeDsn: first,
       savedSampling: {errors: 12.5, traces: 0, logs: 25, metrics: 75.5},

@@ -1,4 +1,4 @@
-import type {TelemetryConfiguration} from '@shop-things/contract';
+import type {TelemetryConfiguration, TelemetrySettingsState} from '@shop-things/contract';
 import {defaultTelemetrySampling} from '@shop-things/contract/schemas';
 import {act, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -12,7 +12,8 @@ const restartMessage = /Restart Shop Things/;
 const previewMessage = /Preview sends no monitoring data/;
 const validationMessage = /Enter a valid HTTP or HTTPS Sentry DSN/;
 
-const empty = {
+const empty: TelemetrySettingsState = {
+  environment: 'development',
   savedDsn: null,
   activeDsn: null,
   savedSampling: {...defaultTelemetrySampling},

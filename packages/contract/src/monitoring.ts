@@ -1,4 +1,10 @@
-import {actions, customerSchema, errorCodeSchema} from './schemas.js';
+import type {TelemetryEnvironment} from './index.js';
+import {
+  actions,
+  customerSchema,
+  errorCodeSchema,
+  telemetryEnvironmentSchema,
+} from './schemas.js';
 
 const operationNames = new Set([
   ...Object.keys(actions),
@@ -68,7 +74,12 @@ export function safeOperation(value: unknown): string {
 export function safeAttributes(attributes: Record<string, unknown> = {}) {
   const safe: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(attributes)) {
-    if (
+    if (key === 'sentry.environment') {
+      const parsed = telemetryEnvironmentSchema.safeParse(value);
+      if (parsed.success) {
+        safe[key] = parsed.data;
+      }
+    } else if (
       key === 'sentry.trace.parent_span_id' &&
       typeof value === 'string' &&
       spanId.test(value)
@@ -177,7 +188,10 @@ export function shouldSampleTelemetry(percentage: number, random = Math.random):
   return percentage === 100 || (percentage > 0 && random() < percentage / 100);
 }
 
-export function sanitizeLogMetricPayload(payload: unknown): void {
+export function sanitizeLogMetricPayload(
+  payload: unknown,
+  environment: TelemetryEnvironment
+): void {
   if (
     typeof payload !== 'object' ||
     payload === null ||
@@ -203,18 +217,20 @@ export function sanitizeLogMetricPayload(payload: unknown): void {
     }
 
     item.attributes = Object.fromEntries(
-      Object.entries(safeAttributes(raw)).map(([key, value]) => [
-        key,
-        {
-          type:
-            typeof value === 'number'
-              ? Number.isInteger(value)
-                ? 'integer'
-                : 'double'
-              : typeof value,
-          value,
-        },
-      ])
+      Object.entries({...safeAttributes(raw), 'sentry.environment': environment}).map(
+        ([key, value]) => [
+          key,
+          {
+            type:
+              typeof value === 'number'
+                ? Number.isInteger(value)
+                  ? 'integer'
+                  : 'double'
+                : typeof value,
+            value,
+          },
+        ]
+      )
     );
   }
 }
