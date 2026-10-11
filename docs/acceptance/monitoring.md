@@ -1,6 +1,6 @@
 # Application monitoring
 
-Settings is available from the header before database setup and during recovery. Enter a Sentry DSN in Monitoring and save. A blank DSN disables monitoring. Enabling, disabling, or changing the destination takes effect after quitting and restarting Shop Things. Reloading the window retains the active destination.
+Settings is available from the header before database setup and during recovery. Database is the default tab. Select Monitoring to enter a Sentry DSN and save. Switching tabs preserves unsaved monitoring edits. A blank DSN disables monitoring. Enabling, disabling, or changing the destination takes effect after quitting and restarting Shop Things. Reloading the window retains the active destination.
 
 Main owns `telemetry.json` in Electron's user-data directory. Its fields are `dsn` and `sampling`, containing error, trace, log, and metric percentages. Writes replace the file atomically with owner-only permissions. `database.json` remains independent. Missing or malformed monitoring settings disable monitoring while the application remains usable. Settings shows the saved values and whether a restart is required. The startup DSN and sampling stay immutable for the process lifetime. Authorized `telemetry.status` also returns that active configuration to initialize the renderer. It never travels in command-line arguments.
 

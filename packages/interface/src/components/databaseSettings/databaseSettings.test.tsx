@@ -1,4 +1,5 @@
-import {screen} from '@testing-library/react';
+import {screen, waitFor} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {expect, test} from 'vitest';
 
 import renderRoute from '../../../test/renderRoute';
@@ -34,3 +35,48 @@ test.each([null, '/missing/database.sqlite'])(
     }
   }
 );
+
+test('Database is the default tab and keyboard switching preserves monitoring drafts without saving', async () => {
+  const client = createPreviewClient();
+  let saves = 0;
+  const save = client.telemetry.save;
+  client.telemetry.save = configuration => {
+    saves += 1;
+    return save(configuration);
+  };
+
+  const application = createApplication('http://localhost', true, {client});
+  renderRoute('/settings', application);
+  const user = userEvent.setup();
+  try {
+    const database = await screen.findByRole('tab', {name: 'Database'});
+    const monitoring = screen.getByRole('tab', {name: 'Monitoring'});
+    expect(database).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('heading', {name: 'Database Settings'})).toBeVisible();
+    expect(screen.queryByRole('textbox', {name: 'Sentry DSN'})).not.toBeInTheDocument();
+    await user.click(database);
+    await user.keyboard('{ArrowRight}');
+    expect(monitoring).toHaveFocus();
+    expect(monitoring).toHaveAttribute('aria-selected', 'true');
+    expect(
+      screen.queryByRole('heading', {name: 'Database Settings'})
+    ).not.toBeInTheDocument();
+    const dsn = screen.getByRole('textbox', {name: 'Sentry DSN'});
+    await waitFor(() => expect(dsn).toBeEnabled());
+    await user.type(dsn, 'https://public@host/1');
+    const sampling = screen.getByRole('spinbutton', {name: 'Trace sampling (%)'});
+    await user.clear(sampling);
+    await user.type(sampling, '25');
+    await user.click(database);
+    expect(screen.queryByRole('textbox', {name: 'Sentry DSN'})).not.toBeInTheDocument();
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByRole('textbox', {name: 'Sentry DSN'})).toHaveValue(
+      'https://public@host/1'
+    );
+    expect(screen.getByRole('spinbutton', {name: 'Trace sampling (%)'})).toHaveValue(25);
+    expect(screen.getByRole('button', {name: 'Save monitoring'})).toBeEnabled();
+    expect(saves).toBe(0);
+  } finally {
+    application.dispose();
+  }
+});

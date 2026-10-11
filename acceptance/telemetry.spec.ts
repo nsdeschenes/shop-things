@@ -429,6 +429,7 @@ test('production monitoring activates only on cold restart and delivers private 
     );
     const changedDsn = `http://public@127.0.0.1:${address.port}/2`;
     await page.getByRole('link', {name: 'Database settings', exact: true}).click();
+    await page.getByRole('tab', {name: 'Monitoring'}).click();
     await page.getByRole('textbox', {name: 'Sentry DSN'}).fill(changedDsn);
     await page.getByRole('spinbutton', {name: 'Error sampling (%)'}).fill('0');
     await page.getByRole('spinbutton', {name: 'Trace sampling (%)'}).fill('0');
@@ -495,6 +496,7 @@ test('production monitoring activates only on cold restart and delivers private 
       })
       .toBe(true);
     await page.getByRole('link', {name: 'Database settings', exact: true}).click();
+    await page.getByRole('tab', {name: 'Monitoring'}).click();
     await page.getByRole('spinbutton', {name: 'Log sampling (%)'}).fill('0');
     await page.getByRole('button', {name: 'Save monitoring'}).click();
     await expect(page.getByRole('status')).toContainText('Restart Shop Things');
@@ -557,6 +559,7 @@ test('production monitoring activates only on cold restart and delivers private 
         }, 0);
       });
       await page.getByRole('link', {name: 'Database settings', exact: true}).click();
+      await page.getByRole('tab', {name: 'Monitoring'}).click();
       for (const process of ['main', 'renderer']) {
         if (sampling.logs > 0) {
           await expect
@@ -661,6 +664,11 @@ test('Settings can save while actual database startup is held and corrupt monito
         Boolean(Reflect.get(globalThis, 'acceptanceReleaseStartup'))
       )
     ).toBe(true);
+    await expect(page.getByRole('tab', {name: 'Database'})).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    await page.getByRole('tab', {name: 'Monitoring'}).click();
     const input = page.getByRole('textbox', {name: 'Sentry DSN'});
     await input.fill('http://public@localhost:9000/1');
     await page.getByRole('button', {name: 'Save monitoring'}).click();
@@ -681,6 +689,7 @@ test('Settings can save while actual database startup is held and corrupt monito
     application = await launchElectron(directory);
     page = await application.firstWindow();
     await page.getByRole('link', {name: 'Settings', exact: true}).click();
+    await page.getByRole('tab', {name: 'Monitoring'}).click();
     await expect(page.getByRole('textbox', {name: 'Sentry DSN'})).toHaveValue('');
     await expect(page.getByRole('status')).toContainText('Monitoring is off');
   } finally {

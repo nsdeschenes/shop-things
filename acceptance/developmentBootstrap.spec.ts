@@ -82,6 +82,22 @@ test('cold real Vite development boots the live renderer and retains invalid edi
     ).toBeVisible();
     await expect(page.locator('main')).toHaveCSS('padding-left', '32px');
     await expect(page.locator('main')).toHaveCSS('max-width', '1120px');
+    await expect(page.getByRole('tab', {name: 'Database'})).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    await page.screenshot({
+      path: testInfo.outputPath('settings-database.png'),
+      fullPage: true,
+    });
+    await page.getByRole('tab', {name: 'Database'}).focus();
+    await page.getByRole('tab', {name: 'Database'}).press('ArrowRight');
+    await expect(page.getByRole('tab', {name: 'Monitoring'})).toBeFocused();
+    await expect(page.getByRole('tab', {name: 'Monitoring'})).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    await expect(page.getByRole('region', {name: 'Active database'})).toHaveCount(0);
     await expect(page.getByRole('region', {name: 'Monitoring'})).toHaveCSS(
       'padding-left',
       '24px'
