@@ -36,7 +36,9 @@ const errorTypes = new Set([
   'DatabaseError',
 ]);
 const appFiles =
-  /\/(?:src|dist)\/(main|telemetry|actionService|ipc|settings|telemetrySettings|files|customerImport|importMatches)\.(?:js|ts)$/;
+  /\/(?:src|dist)\/(main|telemetry|actionService|ipc|settings|telemetrySettings|files|customerImport|importMatches|document|draftCoordinator|nativeDialogs|customerImportNumbers|ipcWire|preload|preloadBridge)\.(?:js|ts)$/;
+const databaseFiles =
+  /\/(?:packages\/db|node_modules\/@shop-things\/db)\/(?:src|dist)\/(index|customers|schema|relations|lifecycle)\.(?:js|ts)$/;
 const traceId = /^[a-f0-9]{32}$/;
 const spanId = /^[a-f0-9]{16}$/;
 const rendererFile = /\/renderer\/assets\/[^/?#]+\.js$/;
@@ -136,6 +138,11 @@ export function safeFilename(value: unknown): string {
   const match = normalized.match(appFiles);
   if (match) {
     return `app:///${match[1]}.js`;
+  }
+
+  const databaseMatch = normalized.match(databaseFiles);
+  if (databaseMatch) {
+    return `app:///db/${databaseMatch[1]}.js`;
   }
 
   if (rendererFile.test(normalized)) {

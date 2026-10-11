@@ -12,6 +12,7 @@ import {
   safeAttributes,
   shouldSampleTelemetry,
   sanitizeLogMetricPayload,
+  safeFilename,
 } from '@shop-things/contract/monitoring';
 import {
   actions,
@@ -377,6 +378,87 @@ test('settings DSNs reject credentials, query, fragment, invalid projects and ov
     expect(
       definition.arguments.safeParse({dsn, sampling: defaultTelemetrySampling}).success
     ).toBe(false);
+  }
+});
+
+test('telemetry client contains rejected saves and status calls and rejects invalid active DSNs', async () => {
+  const {bridge} = makeBridge();
+  const client = createClient(bridge);
+  bridge.telemetry.save = async () => {
+    throw new Error('Private transport failure');
+  };
+
+  bridge.telemetry.status = async () => {
+    throw new Error('Private transport failure');
+  };
+
+  expect(
+    await client.telemetry.save({dsn: null, sampling: defaultTelemetrySampling})
+  ).toMatchObject({status: 'error', error: {code: 'INTERNAL'}});
+  expect(await client.telemetry.status()).toMatchObject({
+    status: 'error',
+    error: {code: 'INTERNAL'},
+  });
+  bridge.telemetry.status = async () => ({
+    status: 'success',
+    value: {
+      savedDsn: null,
+      activeDsn: 'invalid-url',
+      savedSampling: defaultTelemetrySampling,
+      activeSampling: defaultTelemetrySampling,
+      activeEnabled: true,
+      restartRequired: true,
+    },
+  });
+  expect(await client.telemetry.status()).toMatchObject({
+    status: 'error',
+    error: {code: 'INTERNAL'},
+  });
+});
+
+test('application stack filenames retain Electron and database frames without private paths', () => {
+  for (const name of [
+    'main',
+    'telemetry',
+    'actionService',
+    'ipc',
+    'settings',
+    'telemetrySettings',
+    'files',
+    'customerImport',
+    'importMatches',
+    'document',
+    'draftCoordinator',
+    'nativeDialogs',
+    'customerImportNumbers',
+    'ipcWire',
+    'preload',
+    'preloadBridge',
+  ]) {
+    expect(safeFilename(`/private/user/packages/electron/src/${name}.ts`)).toBe(
+      `app:///${name}.js`
+    );
+    expect(safeFilename(`C:\\private\\user\\app\\dist\\${name}.js`)).toBe(
+      `app:///${name}.js`
+    );
+  }
+
+  for (const name of ['index', 'customers', 'schema', 'relations', 'lifecycle']) {
+    expect(safeFilename(`/private/user/packages/db/src/${name}.ts`)).toBe(
+      `app:///db/${name}.js`
+    );
+    expect(
+      safeFilename(`/private/user/app.asar/node_modules/@shop-things/db/dist/${name}.js`)
+    ).toBe(`app:///db/${name}.js`);
+  }
+
+  for (const filename of [
+    '/private/user/node_modules/other/dist/index.js',
+    '/private/user/packages/db/src/private.ts',
+    '/private/user/src/document.ts?customer=private',
+    undefined,
+  ]) {
+    expect(safeFilename(filename)).toBe('app:///external');
   }
 });
 

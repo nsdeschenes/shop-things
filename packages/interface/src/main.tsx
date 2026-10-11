@@ -99,9 +99,9 @@ declare module '@tanstack/react-router' {
 const rootElement = document.getElementById('root')!;
 if (!rootElement.innerHTML) {
   const root = ReactDOM.createRoot(rootElement, {
-    onCaughtError: monitoring.captureException,
-    onUncaughtError: monitoring.captureException,
-    onRecoverableError: monitoring.captureException,
+    onCaughtError: monitoring.reportReactError,
+    onUncaughtError: monitoring.reportReactError,
+    onRecoverableError: monitoring.reportReactError,
   });
   root.render(
     <StrictMode>

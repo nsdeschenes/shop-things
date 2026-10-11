@@ -26,6 +26,7 @@ export function initializeRendererTelemetry(
 ): {
   observe: ClientObserver;
   captureException: (error: unknown) => void;
+  reportReactError: (error: unknown) => void;
   instrumentRouter: (router: AnyRouter) => void;
 } {
   const captured = new WeakSet<object>();
@@ -123,7 +124,13 @@ export function initializeRendererTelemetry(
   }
 
   function captureException(error: unknown) {
-    if (!enabled || error instanceof CustomerRequestError || isCancelledError(error)) {
+    if (
+      !enabled ||
+      error === null ||
+      error === undefined ||
+      error instanceof CustomerRequestError ||
+      isCancelledError(error)
+    ) {
       return;
     }
 
@@ -216,5 +223,10 @@ export function initializeRendererTelemetry(
     } catch {}
   }
 
-  return {observe, captureException, instrumentRouter};
+  function reportReactError(error: unknown) {
+    console.error(error);
+    captureException(error);
+  }
+
+  return {observe, captureException, reportReactError, instrumentRouter};
 }

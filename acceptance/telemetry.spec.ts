@@ -182,6 +182,12 @@ test('production monitoring activates only on cold restart and delivers private 
     await page.getByRole('button', {name: 'Refresh customers'}).click();
     await expect(page.getByRole('button', {name: 'Retry refresh'})).toBeVisible();
     await page.evaluate(sentinel => {
+      window.dispatchEvent(
+        new ErrorEvent('error', {
+          message: sentinel,
+          error: null,
+        })
+      );
       setTimeout(() => {
         throw new RangeError(sentinel);
       }, 0);
