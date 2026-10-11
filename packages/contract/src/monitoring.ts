@@ -12,6 +12,7 @@ const operationNames = new Set([
   'application.startup',
   'application.shutdown',
   'application.reload',
+  'database.query',
   'database.createDatabase',
   'database.openExistingDatabase',
   'database.listCustomers',

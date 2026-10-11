@@ -6,7 +6,7 @@ import {sql} from 'drizzle-orm';
 
 import {DatabaseError} from './customers.js';
 import {openDatabase, runMigrations} from './index.js';
-import type {AppDatabase, DatabaseHandle} from './index.js';
+import type {AppDatabase, DatabaseHandle, OpenDatabaseOptions} from './index.js';
 
 const initialMigration = '20260929093112_wealthy_hemingway';
 const integrityMigration = '20260929120000_customer_integrity';
@@ -183,10 +183,10 @@ async function writableFile(path: string) {
 
 export async function openExistingDatabase(
   path: string,
-  options: {migrationsFolder: string}
+  options: OpenDatabaseOptions & {migrationsFolder: string}
 ): Promise<DatabaseHandle> {
   await writableFile(path);
-  const handle = openDatabase(path);
+  const handle = openDatabase(path, options);
 
   try {
     await recognizeDatabase(handle.db);
@@ -208,7 +208,7 @@ export async function openExistingDatabase(
 
 export async function createDatabase(
   path: string,
-  options: {migrationsFolder: string}
+  options: OpenDatabaseOptions & {migrationsFolder: string}
 ): Promise<DatabaseHandle> {
   if (!isAbsolute(path)) {
     throw new DatabaseError('VALIDATION', 'Database path must be absolute');
@@ -216,7 +216,7 @@ export async function createDatabase(
 
   const file = await open(path, 'wx');
   await file.close();
-  const handle = openDatabase(path);
+  const handle = openDatabase(path, options);
   try {
     await runMigrations(handle.db, options);
     return handle;

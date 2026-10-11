@@ -184,13 +184,19 @@ void app
     const drafts = new DraftCoordinator();
     service = new ActionService({
       database: {
-        createDatabase: (...args) =>
+        createDatabase: (path, options) =>
           telemetry.phase('database.createDatabase', () =>
-            databaseOperations.createDatabase(...args)
+            databaseOperations.createDatabase(path, {
+              ...options,
+              ...telemetry.databaseOptions,
+            })
           ),
-        openExistingDatabase: (...args) =>
+        openExistingDatabase: (path, options) =>
           telemetry.phase('database.openExistingDatabase', () =>
-            databaseOperations.openExistingDatabase(...args)
+            databaseOperations.openExistingDatabase(path, {
+              ...options,
+              ...telemetry.databaseOptions,
+            })
           ),
         listCustomers: (...args) =>
           telemetry.phase('database.listCustomers', () =>

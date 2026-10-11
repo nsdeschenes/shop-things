@@ -8,6 +8,11 @@ import {app, dialog, ipcMain, net, utilityProcess} from 'electron';
 app.setPath('userData', process.env.SHOP_THINGS_ACCEPTANCE_DATA);
 if (process.env.SHOP_THINGS_ACCEPTANCE_PACKAGED === 'true') {
   Object.defineProperty(app, 'isPackaged', {value: true});
+  if (process.env.SHOP_THINGS_ACCEPTANCE_RESOURCES) {
+    Object.defineProperty(process, 'resourcesPath', {
+      value: process.env.SHOP_THINGS_ACCEPTANCE_RESOURCES,
+    });
+  }
 }
 
 if (process.env.SHOP_THINGS_ACCEPTANCE_BOUNDARY) {
@@ -213,8 +218,50 @@ if (
 
 if (process.env.SHOP_THINGS_ACCEPTANCE_MONITORING) {
   const {databaseOperations} = await import('../packages/electron/dist/actionService.js');
+  const {getActiveSpan, spanToJSON, getClient} =
+    await import('../packages/electron/node_modules/@sentry/electron/main/index.js');
   const list = databaseOperations.listCustomers;
-  databaseOperations.listCustomers = (...args) => {
+  databaseOperations.listCustomers = async (...args) => {
+    const probe = globalThis.acceptanceQueryProbe;
+    if (probe) {
+      globalThis.acceptanceQueryProbe = null;
+      globalThis.acceptanceQueryProbeParent = spanToJSON(getActiveSpan());
+      const client = args[0].$client;
+      await client.all('select firstName from customers where email = ?', probe.sentinel);
+      const statement = client.prepare(
+        'select id from customers where email = :PRIVATE_SENTINEL_parameter'
+      );
+      await statement.raw(true).all({PRIVATE_SENTINEL_parameter: probe.sentinel});
+      await statement.raw(false).get({PRIVATE_SENTINEL_parameter: probe.sentinel});
+      statement.close();
+      await client.run('update customers set stock = stock where id = ?', -1);
+      try {
+        await client.run(
+          'insert into customers (id, customerNumber, firstName) select id, customerNumber, firstName from customers limit 1'
+        );
+      } catch {
+        globalThis.acceptanceQueryConstraintFailed = true;
+      }
+
+      const removeStatusFault = getClient().on('spanStart', span => {
+        if (spanToJSON(span).name === 'database.query') {
+          span.setStatus = () => {
+            globalThis.acceptanceQueryStatusFailed = true;
+            throw new Error('PRIVATE_SENTINEL_sdk_status');
+          };
+        }
+      });
+      try {
+        await client.all('select PRIVATE_SENTINEL_column from customers');
+      } catch {
+        globalThis.acceptanceQueryUnknownFailed = true;
+      } finally {
+        removeStatusFault();
+      }
+
+      await databaseOperations.backupDatabase(args[0], probe.backupPath);
+    }
+
     if (globalThis.acceptanceNativeMonitoringFault) {
       const message = globalThis.acceptanceNativeMonitoringFault;
       globalThis.acceptanceNativeMonitoringFault = null;
@@ -226,6 +273,13 @@ if (process.env.SHOP_THINGS_ACCEPTANCE_MONITORING) {
 
   const update = databaseOperations.updateCustomer;
   databaseOperations.updateCustomer = async (...args) => {
+    if (globalThis.acceptanceObservePreparedQuery) {
+      const statement = (globalThis.acceptancePreparedQuery ??= args[0].$client.prepare(
+        'select id from customers where id = ?'
+      ));
+      await statement.get(args[1].id);
+    }
+
     const concurrent = globalThis.acceptanceConcurrentCustomerMonitoring;
     const stock = args[2]?.stock;
     if (concurrent && (stock === 41 || stock === 42)) {

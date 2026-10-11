@@ -10,13 +10,13 @@ import {
   safeSignalAttributes,
   safeErrorType,
   safeFilename,
-  safeOperation,
   signalNames,
   logMessages,
   shouldSampleTelemetry,
   sanitizeLogMetricPayload,
 } from '@shop-things/contract/monitoring';
 
+import {createQuerySpans} from './querySpans.js';
 import {FileTelemetrySettings} from './telemetrySettings.js';
 
 export function createMainTelemetry(settings: FileTelemetrySettings, release: string) {
@@ -25,6 +25,9 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
   const actionContext = new AsyncLocalStorage<
     Record<string, string | number | boolean>
   >();
+  const querySpans = createQuerySpans(settings.environment, () =>
+    actionContext.getStore()
+  );
   if (enabled) {
     try {
       process.env.SENTRY_USE_ENVIRONMENT = 'false';
@@ -87,25 +90,7 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
             },
           };
         },
-        beforeSendSpan(span) {
-          return {
-            trace_id: span.trace_id,
-            span_id: span.span_id,
-            ...(span.parent_span_id ? {parent_span_id: span.parent_span_id} : {}),
-            name: safeOperation(span.name),
-            start_timestamp: span.start_timestamp,
-            ...(span.end_timestamp !== undefined
-              ? {end_timestamp: span.end_timestamp}
-              : {}),
-            status: span.status,
-            is_segment: span.is_segment,
-            attributes: {
-              ...safeAttributes(span.attributes),
-              process: 'main',
-              'sentry.environment': settings.environment,
-            },
-          };
-        },
+        beforeSendSpan: querySpans.project,
         beforeSendLog(log) {
           return logMessages.has(String(log.message)) &&
             shouldSampleTelemetry(settings.startupSampling.logs)
@@ -148,7 +133,9 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
       });
       Sentry.getClient()?.on('beforeEnvelope', ([, items]) => {
         for (const [header, payload] of items) {
-          if (header.type === 'log' || header.type === 'trace_metric') {
+          if (header.type === 'span') {
+            querySpans.sanitizeEnvelope(payload);
+          } else if (header.type === 'log' || header.type === 'trace_metric') {
             sanitizeLogMetricPayload(payload, settings.environment);
           }
         }
@@ -291,5 +278,6 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
     } catch {}
   }
 
-  return {captureException, observeAction, phase, flush};
+  const databaseOptions = enabled ? {queryObserver: querySpans.observer} : {};
+  return {captureException, observeAction, phase, flush, databaseOptions};
 }

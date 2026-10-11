@@ -1,4 +1,4 @@
-import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {cp, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {createServer} from 'node:http';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -140,6 +140,12 @@ test('production monitoring activates only on cold restart and delivers private 
       previousBalance: '97.31',
       balance: '98.42',
       donate: true,
+      'db.system.name': 'PRIVATE_SENTINEL_db_system',
+      'db.operation.name': 'DELETE',
+      'db.collection.name': 'sqlite_master',
+      'db.query.method': 'exec',
+      'db.query.text': 'SELECT "email" FROM "customers"',
+      'db.statement': 'PRIVATE_SENTINEL_sql',
     };
     await page.evaluate(attributes => {
       const carrier = Reflect.get(Reflect.get(globalThis, '__SENTRY__'), '11.4.0');
@@ -162,6 +168,7 @@ test('production monitoring activates only on cold restart and delivers private 
         email: attributes.email,
         username: attributes.firstName,
       });
+      Reflect.set(globalThis, 'acceptanceObservePreparedQuery', true);
     }, customerAttributes);
     await page.evaluate(async sentinel => {
       const status = await window.shopThings!.database.status();
@@ -324,6 +331,10 @@ test('production monitoring activates only on cold restart and delivers private 
       name?: string;
       trace_id?: string;
       span_id?: string;
+      parent_span_id?: string;
+      start_timestamp?: number;
+      end_timestamp?: number;
+      status?: string;
       tags?: Record<string, unknown>;
       extra?: Record<string, unknown>;
       attributes?: Record<string, {value: unknown}>;
@@ -350,6 +361,87 @@ test('production monitoring activates only on cold restart and delivers private 
 
         return found;
       });
+    }
+
+    const queryProbeStart = envelopes.length;
+    const backupPath = join(directory, 'PRIVATE_SENTINEL_backup.sqlite');
+    await application.evaluate(
+      (_electron, probe) => {
+        Reflect.set(globalThis, 'acceptanceQueryProbe', probe);
+      },
+      {sentinel, backupPath}
+    );
+    await page.evaluate(async () => {
+      const status = await window.shopThings!.database.status();
+      if (status.status !== 'success' || !status.value.session) {
+        throw new Error('Database unavailable');
+      }
+
+      const result = await window.shopThings!.customers.list({
+        session: status.value.session,
+        query: 'PRIVATE_SENTINEL_search',
+      });
+      if (result.status !== 'success') {
+        throw new Error('Probe changed list behavior');
+      }
+    });
+    const probeParent = await application.evaluate(() => ({
+      parent: Reflect.get(globalThis, 'acceptanceQueryProbeParent'),
+      constraintFailed: Reflect.get(globalThis, 'acceptanceQueryConstraintFailed'),
+      unknownFailed: Reflect.get(globalThis, 'acceptanceQueryUnknownFailed'),
+      statusFailed: Reflect.get(globalThis, 'acceptanceQueryStatusFailed'),
+    }));
+    expect(probeParent.constraintFailed).toBe(true);
+    expect(probeParent.unknownFailed).toBe(true);
+    expect(probeParent.statusFailed).toBe(true);
+    expect((await readFile(backupPath)).length).toBeGreaterThan(0);
+    function probeQueries() {
+      return signals('span', 'main', queryProbeStart).filter(
+        item =>
+          item.name === 'database.query' &&
+          item.parent_span_id === probeParent.parent.span_id
+      );
+    }
+
+    await expect.poll(() => probeQueries().length, {timeout: 25000}).toBe(8);
+    expect(
+      probeQueries()
+        .map(item => String(item.attributes?.['db.query.method']?.value))
+        .sort((left, right) => left.localeCompare(right))
+    ).toEqual(['all', 'all', 'all', 'all', 'get', 'run', 'run', 'run']);
+    const queryFailures = probeQueries().filter(item => item.status === 'error');
+    expect(queryFailures).toHaveLength(2);
+    expect(
+      queryFailures.some(
+        item =>
+          item.attributes?.['db.operation.name']?.value === 'INSERT' &&
+          item.attributes?.['db.collection.name']?.value === 'customers'
+      )
+    ).toBe(true);
+    const unknownQuery = queryFailures.find(
+      item => item.attributes?.['db.operation.name']?.value === 'SELECT'
+    );
+    expect(unknownQuery?.attributes?.['db.query.text']).toBeUndefined();
+    expect(unknownQuery?.attributes?.['db.collection.name']).toBeUndefined();
+    const backupQuery = probeQueries().find(
+      item => item.attributes?.['db.operation.name']?.value === 'VACUUM'
+    );
+    expect(backupQuery?.attributes?.['db.query.text']?.value).toBe('VACUUM INTO ?');
+    expect(backupQuery?.attributes?.['db.collection.name']).toBeUndefined();
+    for (const item of probeQueries()) {
+      expect(item.trace_id).toBe(probeParent.parent.trace_id);
+      expect(item.attributes?.['sentry.op']?.value).toBe('db.query');
+      expect(item.attributes?.['db.system.name']?.value).toBe('sqlite');
+      expect(item.attributes?.outcome?.value).toBe(
+        item.status === 'error' ? 'error' : 'success'
+      );
+      expect(Number(item.attributes?.duration_ms?.value)).toBeGreaterThanOrEqual(0);
+      expect(Number.isFinite(item.start_timestamp)).toBe(true);
+      expect(Number.isFinite(item.end_timestamp)).toBe(true);
+      expect(item.end_timestamp!).toBeGreaterThanOrEqual(item.start_timestamp!);
+      for (const customerKey of customerKeys) {
+        expect(item.attributes?.[customerKey]).toBeUndefined();
+      }
     }
 
     for (const process of ['main', 'renderer']) {
@@ -514,7 +606,11 @@ test('production monitoring activates only on cold restart and delivers private 
       return undefined;
     }
 
-    for (const name of ['database.createCustomer', 'database.updateCustomer']) {
+    for (const name of [
+      'database.createCustomer',
+      'database.updateCustomer',
+      'database.query',
+    ]) {
       const children = mainSpans.filter(
         item => item.name === name && owningCustomerAction(item)
       );
@@ -807,6 +903,28 @@ test('production monitoring activates only on cold restart and delivers private 
       )
       .toBe(true);
 
+    await expect
+      .poll(
+        () =>
+          signals('span', 'main', partialStart).filter(
+            item => item.name === 'database.query' && item.attributes?.stock?.value === 31
+          ).length,
+        {timeout: 15000}
+      )
+      .toBe(1);
+    await expect
+      .poll(
+        () =>
+          signals('span', 'main', partialStart).some(
+            item =>
+              item.name === 'database.query' &&
+              item.attributes?.action?.value === 'customers.update' &&
+              customerKeys.every(key => item.attributes?.[key] === undefined)
+          ),
+        {timeout: 15000}
+      )
+      .toBe(true);
+
     const concurrentStart = envelopes.length;
     await application.evaluate(() => {
       Reflect.set(globalThis, 'acceptanceConcurrentCustomerMonitoring', {});
@@ -852,6 +970,12 @@ test('production monitoring activates only on cold restart and delivers private 
         {timeout: 15000}
       )
       .toBe(true);
+    expect(
+      signals('span', 'main', concurrentStart).filter(
+        item => item.name === 'database.query' && item.attributes?.stock?.value === 42
+      )
+    ).toHaveLength(0);
+
     await application.evaluate(() => {
       Reflect.get(globalThis, 'acceptanceConcurrentCustomerMonitoring')[41]();
     });
@@ -922,6 +1046,30 @@ test('production monitoring activates only on cold restart and delivers private 
       }
     }
 
+    for (const stock of [41, 42]) {
+      await expect
+        .poll(
+          () =>
+            signals('span', 'main', concurrentStart).filter(
+              item =>
+                item.name === 'database.query' && item.attributes?.stock?.value === stock
+            ).length,
+          {timeout: 15000}
+        )
+        .toBe(1);
+      const query = signals('span', 'main', concurrentStart).find(
+        item => item.name === 'database.query' && item.attributes?.stock?.value === stock
+      )!;
+      const phase = signals('span', 'main', concurrentStart).find(
+        item => item.span_id === query.parent_span_id && item.trace_id === query.trace_id
+      );
+      expect(phase?.name).toBe('database.updateCustomer');
+      expect(phase?.attributes?.stock?.value).toBe(stock);
+      for (const customerKey of customerKeys.filter(key => key !== 'stock')) {
+        expect(query.attributes?.[customerKey]).toBeUndefined();
+      }
+    }
+
     for (const type of ['span', 'log', 'trace_metric']) {
       await expect
         .poll(
@@ -944,6 +1092,22 @@ test('production monitoring activates only on cold restart and delivers private 
       for (const item of unrelated) {
         for (const key of customerKeys) {
           expect(item.attributes?.[key]).toBeUndefined();
+        }
+      }
+    }
+
+    for (const process of ['main', 'renderer']) {
+      for (const type of ['event', 'span', 'log', 'trace_metric']) {
+        for (const item of signals(type, process)) {
+          if (type === 'span' && item.name === 'database.query') {
+            continue;
+          }
+
+          for (const fields of [item.attributes, item.tags, item.extra]) {
+            expect(
+              Object.keys(fields ?? {}).filter(key => key.startsWith('db.'))
+            ).toEqual([]);
+          }
         }
       }
     }
@@ -1259,8 +1423,18 @@ test('packaged mode labels every signal from both processes as production', asyn
       dsn: `http://public@127.0.0.1:${address.port}/1`,
     })
   );
+  await cp(
+    new URL('../packages/db/migrations', import.meta.url),
+    join(directory, 'resources', 'migrations'),
+    {recursive: true}
+  );
   const application = await launchElectron(directory, {
     SHOP_THINGS_ACCEPTANCE_PACKAGED: 'true',
+    SHOP_THINGS_ACCEPTANCE_RESOURCES: join(directory, 'resources'),
+    SHOP_THINGS_ACCEPTANCE_CREATE_PATH: join(
+      directory,
+      'PRIVATE_SENTINEL_packaged.sqlite'
+    ),
     SENTRY_ENVIRONMENT: 'PRIVATE_SENTINEL_environment',
   });
   try {
@@ -1272,7 +1446,11 @@ test('packaged mode labels every signal from both processes as production', asyn
     ).toMatchObject({
       value: {environment: 'production', activeEnabled: true},
     });
-    await page.getByRole('link', {name: 'Settings', exact: true}).click();
+    await page.getByRole('button', {name: 'Create database', exact: true}).click();
+    await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
+    await page.getByRole('link', {name: 'Database settings', exact: true}).click();
     await page.getByRole('tab', {name: 'Monitoring'}).click();
     await page.evaluate(() => {
       const carrier = Reflect.get(Reflect.get(globalThis, '__SENTRY__'), '11.4.0');
@@ -1347,6 +1525,18 @@ test('packaged mode labels every signal from both processes as production', asyn
           .toBe(true);
       }
     }
+
+    await expect
+      .poll(
+        () =>
+          signals('span', 'main').some(
+            item =>
+              item.name === 'database.query' &&
+              item.attributes?.['sentry.op']?.value === 'db.query'
+          ),
+        {timeout: 15000}
+      )
+      .toBe(true);
 
     await application.close();
     expect(envelopes.join('\n')).not.toContain('PRIVATE_SENTINEL');
