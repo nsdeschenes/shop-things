@@ -10,14 +10,18 @@ import {expect, test} from 'vitest';
 import {ActionService} from '../src/actionService.js';
 import {DraftCoordinator} from '../src/draftCoordinator.js';
 import {registerIpc} from '../src/ipc.js';
-import type {ApprovedDocument, IpcSender, MainIpc} from '../src/ipc.js';
+import type {ApprovedDocument, IpcSender, MainIpc, IpcOptions} from '../src/ipc.js';
 import {controls} from '../src/ipcWire.js';
 import {createPreloadBridge} from '../src/preloadBridge.js';
 import {FileTelemetrySettings} from '../src/telemetrySettings.js';
 const editorFailure = /editor/;
 import type {DraftRequest, DatabaseState} from '@shop-things/contract';
 
-function fixture(telemetrySettings?: FileTelemetrySettings, ready?: () => Promise<void>) {
+function fixture(
+  telemetrySettings?: FileTelemetrySettings,
+  ready?: () => Promise<void>,
+  observeAction?: IpcOptions['observeAction']
+) {
   const handlers = new Map<
     string,
     (event: IpcSender, ...payloads: unknown[]) => unknown
@@ -85,6 +89,7 @@ function fixture(telemetrySettings?: FileTelemetrySettings, ready?: () => Promis
     ipc,
     ...(telemetrySettings ? {telemetrySettings} : {}),
     ...(ready ? {ready} : {}),
+    ...(observeAction ? {observeAction} : {}),
     service,
     drafts,
     currentDocument: () => document,
@@ -158,6 +163,43 @@ async function settle() {
     await Promise.resolve();
   }
 }
+
+test('main observes only approved customer argument attributes after authorization and validation', async () => {
+  const observations: {name: string; attributes: unknown}[] = [];
+  const f = fixture(undefined, undefined, async (name, operation, attributes) => {
+    observations.push({name, attributes});
+    return operation();
+  });
+  try {
+    const payload = {
+      documentId: 'document-1',
+      arguments: {
+        reference: {session: 'PRIVATE_SESSION', id: 1, revision: 'PRIVATE_REVISION'},
+        changes: {stock: 0, balance: '-1.2', donate: false, email: 'PRIVATE_EMAIL'},
+      },
+    };
+    expect(await f.invoke('shop-things:customers.update', payload)).toMatchObject({
+      error: {code: 'DATABASE_UNAVAILABLE'},
+    });
+    expect(observations).toEqual([
+      {name: 'customers.update', attributes: {stock: 0, balance: '-1.20', donate: false}},
+    ]);
+    expect(JSON.stringify(observations)).not.toContain('PRIVATE');
+    expect(
+      await f.invoke('shop-things:customers.update', {
+        ...payload,
+        arguments: {...payload.arguments, changes: {stock: -1}},
+      })
+    ).toMatchObject({error: {code: 'VALIDATION'}});
+    f.invalidate();
+    expect(await f.invoke('shop-things:customers.update', payload)).toMatchObject({
+      error: {code: 'UNAUTHORIZED'},
+    });
+    expect(observations).toHaveLength(1);
+  } finally {
+    f.stop();
+  }
+});
 
 test('complete named action surface denies wrong sender/frame/document and malformed input before service', async () => {
   const f = fixture();

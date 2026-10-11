@@ -646,6 +646,73 @@ test('customer telemetry retains only the five permitted business fields and rej
   });
 });
 
+test('client observations project validated customer arguments without exposing personal fields or results', async () => {
+  const {bridge} = makeBridge();
+  const observations: import('@shop-things/contract/client').ClientObservation[] = [];
+  const permitted = {
+    customerNumber: 73021,
+    stock: 9,
+    previousBalance: '-100.00',
+    balance: '134.25',
+    donate: false,
+  };
+  const privateValues = {
+    ...values,
+    ...permitted,
+    firstName: 'PRIVATE_NAME',
+    email: 'PRIVATE_EMAIL',
+    comments: 'PRIVATE_COMMENTS',
+  };
+  const client = createClient(bridge, observation => {
+    observations.push(observation);
+    throw new Error('Reporter failed');
+  });
+  await client.customers.update({reference, changes: privateValues});
+  expect(observations[0]?.attributes).toEqual(permitted);
+  expect(Object.isFrozen(observations[0]?.attributes)).toBe(true);
+
+  await client.customers.create({
+    session: 'PRIVATE_SESSION',
+    values: {...values, stock: 0, balance: '7', previousBalance: '-1.2', donate: true},
+  });
+  expect(observations[1]?.attributes).toEqual({
+    stock: 0,
+    balance: '7.00',
+    previousBalance: '-1.20',
+    donate: true,
+  });
+  await client.customers.update({reference, changes: {email: 'PRIVATE_EMAIL'}});
+  expect(observations[2]?.attributes).toEqual({});
+
+  await client.customers.update({reference, changes: {stock: -1, balance: '7.00'}});
+  expect(observations[3]).toMatchObject({
+    outcome: 'error',
+    errorCode: 'VALIDATION',
+    attributes: {},
+  });
+  bridge.customers.update = async () => {
+    throw new Error('Transport failed');
+  };
+
+  await client.customers.update({reference, changes: {stock: 2, donate: false}});
+  expect(observations[4]).toMatchObject({
+    outcome: 'error',
+    attributes: {stock: 2, donate: false},
+    fault: {kind: 'transport'},
+  });
+  await client.customers.list({session: 'PRIVATE_SESSION', query: 'PRIVATE_QUERY'});
+  await client.telemetry.save({
+    dsn: 'https://PRIVATE_DSN@host/1',
+    sampling: {...defaultTelemetrySampling},
+  });
+  expect(observations[5]?.attributes).toEqual({});
+  expect(observations[6]?.attributes).toEqual({});
+  expect(JSON.stringify(observations)).not.toContain('PRIVATE');
+  expect(
+    observations.every(value => !('arguments' in value) && !('result' in value))
+  ).toBe(true);
+});
+
 test('final log and metric filtering removes late scope attributes and typed metadata while preserving safe values', () => {
   const payload = {
     items: [

@@ -8,6 +8,7 @@ import type {
   ActionName,
   ErrorCode,
 } from './index.js';
+import {customerArgumentAttributes} from './monitoring.js';
 import {
   actions,
   databaseStateSchema,
@@ -26,6 +27,7 @@ export type ClientObservation = Readonly<{
   durationMs: number;
   outcome: 'success' | 'cancelled' | 'error';
   errorCode?: ErrorCode;
+  attributes: Readonly<Record<string, string | number | boolean>>;
   fault?: {kind: 'transport'; error: unknown} | {kind: 'invalid-result'};
 }>;
 export type ClientObserver = (observation: ClientObservation) => void;
@@ -45,6 +47,7 @@ function validatedCall<
   return async (args: A): Promise<z.output<R>> => {
     const started = performance.now();
     let fault: ClientObservation['fault'];
+    let attributes: ClientObservation['attributes'] = {};
     async function invoke() {
       const parsed = definition.arguments.safeParse(args);
       if (!parsed.success) {
@@ -54,6 +57,7 @@ function validatedCall<
         });
       }
 
+      attributes = Object.freeze(customerArgumentAttributes(action, parsed.data));
       try {
         const result = definition.result.safeParse(await call(parsed.data));
         if (result.success) {
@@ -74,6 +78,7 @@ function validatedCall<
         action,
         durationMs: performance.now() - started,
         outcome: result.status,
+        attributes,
         ...(result.error ? {errorCode: result.error.code} : {}),
         ...(fault ? {fault} : {}),
       });

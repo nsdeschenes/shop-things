@@ -5,6 +5,7 @@ import {
   dataCollection,
   safeTrace,
   safeAttributes,
+  safeSignalAttributes,
   safeErrorType,
   safeFilename,
   safeOperation,
@@ -48,7 +49,9 @@ export function initializeRendererTelemetry(
         tracesSampleRate: sampling.traces / 100,
         tracePropagationTargets: [],
         ignoreSpans: [{op: browserDiagnosticSpans}],
-        beforeSend(event) {
+        beforeSend(event, hint) {
+          // Capture hints stay separate from SDK scope extra and tags.
+          const attributes = safeAttributes(hint.data?.actionAttributes);
           return {
             type: undefined,
             sdk: {settings: {infer_ip: 'never' as const}},
@@ -58,7 +61,8 @@ export function initializeRendererTelemetry(
             contexts: safeTrace(event.contexts?.trace),
             platform: 'javascript',
             environment,
-            tags: {process: 'renderer'},
+            tags: {...attributes, process: 'renderer'},
+            extra: attributes,
             exception: {
               values:
                 event.exception?.values?.slice(-1).map(exception => ({
@@ -105,7 +109,10 @@ export function initializeRendererTelemetry(
             shouldSampleTelemetry(sampling.logs)
             ? {
                 ...log,
-                attributes: {...safeAttributes(log.attributes), process: 'renderer'},
+                attributes: {
+                  ...safeSignalAttributes(log.attributes),
+                  process: 'renderer',
+                },
               }
             : null;
         },
@@ -113,10 +120,17 @@ export function initializeRendererTelemetry(
           return signalNames.has(metric.name) && shouldSampleTelemetry(sampling.metrics)
             ? {
                 ...metric,
-                attributes: {...safeAttributes(metric.attributes), process: 'renderer'},
+                attributes: {
+                  ...safeSignalAttributes(metric.attributes),
+                  process: 'renderer',
+                },
               }
             : null;
         },
+      });
+      // Streaming merges scope attributes before beforeSendSpan.
+      Sentry.getClient()?.on('spanStart', span => {
+        span.setAttributes(safeSignalAttributes(Sentry.spanToJSON(span).attributes));
       });
       Sentry.getClient()?.on('beforeEnvelope', ([, items]) => {
         for (const [header, payload] of items) {
@@ -130,7 +144,7 @@ export function initializeRendererTelemetry(
     }
   }
 
-  function captureException(error: unknown) {
+  function captureException(error: unknown, attributes: Record<string, unknown> = {}) {
     if (
       !enabled ||
       error === null ||
@@ -150,7 +164,9 @@ export function initializeRendererTelemetry(
         captured.add(error);
       }
 
-      Sentry.captureException(error);
+      Sentry.captureException(error, {
+        data: {actionAttributes: safeAttributes(attributes)},
+      });
     } catch {}
   }
 
@@ -171,6 +187,7 @@ export function initializeRendererTelemetry(
 
     try {
       const attributes = safeAttributes({
+        ...observation.attributes,
         action: observation.action,
         outcome: observation.outcome,
         code: observation.errorCode,
@@ -179,14 +196,15 @@ export function initializeRendererTelemetry(
       const span = Sentry.startInactiveSpan({
         name: observation.action,
         op: 'application.client',
+        attributes,
         startTime: (Date.now() - observation.durationMs) / 1000,
       });
       try {
         Sentry.withActiveSpan(span, () => {
           if (observation.fault?.kind === 'transport') {
-            captureException(observation.fault.error);
+            captureException(observation.fault.error, attributes);
           } else if (observation.fault) {
-            captureException(new Error('Malformed application response.'));
+            captureException(new Error('Malformed application response.'), attributes);
           }
 
           span.setStatus({code: observation.outcome === 'error' ? 2 : 1});

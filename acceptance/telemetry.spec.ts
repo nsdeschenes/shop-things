@@ -2,12 +2,16 @@ import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {createServer} from 'node:http';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 import {expect, test} from '@playwright/test';
 
 import launchElectron from './launchElectron.js';
 
+const dismissNotification = /^Dismiss (?:error|notification)$/;
+
 const monitoringTabUrl = /#\/settings\/monitoring$/;
+const customerKeys = ['customerNumber', 'stock', 'previousBalance', 'balance', 'donate'];
 
 test('production monitoring activates only on cold restart and delivers private signals from both processes', async ({
   browserName: _browserName,
@@ -120,11 +124,6 @@ test('production monitoring activates only on cold restart and delivers private 
       'sentry.message.parameter.0': 'PRIVATE_SENTINEL_parameter',
       'sentry.message.parameter.1': 'PRIVATE_SENTINEL_parameter',
       'sentry.environment': 'PRIVATE_SENTINEL_scope_environment',
-      customerNumber: 73021,
-      stock: 9,
-      previousBalance: '-100.00',
-      balance: '134.25',
-      donate: false,
       firstName: sentinel,
       lastName: sentinel,
       address: sentinel,
@@ -136,11 +135,17 @@ test('production monitoring activates only on cold restart and delivers private 
       comments: sentinel,
       id: sentinel,
       customer: {email: sentinel},
+      customerNumber: 84213,
+      stock: 83,
+      previousBalance: '97.31',
+      balance: '98.42',
+      donate: true,
     };
     await page.evaluate(attributes => {
       const carrier = Reflect.get(Reflect.get(globalThis, '__SENTRY__'), '11.4.0');
       const scope = carrier.acs?.getCurrentScope() ?? carrier.defaultCurrentScope;
       scope.setAttributes(attributes);
+      scope.setExtras(attributes);
       scope.setUser({
         id: attributes.id,
         email: attributes.email,
@@ -151,6 +156,7 @@ test('production monitoring activates only on cold restart and delivers private 
       const carrier = Reflect.get(Reflect.get(globalThis, '__SENTRY__'), '11.4.0');
       const scope = carrier.acs?.getCurrentScope() ?? carrier.defaultCurrentScope;
       scope.setAttributes(attributes);
+      scope.setExtras(attributes);
       scope.setUser({
         id: attributes.id,
         email: attributes.email,
@@ -217,13 +223,87 @@ test('production monitoring activates only on cold restart and delivers private 
     await expect(
       page.getByRole('textbox', {name: 'First name', exact: true})
     ).toHaveValue(sentinel);
-    await page.getByRole('link', {name: 'Back to customers'}).click();
+    await page.getByRole('textbox', {name: 'Phone', exact: true}).fill('');
+    await page.getByRole('textbox', {name: 'Customer number', exact: true}).fill('73021');
+    await page.getByRole('textbox', {name: 'Items in stock'}).fill('9');
+    await page
+      .getByRole('textbox', {name: 'Previous balance ($)', exact: true})
+      .fill('-100');
+    await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('134.25');
+    await page.getByRole('button', {name: 'Save', exact: true}).click();
+    await expect(page.getByText('Customer saved', {exact: true})).toBeVisible();
+    await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
+    await page.getByRole('link', {name: `${sentinel} ${sentinel}`, exact: true}).click();
+    await application.evaluate((_electron, sentinel) => {
+      Reflect.set(globalThis, 'acceptanceNativeCustomerMonitoringFault', sentinel);
+    }, sentinel);
+    await page.getByRole('textbox', {name: 'Items in stock'}).fill('10');
+    await page.getByRole('button', {name: 'Save', exact: true}).click();
+    await expect(
+      page.getByRole('main').getByRole('alert').filter({hasText: 'The operation failed.'})
+    ).toBeVisible();
+    await page.getByRole('button', {name: 'Save', exact: true}).click();
+    await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
     await page.getByRole('link', {name: 'Add customer', exact: true}).click();
     await expect(
       page.getByRole('heading', {name: 'New Customer', exact: true})
     ).toBeVisible();
-    await page.getByRole('link', {name: 'Customer records Shop Things'}).click();
+    await page
+      .getByRole('textbox', {name: 'First name', exact: true})
+      .fill('PRIVATE_SENTINEL_created');
+    await page.getByRole('textbox', {name: 'Items in stock'}).fill('4');
+    await page
+      .getByRole('textbox', {name: 'Previous balance ($)', exact: true})
+      .fill('7.1');
+    await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('8');
+    await page.getByRole('checkbox', {name: 'Donate', exact: true}).check();
+    await application.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceFault', {
+        channel: 'shop-things:customers.create',
+        before: true,
+        reject: true,
+        error: {message: 'PRIVATE_SENTINEL_transport'},
+      });
+    });
+    await page.getByRole('button', {name: 'Save', exact: true}).click();
+    await expect(
+      page
+        .getByRole('main')
+        .getByRole('alert')
+        .filter({hasText: 'The application could not complete the request.'})
+    ).toBeVisible();
+    await application.evaluate(() => {
+      Reflect.set(
+        globalThis,
+        'acceptanceNativeCustomerMonitoringFault',
+        'PRIVATE_SENTINEL_native_create'
+      );
+    });
+    await page.getByRole('button', {name: 'Save', exact: true}).click();
+    await expect(
+      page.getByRole('main').getByRole('alert').filter({hasText: 'The operation failed.'})
+    ).toBeVisible();
+    await page.getByRole('button', {name: 'Save', exact: true}).click();
+    await expect(
+      page.getByRole('heading', {name: 'Customers', exact: true})
+    ).toBeVisible();
     await page.getByRole('link', {name: 'Database settings', exact: true}).click();
+    const notifications = page.getByRole('button', {
+      name: dismissNotification,
+      includeHidden: true,
+    });
+    await notifications.evaluateAll(buttons => {
+      for (const button of buttons) {
+        if (button instanceof HTMLButtonElement) {
+          button.click();
+        }
+      }
+    });
+    await expect(notifications).toHaveCount(0);
     const importPath = join(directory, 'PRIVATE_SENTINEL_import.csv');
     await writeFile(
       importPath,
@@ -244,7 +324,8 @@ test('production monitoring activates only on cold restart and delivers private 
       name?: string;
       trace_id?: string;
       span_id?: string;
-      tags?: {process?: string};
+      tags?: Record<string, unknown>;
+      extra?: Record<string, unknown>;
       attributes?: Record<string, {value: unknown}>;
     };
     function signals(type: string, process: string, start = 0): Signal[] {
@@ -345,8 +426,40 @@ test('production monitoring activates only on cold restart and delivers private 
       .poll(() => JSON.stringify(signals('event', 'main')), {timeout: 15000})
       .toContain('"type":"URIError"');
     expect(JSON.stringify(signals('event', 'renderer'))).toContain('"type":"RangeError"');
-    expect(signals('event', 'main')).toHaveLength(2);
-    expect(signals('event', 'renderer')).toHaveLength(1);
+    await expect.poll(() => signals('event', 'main').length, {timeout: 15000}).toBe(4);
+    await expect
+      .poll(() => signals('event', 'renderer').length, {timeout: 15000})
+      .toBe(2);
+    expect(
+      signals('event', 'main').some(
+        item =>
+          item.extra?.action === 'customers.update' &&
+          item.tags?.action === 'customers.update' &&
+          item.tags?.customerNumber === 73021 &&
+          item.extra?.customerNumber === 73021 &&
+          item.extra?.stock === 10 &&
+          item.extra?.balance === '134.25' &&
+          item.extra?.previousBalance === '-100.00' &&
+          item.extra?.donate === false
+      )
+    ).toBe(true);
+    for (const process of ['main', 'renderer']) {
+      expect(
+        signals('event', process).some(
+          item =>
+            item.extra?.action === 'customers.create' &&
+            item.tags?.action === 'customers.create' &&
+            item.tags?.stock === 4 &&
+            item.extra?.stock === 4 &&
+            item.extra?.balance === '8.00' &&
+            item.extra?.previousBalance === '7.10' &&
+            item.extra?.donate === true &&
+            item.extra?.customerNumber === undefined &&
+            item.tags?.customerNumber === undefined
+        )
+      ).toBe(true);
+    }
+
     for (const process of ['main', 'renderer']) {
       const span = signals('span', process).find(item => item.name === 'database.status');
       expect(span).toBeDefined();
@@ -382,17 +495,55 @@ test('production monitoring activates only on cold restart and delivers private 
     }
 
     for (const process of ['main', 'renderer']) {
-      for (const type of ['log', 'trace_metric']) {
+      for (const type of ['event', 'span', 'log', 'trace_metric']) {
+        const unrelated = signals(type, process).filter(item => {
+          const action =
+            type === 'event'
+              ? item.extra?.action
+              : type === 'span'
+                ? item.name
+                : item.attributes?.action?.value;
+          return action !== 'customers.create' && action !== 'customers.update';
+        });
+        expect(unrelated.length, `${process} unrelated ${type}`).toBeGreaterThan(0);
+        for (const item of unrelated) {
+          for (const key of customerKeys) {
+            expect(item.attributes?.[key], `${process} ${type} ${key}`).toBeUndefined();
+            expect(item.extra?.[key], `${process} ${type} extra ${key}`).toBeUndefined();
+            expect(item.tags?.[key], `${process} ${type} tag ${key}`).toBeUndefined();
+          }
+        }
+      }
+
+      for (const type of ['span', 'log', 'trace_metric']) {
         await expect
           .poll(
             () =>
               signals(type, process).some(
                 item =>
+                  (type === 'span' ? item.name : item.attributes?.action?.value) ===
+                    'customers.update' &&
                   item.attributes?.customerNumber?.value === 73021 &&
                   item.attributes?.stock?.value === 9 &&
                   item.attributes?.previousBalance?.value === '-100.00' &&
                   item.attributes?.balance?.value === '134.25' &&
                   item.attributes?.donate?.value === false
+              ),
+            {timeout: 15000}
+          )
+          .toBe(true);
+        await expect
+          .poll(
+            () =>
+              signals(type, process).some(
+                item =>
+                  (type === 'span' ? item.name : item.attributes?.action?.value) ===
+                    'customers.create' &&
+                  item.attributes?.stock?.value === 4 &&
+                  item.attributes?.previousBalance?.value === '7.10' &&
+                  item.attributes?.balance?.value === '8.00' &&
+                  item.attributes?.donate?.value === true &&
+                  item.attributes?.customerNumber === undefined
               ),
             {timeout: 15000}
           )
@@ -417,7 +568,7 @@ test('production monitoring activates only on cold restart and delivers private 
       await expect(page.getByRole('button', {name: 'Retry refresh'})).toBeVisible();
       await expect
         .poll(() => signals('event', 'renderer').length, {timeout: 15000})
-        .toBe(index + 2);
+        .toBe(index + 3);
     }
 
     await page.getByRole('button', {name: 'Retry refresh'}).click();
@@ -477,8 +628,138 @@ test('production monitoring activates only on cold restart and delivers private 
         throw new SyntaxError('PRIVATE_SENTINEL_sampling');
       }, 0);
     });
-    await expect.poll(() => signals('event', 'renderer').length).toBe(4);
-    await expect.poll(() => signals('event', 'main').length).toBe(3);
+    await expect.poll(() => signals('event', 'renderer').length).toBe(5);
+    await expect.poll(() => signals('event', 'main').length).toBe(5);
+    await page.evaluate(async () => {
+      const carrier = Reflect.get(Reflect.get(globalThis, '__SENTRY__'), '11.4.0');
+      await (carrier.acs?.getCurrentScope() ?? carrier.defaultCurrentScope)
+        .getClient()
+        .flush(1500);
+    });
+    await application.evaluate(async () => {
+      const carrier = Reflect.get(Reflect.get(globalThis, '__SENTRY__'), '11.4.0');
+      await (carrier.acs?.getCurrentScope() ?? carrier.defaultCurrentScope)
+        .getClient()
+        .flush(1500);
+    });
+    // Reinitialize the same production observer in a test-only client after the
+    // global-error assertions; actual forms always submit the complete draft.
+    await page.addScriptTag({
+      path: fileURLToPath(
+        new URL('../acceptance-reports/harness/telemetry-client.mjs', import.meta.url)
+      ),
+      type: 'module',
+    });
+    await page.waitForFunction(() => Reflect.has(window, 'acceptanceTelemetryClient'));
+    await page.evaluate(async () => {
+      const client = Reflect.get(window, 'acceptanceTelemetryClient');
+      const status = await client.database.status();
+      const records = await client.customers.list({
+        session: status.value.session,
+        query: '',
+      });
+      const record = records.value.find(
+        (record: {customer: {customerNumber: number}}) =>
+          record.customer.customerNumber === 73021
+      );
+      Reflect.set(window, 'acceptanceTelemetryReference', record.reference);
+    });
+    await application.evaluate(() => {
+      Reflect.set(
+        globalThis,
+        'acceptanceNativeCustomerMonitoringFault',
+        'PRIVATE_SENTINEL_partial_update'
+      );
+    });
+    const partialStart = envelopes.length;
+    expect(
+      await page.evaluate(() =>
+        Reflect.get(window, 'acceptanceTelemetryClient').customers.update({
+          reference: Reflect.get(window, 'acceptanceTelemetryReference'),
+          changes: {stock: 31},
+        })
+      )
+    ).toMatchObject({status: 'error', error: {code: 'INTERNAL'}});
+    for (const [index, failure] of ['reject', 'malformed'].entries()) {
+      await application.evaluate((_electron, failure) => {
+        Reflect.set(globalThis, 'acceptanceFault', {
+          channel: 'shop-things:customers.update',
+          before: true,
+          [failure]: true,
+          error: {message: 'PRIVATE_SENTINEL_partial_transport'},
+        });
+      }, failure);
+      expect(
+        await page.evaluate(
+          stock =>
+            Reflect.get(window, 'acceptanceTelemetryClient').customers.update({
+              reference: Reflect.get(window, 'acceptanceTelemetryReference'),
+              changes: {stock},
+            }),
+          32 + index
+        )
+      ).toMatchObject({status: 'error', error: {code: 'INTERNAL'}});
+    }
+
+    expect(
+      await page.evaluate(() =>
+        Reflect.get(window, 'acceptanceTelemetryClient').customers.update({
+          reference: Reflect.get(window, 'acceptanceTelemetryReference'),
+          changes: {email: 'PRIVATE_SENTINEL_partial_email'},
+        })
+      )
+    ).toMatchObject({status: 'success'});
+    for (const process of ['main', 'renderer']) {
+      for (const type of ['event', 'span', 'log', 'trace_metric']) {
+        await expect
+          .poll(
+            () =>
+              signals(type, process, partialStart).filter(
+                item =>
+                  (type === 'event'
+                    ? item.extra?.action
+                    : type === 'span'
+                      ? item.name
+                      : item.attributes?.action?.value) === 'customers.update' &&
+                  (type === 'event'
+                    ? item.extra?.stock
+                    : item.attributes?.stock?.value) ===
+                    (process === 'main' || type !== 'event' ? 31 : 32)
+              ).length,
+            {timeout: 15000},
+            `${process} partial ${type}`
+          )
+          .toBeGreaterThan(0);
+        for (const item of signals(type, process, partialStart)) {
+          for (const key of customerKeys.filter(key => key !== 'stock')) {
+            expect(item.attributes?.[key]).toBeUndefined();
+            expect(item.extra?.[key]).toBeUndefined();
+            expect(item.tags?.[key]).toBeUndefined();
+          }
+        }
+
+        if (type !== 'event') {
+          await expect
+            .poll(
+              () =>
+                signals(type, process, partialStart).some(
+                  item =>
+                    (type === 'span' ? item.name : item.attributes?.action?.value) ===
+                      'customers.update' && item.attributes?.stock === undefined
+                ),
+              {timeout: 15000},
+              `${process} private-only partial ${type}`
+            )
+            .toBe(true);
+        }
+      }
+    }
+
+    await testInfo.attach('argument-provenance-envelopes.json', {
+      body: JSON.stringify(envelopes, null, 2),
+      contentType: 'application/json',
+    });
+    expect(envelopes.join('\n')).not.toContain('PRIVATE_SENTINEL');
     expect(destinations.some(value => value.startsWith('/api/2/'))).toBe(false);
     await page.screenshot({path: testInfo.outputPath('settings.png'), fullPage: true});
     await testInfo.attach('settings.png', {

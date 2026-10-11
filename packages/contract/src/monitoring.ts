@@ -1,7 +1,8 @@
-import type {TelemetryEnvironment} from './index.js';
+import type {ActionName, TelemetryEnvironment} from './index.js';
 import {
   actions,
   customerSchema,
+  createCustomerInputSchema,
   errorCodeSchema,
   telemetryEnvironmentSchema,
 } from './schemas.js';
@@ -147,8 +148,60 @@ export function safeAttributes(attributes: Record<string, unknown> = {}) {
   return safe;
 }
 
+export function customerArgumentAttributes(action: ActionName, args: unknown) {
+  if (typeof args !== 'object' || args === null) {
+    return {};
+  }
+
+  const values =
+    action === 'customers.create' && 'values' in args
+      ? args.values
+      : action === 'customers.update' && 'changes' in args
+        ? args.changes
+        : null;
+  if (typeof values !== 'object' || values === null) {
+    return {};
+  }
+
+  const attributes: Record<string, unknown> = {};
+  for (const key of [
+    'customerNumber',
+    'stock',
+    'previousBalance',
+    'balance',
+    'donate',
+  ] as const) {
+    if (key in values) {
+      attributes[key] = Reflect.get(values, key);
+    }
+  }
+
+  for (const key of ['balance', 'previousBalance'] as const) {
+    const parsed = createCustomerInputSchema.shape[key].safeParse(attributes[key]);
+    if (parsed.success) {
+      const [whole, fraction = ''] = parsed.data.split('.');
+      attributes[key] = `${whole}.${fraction.padEnd(2, '0')}`;
+    }
+  }
+
+  return safeAttributes(attributes);
+}
+
 export function safeErrorType(value: unknown) {
   return typeof value === 'string' && errorTypes.has(value) ? value : 'Error';
+}
+
+export function safeSignalAttributes(attributes: Record<string, unknown> = {}) {
+  // Explicit placeholders block SDK scope values for omitted customer fields.
+  // Span and final envelope filters reject these invalid domain values.
+  return {
+    customerNumber: 'null',
+    stock: 'null',
+    previousBalance: 'null',
+    balance: 'null',
+    donate: 'null',
+    ...safeAttributes(attributes),
+  };
 }
 
 export function safeFilename(value: unknown): string {

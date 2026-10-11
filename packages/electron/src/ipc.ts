@@ -1,4 +1,5 @@
 import type {ActionName, DraftRequest} from '@shop-things/contract';
+import {customerArgumentAttributes} from '@shop-things/contract/monitoring';
 import {
   actions,
   databaseStateSchema,
@@ -53,7 +54,11 @@ export interface IpcOptions {
   logError?: (error: unknown) => void;
   ready?: () => Promise<void>;
   telemetrySettings?: FileTelemetrySettings;
-  observeAction?: <T>(name: ActionName, operation: () => Promise<T>) => Promise<T>;
+  observeAction?: <T>(
+    name: ActionName,
+    operation: () => Promise<T>,
+    attributes: Readonly<Record<string, string | number | boolean>>
+  ) => Promise<T>;
 }
 
 const denied = {
@@ -170,7 +175,11 @@ export function registerIpc(options: IpcOptions): () => void {
         }
 
         return options.observeAction
-          ? await options.observeAction(name, operation)
+          ? await options.observeAction(
+              name,
+              operation,
+              customerArgumentAttributes(name, argumentsValue)
+            )
           : await operation();
       } catch (error) {
         options.logError?.(error);

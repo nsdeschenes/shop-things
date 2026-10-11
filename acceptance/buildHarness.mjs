@@ -5,9 +5,10 @@ const requireElectron = createRequire(
 );
 const {build} = requireElectron('esbuild');
 await build({
-  entryPoints: ['acceptance/controlled-editor.ts'],
+  entryPoints: ['acceptance/controlled-editor.ts', 'acceptance/telemetry-client.ts'],
   bundle: true,
   platform: 'browser',
   format: 'esm',
-  outfile: 'acceptance-reports/harness/controlled-editor.mjs',
+  outdir: 'acceptance-reports/harness',
+  outExtension: {'.js': '.mjs'},
 });

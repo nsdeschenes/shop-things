@@ -223,6 +223,28 @@ if (process.env.SHOP_THINGS_ACCEPTANCE_MONITORING) {
 
     return list(...args);
   };
+
+  const update = databaseOperations.updateCustomer;
+  databaseOperations.updateCustomer = (...args) => {
+    if (globalThis.acceptanceNativeCustomerMonitoringFault) {
+      const message = globalThis.acceptanceNativeCustomerMonitoringFault;
+      globalThis.acceptanceNativeCustomerMonitoringFault = null;
+      throw new SyntaxError(message);
+    }
+
+    return update(...args);
+  };
+
+  const create = databaseOperations.createCustomer;
+  databaseOperations.createCustomer = (...args) => {
+    if (globalThis.acceptanceNativeCustomerMonitoringFault) {
+      const message = globalThis.acceptanceNativeCustomerMonitoringFault;
+      globalThis.acceptanceNativeCustomerMonitoringFault = null;
+      throw new SyntaxError(message);
+    }
+
+    return create(...args);
+  };
 }
 
 await import('../packages/electron/dist/main.js');

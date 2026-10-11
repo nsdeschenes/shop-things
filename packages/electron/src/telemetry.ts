@@ -5,6 +5,7 @@ import {
   dataCollection,
   safeTrace,
   safeAttributes,
+  safeSignalAttributes,
   safeErrorType,
   safeFilename,
   safeOperation,
@@ -44,7 +45,9 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
         sampleRate: settings.startupSampling.errors / 100,
         tracesSampleRate: settings.startupSampling.traces / 100,
         tracePropagationTargets: [],
-        beforeSend(event) {
+        beforeSend(event, hint) {
+          // Capture hints stay separate from SDK scope extra and tags.
+          const attributes = safeAttributes(hint.data?.actionAttributes);
           return {
             type: undefined,
             sdk: {settings: {infer_ip: 'never' as const}},
@@ -55,7 +58,8 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
             platform: 'node',
             release,
             environment: settings.environment,
-            tags: {process: 'main'},
+            tags: {...attributes, process: 'main'},
+            extra: attributes,
             exception: {
               values:
                 event.exception?.values?.slice(-1).map(exception => ({
@@ -100,7 +104,10 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
         beforeSendLog(log) {
           return logMessages.has(String(log.message)) &&
             shouldSampleTelemetry(settings.startupSampling.logs)
-            ? {...log, attributes: {...safeAttributes(log.attributes), process: 'main'}}
+            ? {
+                ...log,
+                attributes: {...safeSignalAttributes(log.attributes), process: 'main'},
+              }
             : null;
         },
         beforeSendMetric(metric) {
@@ -108,10 +115,17 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
             shouldSampleTelemetry(settings.startupSampling.metrics)
             ? {
                 ...metric,
-                attributes: {...safeAttributes(metric.attributes), process: 'main'},
+                attributes: {
+                  ...safeSignalAttributes(metric.attributes),
+                  process: 'main',
+                },
               }
             : null;
         },
+      });
+      // Streaming merges scope attributes before beforeSendSpan.
+      Sentry.getClient()?.on('spanStart', span => {
+        span.setAttributes(safeSignalAttributes(Sentry.spanToJSON(span).attributes));
       });
       Sentry.getClient()?.on('beforeEnvelope', ([, items]) => {
         for (const [header, payload] of items) {
@@ -125,7 +139,7 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
     }
   }
 
-  function captureException(error: unknown) {
+  function captureException(error: unknown, attributes: Record<string, unknown> = {}) {
     if (!enabled) {
       return;
     }
@@ -139,7 +153,15 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
         captured.add(error);
       }
 
-      Sentry.captureException(error);
+      const span = Sentry.getActiveSpan();
+      Sentry.captureException(error, {
+        data: {
+          actionAttributes: safeAttributes({
+            ...(span ? Sentry.spanToJSON(span).attributes : {}),
+            ...attributes,
+          }),
+        },
+      });
     } catch {}
   }
 
@@ -177,9 +199,20 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
     }
   }
 
-  async function observeAction<T>(name: ActionName, work: () => Promise<T>): Promise<T> {
+  async function observeAction<T>(
+    name: ActionName,
+    work: () => Promise<T>,
+    customerAttributes: Readonly<Record<string, string | number | boolean>> = {}
+  ): Promise<T> {
     return phase(name, async () => {
       const start = performance.now();
+      const actionAttributes = safeAttributes({...customerAttributes, action: name});
+      if (enabled) {
+        try {
+          Sentry.getActiveSpan()?.setAttributes(actionAttributes);
+        } catch {}
+      }
+
       let outcome = 'error';
       let code: unknown;
       try {
@@ -197,11 +230,14 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
         }
 
         return result;
+      } catch (error) {
+        captureException(error, actionAttributes);
+        throw error;
       } finally {
         if (enabled) {
           try {
             const attributes = safeAttributes({
-              action: name,
+              ...actionAttributes,
               outcome,
               code,
               process: 'main',
