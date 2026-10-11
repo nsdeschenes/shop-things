@@ -11,6 +11,7 @@ import {
   signalNames,
   logMessages,
   shouldSampleTelemetry,
+  sanitizeLogMetricPayload,
 } from '@shop-things/contract/monitoring';
 
 import {FileTelemetrySettings} from './telemetrySettings.js';
@@ -107,6 +108,13 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
               }
             : null;
         },
+      });
+      Sentry.getClient()?.on('beforeEnvelope', ([, items]) => {
+        for (const [header, payload] of items) {
+          if (header.type === 'log' || header.type === 'trace_metric') {
+            sanitizeLogMetricPayload(payload);
+          }
+        }
       });
     } catch {
       enabled = false;

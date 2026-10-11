@@ -1,4 +1,4 @@
-import {actions, errorCodeSchema} from './schemas.js';
+import {actions, customerSchema, errorCodeSchema} from './schemas.js';
 
 const operationNames = new Set([
   ...Object.keys(actions),
@@ -62,7 +62,7 @@ export function safeOperation(value: unknown): string {
 }
 
 export function safeAttributes(attributes: Record<string, unknown> = {}) {
-  const safe: Record<string, string | number> = {};
+  const safe: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(attributes)) {
     if (
       key === 'sentry.trace.parent_span_id' &&
@@ -90,6 +90,24 @@ export function safeAttributes(attributes: Record<string, unknown> = {}) {
       key === 'code' &&
       errorCodeSchema.safeParse(value).success &&
       typeof value === 'string'
+    ) {
+      safe[key] = value;
+    } else if (
+      key === 'customerNumber' ||
+      key === 'stock' ||
+      key === 'previousBalance' ||
+      key === 'balance' ||
+      key === 'donate'
+    ) {
+      const parsed = customerSchema.shape[key].safeParse(value);
+      if (parsed.success) {
+        safe[key] = parsed.data;
+      }
+    } else if (
+      key === 'sentry.timestamp.sequence' &&
+      typeof value === 'number' &&
+      Number.isSafeInteger(value) &&
+      value >= 0
     ) {
       safe[key] = value;
     } else if (
@@ -148,4 +166,46 @@ export function safeTrace(trace: {trace_id?: unknown; span_id?: unknown} | undef
 
 export function shouldSampleTelemetry(percentage: number, random = Math.random): boolean {
   return percentage === 100 || (percentage > 0 && random() < percentage / 100);
+}
+
+export function sanitizeLogMetricPayload(payload: unknown): void {
+  if (
+    typeof payload !== 'object' ||
+    payload === null ||
+    !('items' in payload) ||
+    !Array.isArray(payload.items)
+  ) {
+    return;
+  }
+
+  const items: unknown[] = payload.items;
+  for (const item of items) {
+    if (typeof item !== 'object' || item === null || !('attributes' in item)) {
+      continue;
+    }
+
+    const raw: Record<string, unknown> = {};
+    if (typeof item.attributes === 'object' && item.attributes !== null) {
+      for (const [key, attribute] of Object.entries(item.attributes)) {
+        if (typeof attribute === 'object' && attribute !== null && 'value' in attribute) {
+          raw[key] = attribute.value;
+        }
+      }
+    }
+
+    item.attributes = Object.fromEntries(
+      Object.entries(safeAttributes(raw)).map(([key, value]) => [
+        key,
+        {
+          type:
+            typeof value === 'number'
+              ? Number.isInteger(value)
+                ? 'integer'
+                : 'double'
+              : typeof value,
+          value,
+        },
+      ])
+    );
+  }
 }

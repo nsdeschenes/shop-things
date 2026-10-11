@@ -104,6 +104,44 @@ test('production monitoring activates only on cold restart and delivers private 
       value: {activeDsn: dsn, activeEnabled: true, restartRequired: false},
     });
     const sentinel = 'PRIVATE_SENTINEL_customer_email_path_sql_query';
+    const customerAttributes = {
+      customerNumber: 73021,
+      stock: 9,
+      previousBalance: '-100.00',
+      balance: '134.25',
+      donate: false,
+      firstName: sentinel,
+      lastName: sentinel,
+      address: sentinel,
+      city: sentinel,
+      province: sentinel,
+      postalCode: sentinel,
+      phone: sentinel,
+      email: `${sentinel}@example.com`,
+      comments: sentinel,
+      id: sentinel,
+      customer: {email: sentinel},
+    };
+    await page.evaluate(attributes => {
+      const carrier = Reflect.get(Reflect.get(globalThis, '__SENTRY__'), '11.4.0');
+      const scope = carrier.acs?.getCurrentScope() ?? carrier.defaultCurrentScope;
+      scope.setAttributes(attributes);
+      scope.setUser({
+        id: attributes.id,
+        email: attributes.email,
+        username: attributes.firstName,
+      });
+    }, customerAttributes);
+    await application.evaluate((_electron, attributes) => {
+      const carrier = Reflect.get(Reflect.get(globalThis, '__SENTRY__'), '11.4.0');
+      const scope = carrier.acs?.getCurrentScope() ?? carrier.defaultCurrentScope;
+      scope.setAttributes(attributes);
+      scope.setUser({
+        id: attributes.id,
+        email: attributes.email,
+        username: attributes.firstName,
+      });
+    }, customerAttributes);
     await page.evaluate(async sentinel => {
       const status = await window.shopThings!.database.status();
       if (status.status !== 'success' || !status.value.session) {
@@ -306,6 +344,25 @@ test('production monitoring activates only on cold restart and delivers private 
             item.attributes?.action?.value === 'database.status'
         )
       ).toBe(true);
+    }
+
+    for (const process of ['main', 'renderer']) {
+      for (const type of ['log', 'trace_metric']) {
+        await expect
+          .poll(
+            () =>
+              signals(type, process).some(
+                item =>
+                  item.attributes?.customerNumber?.value === 73021 &&
+                  item.attributes?.stock?.value === 9 &&
+                  item.attributes?.previousBalance?.value === '-100.00' &&
+                  item.attributes?.balance?.value === '134.25' &&
+                  item.attributes?.donate?.value === false
+              ),
+            {timeout: 15000}
+          )
+          .toBe(true);
+      }
     }
 
     expect(await readFile(join(directory, 'database.json'), 'utf8')).toBe(

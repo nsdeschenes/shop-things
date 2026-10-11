@@ -8,7 +8,11 @@ import {afterEach, assert, expect, test, vi} from 'vitest';
 
 afterEach(() => vi.unstubAllGlobals());
 import {createClient, getClient} from '@shop-things/contract/client';
-import {safeAttributes, shouldSampleTelemetry} from '@shop-things/contract/monitoring';
+import {
+  safeAttributes,
+  shouldSampleTelemetry,
+  sanitizeLogMetricPayload,
+} from '@shop-things/contract/monitoring';
 import {
   actions,
   defaultTelemetrySampling,
@@ -481,4 +485,120 @@ test('passive client observers see safe outcomes and actual caught faults once a
   expect(
     observations.every(value => !('arguments' in value) && !('result' in value))
   ).toBe(true);
+});
+
+test('customer telemetry retains only the five permitted business fields and rejects malformed values', () => {
+  const permitted = {
+    customerNumber: 73021,
+    stock: 9,
+    previousBalance: '-100.00',
+    balance: '134.25',
+    donate: false,
+  };
+  const personal = {
+    id: 99,
+    firstName: 'PRIVATE_FIRST',
+    lastName: 'PRIVATE_LAST',
+    address: 'PRIVATE_ADDRESS',
+    city: 'PRIVATE_CITY',
+    province: 'PRIVATE_PROVINCE',
+    postalCode: 'PRIVATE_POSTAL',
+    phone: 'PRIVATE_PHONE',
+    email: 'PRIVATE_EMAIL',
+    comments: 'PRIVATE_COMMENTS',
+    session: 'PRIVATE_SESSION',
+    revision: 'PRIVATE_REVISION',
+    customer: {...values, ...permitted},
+    args: {email: 'PRIVATE_EMAIL'},
+    result: {customer: values},
+    dsn: 'https://private@host/1',
+  };
+  expect(safeAttributes({...personal, ...permitted})).toEqual(permitted);
+  for (const field of [
+    'customerNumber',
+    'stock',
+    'previousBalance',
+    'balance',
+    'donate',
+  ] as const) {
+    for (const value of [
+      'PRIVATE_PERSONAL_INFO',
+      {},
+      [],
+      null,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+    ]) {
+      expect(safeAttributes({[field]: value})).toEqual({});
+    }
+  }
+
+  for (const attributes of [
+    {customerNumber: 0},
+    {customerNumber: 1.5},
+    {stock: -1},
+    {stock: 1.5},
+    {balance: '123 PRIVATE'},
+    {donate: 'true'},
+  ]) {
+    expect(safeAttributes(attributes)).toEqual({});
+  }
+
+  expect(
+    safeAttributes({
+      customerNumber: 1,
+      stock: 0,
+      previousBalance: '0.00',
+      balance: '0.00',
+      donate: true,
+    })
+  ).toEqual({
+    customerNumber: 1,
+    stock: 0,
+    previousBalance: '0.00',
+    balance: '0.00',
+    donate: true,
+  });
+});
+
+test('final log and metric filtering removes late scope attributes and typed metadata while preserving safe values', () => {
+  const payload = {
+    items: [
+      {
+        attributes: {
+          firstName: {type: 'string', value: 'PRIVATE_FIRST'},
+          email: {type: 'string', value: 'PRIVATE_EMAIL'},
+          customer: {type: 'string', value: JSON.stringify(values)},
+          customerNumber: {type: 'integer', value: 73021, unit: 'PRIVATE_UNIT'},
+          donate: {type: 'boolean', value: false},
+          stock: {type: 'integer', value: 9},
+          balance: {type: 'string', value: '134.25'},
+          previousBalance: {type: 'string', value: '-100.00'},
+          action: {type: 'string', value: 'customers.get'},
+          'sentry.trace.parent_span_id': {type: 'string', value: '0123456789abcdef'},
+          'sentry.timestamp.sequence': {type: 'integer', value: 4},
+        },
+      },
+    ],
+  };
+  sanitizeLogMetricPayload(payload);
+  expect(payload.items[0]?.attributes).toEqual({
+    customerNumber: {type: 'integer', value: 73021},
+    donate: {type: 'boolean', value: false},
+    stock: {type: 'integer', value: 9},
+    balance: {type: 'string', value: '134.25'},
+    previousBalance: {type: 'string', value: '-100.00'},
+    action: {type: 'string', value: 'customers.get'},
+    'sentry.trace.parent_span_id': {type: 'string', value: '0123456789abcdef'},
+    'sentry.timestamp.sequence': {type: 'integer', value: 4},
+  });
+  expect(JSON.stringify(payload)).not.toContain('PRIVATE');
+  const malformed = {
+    items: [
+      {attributes: 'PRIVATE_EMAIL'},
+      {attributes: {balance: {value: 'PRIVATE_EMAIL'}, donate: {value: 'PRIVATE_EMAIL'}}},
+    ],
+  };
+  sanitizeLogMetricPayload(malformed);
+  expect(malformed).toEqual({items: [{attributes: {}}, {attributes: {}}]});
 });
