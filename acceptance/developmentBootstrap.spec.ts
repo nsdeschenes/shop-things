@@ -46,7 +46,12 @@ test('cold real Vite development boots the live renderer and retains invalid edi
     diagnostics.push(`Actual Vite ${url}; cold cache ${server.config.cacheDir}`);
     application = await _electron.launch({
       executablePath: requireElectron('electron'),
-      args: [join(root, 'acceptance/electron-entry.mjs')],
+      args: [
+        ...(process.env.SHOP_THINGS_ACCEPTANCE_NO_SANDBOX === 'true'
+          ? ['--no-sandbox']
+          : []),
+        join(root, 'acceptance/electron-entry.mjs'),
+      ],
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: '',
@@ -56,6 +61,7 @@ test('cold real Vite development boots the live renderer and retains invalid edi
       },
     });
     const page = await application.firstWindow();
+    await page.setViewportSize({width: 1440, height: 1100});
     page.on('console', message =>
       diagnostics.push(`console ${message.type()}: ${message.text()}`)
     );
@@ -68,8 +74,27 @@ test('cold real Vite development boots the live renderer and retains invalid edi
     });
     await expect(page.getByText('Live mode', {exact: false})).toHaveCount(0);
     expect(page.url()).toBe(url + '#/customers');
+    await expect(page.locator('main')).toHaveCSS('padding-left', '24px');
+    await expect(page.locator('main')).toHaveCSS('max-width', '1240px');
+    await page.getByRole('link', {name: 'Database settings', exact: true}).click();
+    await expect(
+      page.getByRole('heading', {name: 'Settings', exact: true})
+    ).toBeVisible();
+    await expect(page.locator('main')).toHaveCSS('padding-left', '32px');
+    await expect(page.locator('main')).toHaveCSS('max-width', '1120px');
+    await expect(page.getByRole('region', {name: 'Monitoring'})).toHaveCSS(
+      'padding-left',
+      '24px'
+    );
+    await page.screenshot({
+      path: testInfo.outputPath('development-settings.png'),
+      fullPage: true,
+    });
+    await page.getByRole('link', {name: 'Back to customers'}).click();
     await page.getByRole('link', {name: 'Alpha One'}).click();
     await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
+    await expect(page.locator('main')).toHaveCSS('padding-left', '24px');
+    await expect(page.locator('main form')).toHaveCSS('padding-left', '22px');
     const balance = page.getByRole('textbox', {name: 'Balance ($)', exact: true});
     await balance.fill('-');
     const before = page.url();

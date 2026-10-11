@@ -39,7 +39,11 @@ const activeDsn =
   configuration?.status === 'success' ? configuration.value.activeDsn : null;
 const connectionPolicy = document.createElement('meta');
 connectionPolicy.httpEquiv = 'Content-Security-Policy';
-connectionPolicy.content = `connect-src ${activeDsn ? new URL(activeDsn).origin : "'none'"}`;
+const connectionSources = [
+  ...(import.meta.env.DEV ? ["'self'"] : []),
+  ...(activeDsn ? [new URL(activeDsn).origin] : []),
+];
+connectionPolicy.content = `connect-src ${connectionSources.join(' ') || "'none'"}`;
 document.head.append(connectionPolicy);
 const monitoring = initializeRendererTelemetry(
   activeDsn,

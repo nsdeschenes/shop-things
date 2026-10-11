@@ -69,6 +69,10 @@ test('production monitoring activates only on cold restart and delivers private 
   try {
     let page = await application.firstWindow();
     await expect(page.getByRole('heading', {name: 'Set Up Your Database'})).toBeVisible();
+    await expect(page.locator('meta[content^="connect-src"]')).toHaveAttribute(
+      'content',
+      "connect-src 'none'"
+    );
     expect(
       await page.evaluate(() => window.shopThings!.telemetry.status())
     ).toMatchObject({status: 'success', value: {activeEnabled: false}});
@@ -103,6 +107,10 @@ test('production monitoring activates only on cold restart and delivers private 
       status: 'success',
       value: {activeDsn: dsn, activeEnabled: true, restartRequired: false},
     });
+    await expect(page.locator('meta[content^="connect-src"]')).toHaveAttribute(
+      'content',
+      `connect-src ${new URL(dsn).origin}`
+    );
     const sentinel = 'PRIVATE_SENTINEL_customer_email_path_sql_query';
     const customerAttributes = {
       customerNumber: 73021,
