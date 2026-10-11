@@ -225,7 +225,16 @@ if (process.env.SHOP_THINGS_ACCEPTANCE_MONITORING) {
   };
 
   const update = databaseOperations.updateCustomer;
-  databaseOperations.updateCustomer = (...args) => {
+  databaseOperations.updateCustomer = async (...args) => {
+    const concurrent = globalThis.acceptanceConcurrentCustomerMonitoring;
+    const stock = args[2]?.stock;
+    if (concurrent && (stock === 41 || stock === 42)) {
+      await new Promise(resolve => {
+        concurrent[stock] = resolve;
+      });
+      throw new TypeError('PRIVATE_SENTINEL_concurrent_update');
+    }
+
     if (globalThis.acceptanceNativeCustomerMonitoringFault) {
       const message = globalThis.acceptanceNativeCustomerMonitoringFault;
       globalThis.acceptanceNativeCustomerMonitoringFault = null;

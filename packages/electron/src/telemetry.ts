@@ -1,3 +1,5 @@
+import {AsyncLocalStorage} from 'node:async_hooks';
+
 import * as Sentry from '@sentry/electron/main';
 import {init as initializeTelemetry} from '@sentry/node';
 import type {ActionName} from '@shop-things/contract';
@@ -20,6 +22,9 @@ import {FileTelemetrySettings} from './telemetrySettings.js';
 export function createMainTelemetry(settings: FileTelemetrySettings, release: string) {
   let enabled = settings.startupDsn !== null;
   const captured = new WeakSet<object>();
+  const actionContext = new AsyncLocalStorage<
+    Record<string, string | number | boolean>
+  >();
   if (enabled) {
     try {
       process.env.SENTRY_USE_ENVIRONMENT = 'false';
@@ -106,7 +111,13 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
             shouldSampleTelemetry(settings.startupSampling.logs)
             ? {
                 ...log,
-                attributes: {...safeSignalAttributes(log.attributes), process: 'main'},
+                attributes: {
+                  ...safeSignalAttributes({
+                    ...actionContext.getStore(),
+                    ...log.attributes,
+                  }),
+                  process: 'main',
+                },
               }
             : null;
         },
@@ -116,7 +127,10 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
             ? {
                 ...metric,
                 attributes: {
-                  ...safeSignalAttributes(metric.attributes),
+                  ...safeSignalAttributes({
+                    ...actionContext.getStore(),
+                    ...metric.attributes,
+                  }),
                   process: 'main',
                 },
               }
@@ -125,7 +139,12 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
       });
       // Streaming merges scope attributes before beforeSendSpan.
       Sentry.getClient()?.on('spanStart', span => {
-        span.setAttributes(safeSignalAttributes(Sentry.spanToJSON(span).attributes));
+        span.setAttributes(
+          safeSignalAttributes({
+            ...actionContext.getStore(),
+            ...Sentry.spanToJSON(span).attributes,
+          })
+        );
       });
       Sentry.getClient()?.on('beforeEnvelope', ([, items]) => {
         for (const [header, payload] of items) {
@@ -157,6 +176,7 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
       Sentry.captureException(error, {
         data: {
           actionAttributes: safeAttributes({
+            ...actionContext.getStore(),
             ...(span ? Sentry.spanToJSON(span).attributes : {}),
             ...attributes,
           }),
@@ -204,59 +224,61 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
     work: () => Promise<T>,
     customerAttributes: Readonly<Record<string, string | number | boolean>> = {}
   ): Promise<T> {
-    return phase(name, async () => {
-      const start = performance.now();
-      const actionAttributes = safeAttributes({...customerAttributes, action: name});
-      if (enabled) {
-        try {
-          Sentry.getActiveSpan()?.setAttributes(actionAttributes);
-        } catch {}
-      }
-
-      let outcome = 'error';
-      let code: unknown;
-      try {
-        const result = await work();
-        if (typeof result === 'object' && result !== null && 'status' in result) {
-          outcome = String(result.status);
-          if (
-            'error' in result &&
-            typeof result.error === 'object' &&
-            result.error !== null &&
-            'code' in result.error
-          ) {
-            code = result.error.code;
-          }
-        }
-
-        return result;
-      } catch (error) {
-        captureException(error, actionAttributes);
-        throw error;
-      } finally {
+    const actionAttributes = safeAttributes({...customerAttributes, action: name});
+    return actionContext.run(actionAttributes, () =>
+      phase(name, async () => {
+        const start = performance.now();
         if (enabled) {
           try {
-            const attributes = safeAttributes({
-              ...actionAttributes,
-              outcome,
-              code,
-              process: 'main',
-            });
-            Sentry.getActiveSpan()?.setStatus({code: outcome === 'error' ? 2 : 1});
-            Sentry.logger.info(
-              Sentry.logger.fmt`Application action ${name} completed`,
-              attributes
-            );
-            Sentry.metrics.count('application.action.count', 1, {attributes});
-            Sentry.metrics.distribution(
-              'application.action.duration',
-              performance.now() - start,
-              {unit: 'millisecond', attributes}
-            );
+            Sentry.getActiveSpan()?.setAttributes(actionAttributes);
           } catch {}
         }
-      }
-    });
+
+        let outcome = 'error';
+        let code: unknown;
+        try {
+          const result = await work();
+          if (typeof result === 'object' && result !== null && 'status' in result) {
+            outcome = String(result.status);
+            if (
+              'error' in result &&
+              typeof result.error === 'object' &&
+              result.error !== null &&
+              'code' in result.error
+            ) {
+              code = result.error.code;
+            }
+          }
+
+          return result;
+        } catch (error) {
+          captureException(error, actionAttributes);
+          throw error;
+        } finally {
+          if (enabled) {
+            try {
+              const attributes = safeAttributes({
+                ...actionAttributes,
+                outcome,
+                code,
+                process: 'main',
+              });
+              Sentry.getActiveSpan()?.setStatus({code: outcome === 'error' ? 2 : 1});
+              Sentry.logger.info(
+                Sentry.logger.fmt`Application action ${name} completed`,
+                attributes
+              );
+              Sentry.metrics.count('application.action.count', 1, {attributes});
+              Sentry.metrics.distribution(
+                'application.action.duration',
+                performance.now() - start,
+                {unit: 'millisecond', attributes}
+              );
+            } catch {}
+          }
+        }
+      })
+    );
   }
 
   async function flush(timeoutMs = 1500) {

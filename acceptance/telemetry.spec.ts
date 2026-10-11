@@ -494,6 +494,42 @@ test('production monitoring activates only on cold restart and delivers private 
       ).toBe(true);
     }
 
+    const mainSpans = signals('span', 'main');
+    function owningCustomerAction(item: (typeof mainSpans)[number]) {
+      let current = item;
+      const visited = new Set<string>();
+      while (current && !visited.has(current.span_id)) {
+        if (current.name === 'customers.create' || current.name === 'customers.update') {
+          return current;
+        }
+
+        visited.add(current.span_id);
+        current = mainSpans.find(
+          parent =>
+            parent.trace_id === current.trace_id &&
+            parent.span_id === current.parent_span_id
+        );
+      }
+
+      return undefined;
+    }
+
+    for (const name of ['database.createCustomer', 'database.updateCustomer']) {
+      const children = mainSpans.filter(
+        item => item.name === name && owningCustomerAction(item)
+      );
+      expect(children.length, `${name} child spans`).toBeGreaterThan(0);
+      for (const child of children) {
+        const owner = owningCustomerAction(child)!;
+        expect(child.attributes?.action?.value).toBe(owner.name);
+        for (const key of customerKeys) {
+          expect(child.attributes?.[key], `${name} ${key}`).toEqual(
+            owner.attributes?.[key]
+          );
+        }
+      }
+    }
+
     for (const process of ['main', 'renderer']) {
       for (const type of ['event', 'span', 'log', 'trace_metric']) {
         const unrelated = signals(type, process).filter(item => {
@@ -503,7 +539,11 @@ test('production monitoring activates only on cold restart and delivers private 
               : type === 'span'
                 ? item.name
                 : item.attributes?.action?.value;
-          return action !== 'customers.create' && action !== 'customers.update';
+          return (
+            action !== 'customers.create' &&
+            action !== 'customers.update' &&
+            !(type === 'span' && process === 'main' && owningCustomerAction(item))
+          );
         });
         expect(unrelated.length, `${process} unrelated ${type}`).toBeGreaterThan(0);
         for (const item of unrelated) {
@@ -755,6 +795,159 @@ test('production monitoring activates only on cold restart and delivers private 
       }
     }
 
+    await expect
+      .poll(
+        () =>
+          signals('span', 'main', partialStart).some(
+            item =>
+              item.name === 'database.updateCustomer' &&
+              item.attributes?.stock?.value === 31
+          ),
+        {timeout: 15000}
+      )
+      .toBe(true);
+
+    const concurrentStart = envelopes.length;
+    await application.evaluate(() => {
+      Reflect.set(globalThis, 'acceptanceConcurrentCustomerMonitoring', {});
+    });
+    await page.evaluate(() => {
+      const client = Reflect.get(window, 'acceptanceTelemetryClient');
+      const reference = Reflect.get(window, 'acceptanceTelemetryReference');
+      Reflect.set(
+        window,
+        'acceptanceConcurrentMonitoring',
+        client.customers.update({reference, changes: {stock: 41}})
+      );
+    });
+    await expect
+      .poll(() =>
+        application!.evaluate(
+          () =>
+            Object.keys(Reflect.get(globalThis, 'acceptanceConcurrentCustomerMonitoring'))
+              .length
+        )
+      )
+      .toBe(1);
+    expect(
+      await page.evaluate(() =>
+        Reflect.get(window, 'acceptanceTelemetryClient').customers.update({
+          reference: Reflect.get(window, 'acceptanceTelemetryReference'),
+          changes: {stock: 42},
+        })
+      )
+    ).toMatchObject({status: 'error', error: {code: 'BUSY'}});
+    expect(
+      await page.evaluate(() =>
+        Reflect.get(window, 'acceptanceTelemetryClient').database.status()
+      )
+    ).toMatchObject({status: 'success'});
+    await expect
+      .poll(
+        () =>
+          signals('span', 'main', concurrentStart).some(
+            item =>
+              item.name === 'customers.update' && item.attributes?.stock?.value === 42
+          ),
+        {timeout: 15000}
+      )
+      .toBe(true);
+    await application.evaluate(() => {
+      Reflect.get(globalThis, 'acceptanceConcurrentCustomerMonitoring')[41]();
+    });
+    expect(
+      await page.evaluate(() => Reflect.get(window, 'acceptanceConcurrentMonitoring'))
+    ).toMatchObject({status: 'error', error: {code: 'INTERNAL'}});
+    await page.evaluate(() => {
+      Reflect.set(
+        window,
+        'acceptanceConcurrentMonitoring',
+        Reflect.get(window, 'acceptanceTelemetryClient').customers.update({
+          reference: Reflect.get(window, 'acceptanceTelemetryReference'),
+          changes: {stock: 42},
+        })
+      );
+    });
+    await expect
+      .poll(() =>
+        application!.evaluate(
+          () =>
+            Object.keys(Reflect.get(globalThis, 'acceptanceConcurrentCustomerMonitoring'))
+              .length
+        )
+      )
+      .toBe(2);
+    await application.evaluate(() => {
+      Reflect.get(globalThis, 'acceptanceConcurrentCustomerMonitoring')[42]();
+    });
+    expect(
+      await page.evaluate(() => Reflect.get(window, 'acceptanceConcurrentMonitoring'))
+    ).toMatchObject({status: 'error', error: {code: 'INTERNAL'}});
+    for (const stock of [41, 42]) {
+      await expect
+        .poll(
+          () =>
+            signals('event', 'main', concurrentStart).some(
+              item => item.extra?.stock === stock
+            ),
+          {timeout: 15000}
+        )
+        .toBe(true);
+    }
+
+    for (const stock of [41, 42]) {
+      await expect
+        .poll(
+          () =>
+            signals('span', 'main', concurrentStart).some(
+              item =>
+                item.name === 'database.updateCustomer' &&
+                item.attributes?.stock?.value === stock
+            ),
+          {timeout: 15000}
+        )
+        .toBe(true);
+      const child = signals('span', 'main', concurrentStart).find(
+        item =>
+          item.name === 'database.updateCustomer' &&
+          item.attributes?.stock?.value === stock
+      )!;
+      const parent = signals('span', 'main', concurrentStart).find(
+        item => item.span_id === child.parent_span_id && item.trace_id === child.trace_id
+      );
+      expect(parent?.name).toBe('customers.update');
+      expect(parent?.attributes?.stock?.value).toBe(stock);
+      for (const key of customerKeys.filter(key => key !== 'stock')) {
+        expect(child.attributes?.[key]).toBeUndefined();
+      }
+    }
+
+    for (const type of ['span', 'log', 'trace_metric']) {
+      await expect
+        .poll(
+          () =>
+            signals(type, 'main', concurrentStart).some(
+              item =>
+                (type === 'span' ? item.name : item.attributes?.action?.value) ===
+                'database.status'
+            ),
+          {timeout: 15000},
+          `concurrent unrelated ${type}`
+        )
+        .toBe(true);
+      const unrelated = signals(type, 'main', concurrentStart).filter(
+        item =>
+          (type === 'span' ? item.name : item.attributes?.action?.value) ===
+          'database.status'
+      );
+      expect(unrelated.length).toBeGreaterThan(0);
+      for (const item of unrelated) {
+        for (const key of customerKeys) {
+          expect(item.attributes?.[key]).toBeUndefined();
+        }
+      }
+    }
+
     await testInfo.attach('argument-provenance-envelopes.json', {
       body: JSON.stringify(envelopes, null, 2),
       contentType: 'application/json',
@@ -955,6 +1148,17 @@ test('production monitoring activates only on cold restart and delivers private 
     expect(envelopes.length).toBe(before);
     expect(unselectedDeliveries).toBe(0);
   } finally {
+    await application
+      .evaluate(() => {
+        for (const release of Object.values(
+          Reflect.get(globalThis, 'acceptanceConcurrentCustomerMonitoring') ?? {}
+        )) {
+          if (typeof release === 'function') {
+            release();
+          }
+        }
+      })
+      .catch(() => {});
     await application.close().catch(() => {});
     await new Promise<void>(resolve => server.close(() => resolve())).catch(() => {});
     await new Promise<void>(resolve => unselected.close(() => resolve())).catch(() => {});
