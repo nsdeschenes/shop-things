@@ -157,7 +157,48 @@ export const importReviewSchema = z.strictObject({
   numberChangeCount: nonnegativeInteger,
 });
 
+const dsnSyntax =
+  /^https?:\/\/[a-zA-Z0-9_]+@(?:[a-zA-Z0-9_.-]+|\[[a-zA-Z0-9:.%]+\])(?::[0-9]+)?\/(?:[a-zA-Z0-9_-]+\/)*[0-9]+$/;
+
+export const telemetryDsnSchema = z
+  .string()
+  .max(2048)
+  .refine(value => {
+    try {
+      const url = new URL(value);
+      return (
+        dsnSyntax.test(value) &&
+        (url.protocol === 'https:' || url.protocol === 'http:') &&
+        Boolean(url.hostname) &&
+        !url.password &&
+        !url.search &&
+        !url.hash
+      );
+    } catch {
+      return false;
+    }
+  }, 'Enter a valid HTTP or HTTPS Sentry DSN.');
+
+export const telemetrySettingsStateSchema = z
+  .strictObject({
+    savedDsn: telemetryDsnSchema.nullable(),
+    activeDsn: telemetryDsnSchema.nullable(),
+    activeEnabled: z.boolean(),
+    restartRequired: z.boolean(),
+  })
+  .refine(
+    state =>
+      state.activeEnabled === (state.activeDsn !== null) &&
+      state.restartRequired === (state.savedDsn !== state.activeDsn),
+    'Monitoring state does not match its configuration.'
+  );
+
 export const actions = {
+  'telemetry.status': action(z.undefined(), telemetrySettingsStateSchema),
+  'telemetry.save': action(
+    z.strictObject({dsn: telemetryDsnSchema.nullable()}),
+    telemetrySettingsStateSchema
+  ),
   'imports.commit': action(
     sessionArguments.extend({importId: token}),
     z.discriminatedUnion('kind', [

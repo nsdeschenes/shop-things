@@ -196,6 +196,18 @@ export default function createPreviewClient(
         return {status: 'success', value: {deleted: true}};
       },
     },
+    telemetry: {
+      status: async () => ({
+        status: 'success',
+        value: {
+          savedDsn: null,
+          activeDsn: null,
+          activeEnabled: false,
+          restartRequired: false,
+        },
+      }),
+      save: async () => ({status: 'cancelled'}),
+    },
     database: {
       status: async () => ({status: 'success', value: structuredClone(state)}),
       retry: unsupported,

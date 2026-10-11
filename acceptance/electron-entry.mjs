@@ -179,4 +179,18 @@ if (
   };
 }
 
+if (process.env.SHOP_THINGS_ACCEPTANCE_MONITORING) {
+  const {databaseOperations} = await import('../packages/electron/dist/actionService.js');
+  const list = databaseOperations.listCustomers;
+  databaseOperations.listCustomers = (...args) => {
+    if (globalThis.acceptanceNativeMonitoringFault) {
+      const message = globalThis.acceptanceNativeMonitoringFault;
+      globalThis.acceptanceNativeMonitoringFault = null;
+      throw new TypeError(message);
+    }
+
+    return list(...args);
+  };
+}
+
 await import('../packages/electron/dist/main.js');

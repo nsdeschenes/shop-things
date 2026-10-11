@@ -19,6 +19,10 @@
     "./bridge": {
       "types": "./dist/bridge.d.ts",
       "default": "./dist/bridge.js"
+    },
+    "./monitoring": {
+      "types": "./dist/monitoring.d.ts",
+      "default": "./dist/monitoring.js"
     }
   },
   "scripts": {

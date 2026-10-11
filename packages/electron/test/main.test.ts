@@ -13,6 +13,7 @@ const electron = vi.hoisted(() => {
       on: vi.fn<(event: string, listener: () => void) => void>(),
       quit: vi.fn(),
       getPath: vi.fn(() => '/tmp/shop-things-main-test-empty-settings'),
+      getVersion: vi.fn(() => '1.0.0'),
       isPackaged: false,
     },
     Menu: {buildFromTemplate: vi.fn(), setApplicationMenu: vi.fn()},
@@ -54,6 +55,9 @@ beforeEach(() => {
   vi.unstubAllEnvs();
   vi.stubEnv('VITE_DEV_SERVER_URL', '');
   electron.app.whenReady.mockResolvedValue(undefined);
+  electron.app.getVersion.mockReturnValue('1.0.0');
+  electron.loadURL.mockResolvedValue(undefined);
+  electron.loadFile.mockResolvedValue(undefined);
   electron.app.getPath.mockReturnValue('/tmp/shop-things-main-test-empty-settings');
   electron.BrowserWindow.getAllWindows.mockReturnValue([]);
 });
@@ -206,5 +210,28 @@ test('development parent quit requests enter the ordinary application shutdown p
     } else {
       Reflect.deleteProperty(process, 'send');
     }
+  }
+});
+
+test('normal aborted renderer load promises do not report errors', async () => {
+  const report = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    electron.loadFile.mockRejectedValue(new Error('ERR_ABORTED (-3) loading renderer'));
+    await startApp();
+    expect(report).not.toHaveBeenCalled();
+  } finally {
+    report.mockRestore();
+  }
+});
+
+test('unexpected renderer load rejection reports the original error once', async () => {
+  const error = new TypeError('renderer load failed');
+  const report = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    electron.loadFile.mockRejectedValue(error);
+    await startApp();
+    expect(report).toHaveBeenCalledExactlyOnceWith(error);
+  } finally {
+    report.mockRestore();
   }
 });

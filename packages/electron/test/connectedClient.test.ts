@@ -99,6 +99,18 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
     target: InstanceType<BackendModule['ActionService']>
   ): ShopThingsBridge {
     return {
+      telemetry: {
+        status: async () => ({
+          status: 'success',
+          value: {
+            savedDsn: null,
+            activeDsn: null,
+            activeEnabled: false,
+            restartRequired: false,
+          },
+        }),
+        save: async () => ({status: 'cancelled'}),
+      },
       customers: {
         list: target.handlers['customers.list'],
         get: target.handlers['customers.get'],

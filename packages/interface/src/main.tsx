@@ -1,4 +1,5 @@
 import {Toast} from '@base-ui/react/toast';
+import {getClient} from '@shop-things/contract/client';
 import * as stylex from '@stylexjs/stylex';
 import {QueryClientProvider} from '@tanstack/react-query';
 import {RouterProvider, createRouter} from '@tanstack/react-router';
@@ -7,6 +8,7 @@ import ReactDOM from 'react-dom/client';
 
 import {createApplication} from './application/controller';
 import createApplicationHistory from './application/history';
+import {initializeRendererTelemetry, recordNavigation} from './application/telemetry';
 import toastManager from './application/toasts';
 import Toasts from './components/toasts/toasts';
 import {routeTree} from './routeTree.gen';
@@ -24,7 +26,34 @@ const styles = stylex.create({
 
 document.body.classList.add(...(stylex.props(styles.body).className?.split(' ') ?? []));
 
-const application = createApplication(window.location.href);
+let bridge: ReturnType<typeof getClient> | null = null;
+try {
+  if (Reflect.has(window, 'shopThings')) {
+    bridge = getClient();
+  }
+} catch {}
+
+const configuration = await bridge?.telemetry.status();
+const activeDsn =
+  configuration?.status === 'success' ? configuration.value.activeDsn : null;
+const connectionPolicy = document.createElement('meta');
+connectionPolicy.httpEquiv = 'Content-Security-Policy';
+connectionPolicy.content = `connect-src ${activeDsn ? new URL(activeDsn).origin : "'none'"}`;
+document.head.append(connectionPolicy);
+const monitoring = initializeRendererTelemetry(activeDsn);
+try {
+  if (bridge) {
+    bridge = getClient(monitoring.observe);
+  }
+} catch {
+  bridge = null;
+}
+
+const application = createApplication(
+  window.location.href,
+  undefined,
+  bridge ? {client: bridge} : {}
+);
 const queryClient = application.queryClient;
 void application.start();
 window.addEventListener('pagehide', () => application.dispose());
@@ -45,6 +74,22 @@ const router = createRouter({
   },
 });
 
+let navigationStarted = performance.now();
+router.subscribe('onBeforeNavigate', () => {
+  navigationStarted = performance.now();
+});
+router.subscribe('onResolved', () => {
+  recordNavigation(
+    router.state.matches.at(-1)?.routeId ?? '/',
+    performance.now() - navigationStarted
+  );
+  for (const match of router.state.matches) {
+    if (match.status === 'error') {
+      monitoring.captureException(match.error);
+    }
+  }
+});
+
 declare module '@tanstack/react-router' {
   interface Register {
     router: typeof router;
@@ -54,7 +99,11 @@ declare module '@tanstack/react-router' {
 // Render the app
 const rootElement = document.getElementById('root')!;
 if (!rootElement.innerHTML) {
-  const root = ReactDOM.createRoot(rootElement);
+  const root = ReactDOM.createRoot(rootElement, {
+    onCaughtError: monitoring.captureException,
+    onUncaughtError: monitoring.captureException,
+    onRecoverableError: monitoring.captureException,
+  });
   root.render(
     <StrictMode>
       <Toast.Provider toastManager={toastManager}>

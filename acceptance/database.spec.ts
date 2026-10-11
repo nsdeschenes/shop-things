@@ -172,7 +172,7 @@ test('database failed candidates preserve settings, active file and existing des
       await page.getByRole('button', {name: action, exact: true}).click();
       await expect(page.getByRole('status', {name: 'Loading database'})).toHaveCount(0);
       await expect(page.getByRole('heading', {name: 'Database Settings'})).toBeVisible();
-      expect(new URL(page.url()).hash).toBe('#/settings/database');
+      expect(new URL(page.url()).hash).toBe('#/settings');
       expect(
         await page.evaluate(
           async () => (await Reflect.get(window, 'shopThings').database.status()).value

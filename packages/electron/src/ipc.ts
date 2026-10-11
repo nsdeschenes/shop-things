@@ -1,4 +1,4 @@
-import type {ActionHandlers, ActionName, DraftRequest} from '@shop-things/contract';
+import type {ActionName, DraftRequest} from '@shop-things/contract';
 import {
   actions,
   databaseStateSchema,
@@ -10,6 +10,7 @@ import type {ActionService} from './actionService.js';
 import type {DraftCoordinator, DraftParticipant} from './draftCoordinator.js';
 import type {Validator} from './ipcWire.js';
 import {controls, isRecord, isToken} from './ipcWire.js';
+import type {FileTelemetrySettings} from './telemetrySettings.js';
 
 export interface IpcSender {
   sender: unknown;
@@ -51,6 +52,8 @@ export interface IpcOptions {
   onDocumentChanged(callback: () => void): () => void;
   logError?: (error: unknown) => void;
   ready?: () => Promise<void>;
+  telemetrySettings?: FileTelemetrySettings;
+  observeAction?: <T>(name: ActionName, operation: () => Promise<T>) => Promise<T>;
 }
 
 const denied = {
@@ -123,7 +126,7 @@ export function registerIpc(options: IpcOptions): () => void {
   }
 
   function registerAction<A, R>(
-    name: string,
+    name: ActionName,
     definition: {arguments: Validator<A>; result: Validator<R>},
     handler: (args: A) => Promise<unknown>
   ) {
@@ -148,18 +151,27 @@ export function registerIpc(options: IpcOptions): () => void {
       }
 
       try {
-        await options.ready?.();
+        if (!name.startsWith('telemetry.')) {
+          await options.ready?.();
+        }
+
         if (!current(document)) {
           return denied;
         }
 
-        const result = definition.result.safeParse(await handler(args.data));
-        if (!result.success) {
-          options.logError?.(result.error);
-          return failed;
+        const argumentsValue = args.data;
+        async function operation() {
+          const result = definition.result.safeParse(await handler(argumentsValue));
+          if (!result.success) {
+            throw result.error;
+          }
+
+          return result.data;
         }
 
-        return result.data;
+        return options.observeAction
+          ? await options.observeAction(name, operation)
+          : await operation();
       } catch (error) {
         options.logError?.(error);
         return failed;
@@ -168,8 +180,20 @@ export function registerIpc(options: IpcOptions): () => void {
   }
 
   // Explicit wrappers preserve each schema's argument/result pairing without transport assertions.
-  const handlers: ActionHandlers = service.handlers;
+  const handlers = service.handlers;
   const registrations: {[K in ActionName]: () => void} = {
+    'telemetry.status': () =>
+      registerAction('telemetry.status', actions['telemetry.status'], async () =>
+        options.telemetrySettings
+          ? {status: 'success', value: options.telemetrySettings.status()}
+          : failed
+      ),
+    'telemetry.save': () =>
+      registerAction('telemetry.save', actions['telemetry.save'], async args =>
+        options.telemetrySettings
+          ? {status: 'success', value: await options.telemetrySettings.save(args.dsn)}
+          : failed
+      ),
     'imports.commit': () =>
       registerAction('imports.commit', actions['imports.commit'], args =>
         handlers['imports.commit'](args)

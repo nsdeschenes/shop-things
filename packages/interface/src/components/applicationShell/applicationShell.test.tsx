@@ -187,7 +187,7 @@ test('database settings navigation protects unsaved edits and preview file actio
   });
   await user.click(screen.getByRole('link', {name: 'Database settings'}));
   expect(await screen.findByRole('heading', {name: 'Database Settings'})).toBeVisible();
-  expect(router.state.location.pathname).toBe('/settings/database');
+  expect(router.state.location.pathname).toBe('/settings');
   for (const action of [
     'Open database',
     'Create database',

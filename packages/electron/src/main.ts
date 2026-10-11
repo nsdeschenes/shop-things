@@ -3,12 +3,14 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 
 import {app, BrowserWindow, ipcMain, Menu, dialog} from 'electron';
 
-import {ActionService} from './actionService.js';
+import {ActionService, databaseOperations} from './actionService.js';
 import {isTrustedRendererUrl, trackAuthorizedDocument} from './document.js';
 import {DraftCoordinator} from './draftCoordinator.js';
 import {registerIpc} from './ipc.js';
 import {createNativeDialogs} from './nativeDialogs.js';
 import {FileDatabaseSettings} from './settings.js';
+import {createMainTelemetry} from './telemetry.js';
+import {FileTelemetrySettings} from './telemetrySettings.js';
 
 let window: BrowserWindow | null = null;
 let service: ActionService | null = null;
@@ -20,6 +22,19 @@ let backendClosed = false;
 let quitRequested = false;
 let documentTracker: ReturnType<typeof trackAuthorizedDocument> | null = null;
 const documentListeners = new Set<() => void>();
+const abortedLoad = /^ERR_ABORTED\b/;
+const telemetrySettings = new FileTelemetrySettings(
+  join(app.getPath('userData'), 'telemetry.json'),
+  console.error
+);
+const telemetry = createMainTelemetry(
+  telemetrySettings,
+  `shop-things@${app.getVersion()}`
+);
+function logError(error: unknown) {
+  console.error(error);
+  telemetry.captureException(error);
+}
 
 function onDocumentChanged(callback: () => void) {
   documentListeners.add(callback);
@@ -33,6 +48,7 @@ function createWindow() {
   const rendererHtml = join(baseDirectory, 'renderer', 'index.html');
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
   const approvedUrl = devServerUrl || pathToFileURL(rendererHtml).href;
+  let initialLoading = true;
   const win = new BrowserWindow({
     width: 800,
     height: 600,
@@ -85,13 +101,35 @@ function createWindow() {
       event.preventDefault();
     }
   });
+  win.webContents.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
+    if (!initialLoading && isMainFrame && code !== -3) {
+      telemetry.captureException(new Error('Renderer load failed.'));
+    }
+  });
+  win.webContents.on('render-process-gone', (_event, details) => {
+    if (details.reason !== 'clean-exit') {
+      telemetry.captureException(new Error('Renderer process exited.'));
+    }
+  });
   win.webContents.setWindowOpenHandler(() => ({action: 'deny'}));
 
-  if (devServerUrl) {
-    void win.loadURL(devServerUrl);
-  } else {
-    void win.loadFile(rendererHtml);
-  }
+  const loaded = devServerUrl ? win.loadURL(devServerUrl) : win.loadFile(rendererHtml);
+  void loaded
+    .catch(error => {
+      if (
+        error instanceof Error &&
+        (('code' in error && error.code === 'ERR_ABORTED') ||
+          ('errno' in error && error.errno === -3) ||
+          abortedLoad.test(error.message))
+      ) {
+        return;
+      }
+
+      logError(error);
+    })
+    .finally(() => {
+      initialLoading = false;
+    });
 }
 
 async function showProtectionFailure() {
@@ -104,7 +142,7 @@ async function showProtectionFailure() {
       buttons: ['OK'],
     });
   } catch (error) {
-    console.error(error);
+    logError(error);
   }
 }
 
@@ -113,96 +151,141 @@ async function reloadWindow(win: BrowserWindow) {
     return;
   }
 
-  const result = await service.requestReload(() => {
-    if (win.isDestroyed() || win.webContents.isDestroyed()) {
-      throw new Error('The renderer is unavailable.');
-    }
+  const result = await telemetry.phase('application.reload', () =>
+    service!.requestReload(() => {
+      if (win.isDestroyed() || win.webContents.isDestroyed()) {
+        throw new Error('The renderer is unavailable.');
+      }
 
-    return new Promise<void>(resolve => {
-      setImmediate(() => {
-        if (!win.isDestroyed()) {
-          win.webContents.reload();
-        }
+      return new Promise<void>(resolve => {
+        setImmediate(() => {
+          if (!win.isDestroyed()) {
+            win.webContents.reload();
+          }
 
-        resolve();
+          resolve();
+        });
       });
-    });
-  });
+    })
+  );
   if (result.status === 'error') {
     await showProtectionFailure();
   }
 }
 
-void app.whenReady().then(async () => {
-  if (shuttingDown) {
-    return;
-  }
-
-  const drafts = new DraftCoordinator();
-  service = new ActionService({
-    settings: new FileDatabaseSettings(join(app.getPath('userData'), 'database.json')),
-    migrationsFolder: app.isPackaged
-      ? join(process.resourcesPath, 'migrations')
-      : join(dirname(fileURLToPath(import.meta.url)), '../../db/migrations'),
-    dialogs: createNativeDialogs(() => window),
-    drafts,
-    logError: error => {
-      console.error(error);
-    },
-  });
-
-  stopIpc = registerIpc({
-    ipc: ipcMain,
-    service,
-    drafts,
-    currentDocument: () => documentTracker?.currentDocument() ?? null,
-    onDocumentChanged,
-    ready: async () => {
-      await starting;
-    },
-    logError: error => {
-      console.error(error);
-    },
-  });
-  starting = service.start().catch(error => {
-    console.error(error);
-  });
-  createWindow();
-  Menu.setApplicationMenu(
-    Menu.buildFromTemplate([
-      ...(process.platform === 'darwin' ? [{role: 'appMenu' as const}] : []),
-      {label: 'File', submenu: [{role: 'quit'}]},
-      {role: 'editMenu'},
-      {
-        label: 'View',
-        submenu: [
-          {
-            label: 'Reload',
-            accelerator: 'CmdOrCtrl+R',
-            click: () => {
-              if (window) {
-                void reloadWindow(window);
-              }
-            },
-          },
-        ],
-      },
-      {role: 'windowMenu'},
-    ])
-  );
-  app.on('activate', () => {
-    if (!shuttingDown && BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+void app
+  .whenReady()
+  .then(async () => {
+    if (shuttingDown) {
+      return;
     }
-  });
-});
+
+    const drafts = new DraftCoordinator();
+    service = new ActionService({
+      database: {
+        createDatabase: (...args) =>
+          telemetry.phase('database.createDatabase', () =>
+            databaseOperations.createDatabase(...args)
+          ),
+        openExistingDatabase: (...args) =>
+          telemetry.phase('database.openExistingDatabase', () =>
+            databaseOperations.openExistingDatabase(...args)
+          ),
+        listCustomers: (...args) =>
+          telemetry.phase('database.listCustomers', () =>
+            databaseOperations.listCustomers(...args)
+          ),
+        getCustomer: (...args) =>
+          telemetry.phase('database.getCustomer', () =>
+            databaseOperations.getCustomer(...args)
+          ),
+        createCustomer: (...args) =>
+          telemetry.phase('database.createCustomer', () =>
+            databaseOperations.createCustomer(...args)
+          ),
+        updateCustomer: (...args) =>
+          telemetry.phase('database.updateCustomer', () =>
+            databaseOperations.updateCustomer(...args)
+          ),
+        deleteCustomer: (...args) =>
+          telemetry.phase('database.deleteCustomer', () =>
+            databaseOperations.deleteCustomer(...args)
+          ),
+        importCustomerBatch: (...args) =>
+          telemetry.phase('database.importCustomerBatch', () =>
+            databaseOperations.importCustomerBatch(...args)
+          ),
+        backupDatabase: (...args) =>
+          telemetry.phase('database.backupDatabase', () =>
+            databaseOperations.backupDatabase(...args)
+          ),
+      },
+      settings: new FileDatabaseSettings(join(app.getPath('userData'), 'database.json')),
+      migrationsFolder: app.isPackaged
+        ? join(process.resourcesPath, 'migrations')
+        : join(dirname(fileURLToPath(import.meta.url)), '../../db/migrations'),
+      dialogs: createNativeDialogs(() => window),
+      phase: telemetry.phase,
+      drafts,
+      logError,
+    });
+
+    stopIpc = registerIpc({
+      ipc: ipcMain,
+      telemetrySettings,
+      observeAction: telemetry.observeAction,
+      service,
+      drafts,
+      currentDocument: () => documentTracker?.currentDocument() ?? null,
+      onDocumentChanged,
+      ready: async () => {
+        await starting;
+      },
+      logError,
+    });
+    starting = telemetry
+      .phase('application.startup', () => service!.start())
+      .catch(logError);
+    createWindow();
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([
+        ...(process.platform === 'darwin' ? [{role: 'appMenu' as const}] : []),
+        {label: 'File', submenu: [{role: 'quit'}]},
+        {role: 'editMenu'},
+        {
+          label: 'View',
+          submenu: [
+            {
+              label: 'Reload',
+              accelerator: 'CmdOrCtrl+R',
+              click: () => {
+                if (window) {
+                  void reloadWindow(window);
+                }
+              },
+            },
+          ],
+        },
+        {role: 'windowMenu'},
+      ])
+    );
+    app.on('activate', () => {
+      if (!shuttingDown && BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  })
+  .catch(logError);
 
 function closeBackend(quit: boolean): Promise<void> {
   quitRequested ||= quit;
   shutdown ??= (async () => {
     await starting;
-    const result = await service?.requestClose();
+    const result = await telemetry.phase('application.shutdown', () =>
+      service?.requestClose()
+    );
     if (result?.status === 'success') {
+      await telemetry.flush();
       backendClosed = true;
       if (quitRequested) {
         shuttingDown = true;

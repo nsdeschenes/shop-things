@@ -76,7 +76,10 @@ export function createPreloadBridge(
   ) {
     return async (args: A): Promise<R> => {
       try {
-        await Promise.all(registrations);
+        if (!name.startsWith('telemetry.')) {
+          await Promise.all(registrations);
+        }
+
         const result = definition.result.safeParse(
           await ipc.invoke(`shop-things:${name}`, {
             documentId: await getDocument(),
@@ -100,6 +103,10 @@ export function createPreloadBridge(
   }
 
   return {
+    telemetry: {
+      status: () => call('telemetry.status', actions['telemetry.status'])(undefined),
+      save: call('telemetry.save', actions['telemetry.save']),
+    },
     customers: {
       list: call('customers.list', actions['customers.list']),
       get: call('customers.get', actions['customers.get']),

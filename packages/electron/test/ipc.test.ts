@@ -1,3 +1,7 @@
+import {mkdtemp, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+
 import {createClient, applyNewerDatabaseState} from '@shop-things/contract/client';
 import {actions} from '@shop-things/contract/schemas';
 import {expect, test} from 'vitest';
@@ -8,10 +12,11 @@ import {registerIpc} from '../src/ipc.js';
 import type {ApprovedDocument, IpcSender, MainIpc} from '../src/ipc.js';
 import {controls} from '../src/ipcWire.js';
 import {createPreloadBridge} from '../src/preloadBridge.js';
+import {FileTelemetrySettings} from '../src/telemetrySettings.js';
 const editorFailure = /editor/;
 import type {DraftRequest, DatabaseState} from '@shop-things/contract';
 
-function fixture() {
+function fixture(telemetrySettings?: FileTelemetrySettings, ready?: () => Promise<void>) {
   const handlers = new Map<
     string,
     (event: IpcSender, ...payloads: unknown[]) => unknown
@@ -77,6 +82,8 @@ function fixture() {
   });
   const stop = registerIpc({
     ipc,
+    ...(telemetrySettings ? {telemetrySettings} : {}),
+    ...(ready ? {ready} : {}),
     service,
     drafts,
     currentDocument: () => document,
@@ -356,4 +363,41 @@ test('preload draft callbacks receive validated payloads and rejected preparatio
   await settle();
   await expect(f.drafts.prepare()).rejects.toThrow(editorFailure);
   f.stop();
+});
+
+test('authorized monitoring settings bypass held database readiness and retain exact action trust', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'settings-ipc-'));
+  const settings = new FileTelemetrySettings(join(directory, 'telemetry.json'));
+  const current = fixture(settings, () => new Promise(() => {}));
+  const client = createClient(createPreloadBridge(current.renderer));
+  try {
+    expect(await client.telemetry.status()).toMatchObject({
+      status: 'success',
+      value: {activeEnabled: false},
+    });
+    expect(
+      await client.telemetry.save({dsn: 'http://public@localhost:9000/1'})
+    ).toMatchObject({
+      status: 'success',
+      value: {restartRequired: true, activeEnabled: false},
+    });
+    expect(
+      await current.invoke('shop-things:telemetry.save', {
+        documentId: 'document-1',
+        arguments: {dsn: null},
+        extra: true,
+      })
+    ).toMatchObject({error: {code: 'UNAUTHORIZED'}});
+    current.replaceDocument();
+    expect(
+      await current.invoke('shop-things:telemetry.status', {
+        documentId: 'document-1',
+        arguments: undefined,
+      })
+    ).toMatchObject({error: {code: 'UNAUTHORIZED'}});
+    expect(settings.status().savedDsn).toBe('http://public@localhost:9000/1');
+  } finally {
+    current.stop();
+    await rm(directory, {recursive: true, force: true});
+  }
 });

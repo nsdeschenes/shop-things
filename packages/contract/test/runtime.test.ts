@@ -8,6 +8,7 @@ import {afterEach, assert, expect, test, vi} from 'vitest';
 
 afterEach(() => vi.unstubAllGlobals());
 import {createClient, getClient} from '@shop-things/contract/client';
+import {safeAttributes} from '@shop-things/contract/monitoring';
 import {
   actions,
   databaseStateSchema,
@@ -44,6 +45,18 @@ function makeBridge() {
   const listeners = new Set<(state: DatabaseState) => void>();
   let protection: DraftProtection | undefined;
   const bridge: ShopThingsBridge = {
+    telemetry: {
+      status: async () => ({
+        status: 'success',
+        value: {
+          savedDsn: null,
+          activeDsn: null,
+          activeEnabled: false,
+          restartRequired: false,
+        },
+      }),
+      save: async () => ({status: 'cancelled'}),
+    },
     customers: {
       list: async () => ({status: 'success', value: [record]}),
       get: async () => ({status: 'success', value: record}),
@@ -325,5 +338,82 @@ test('import matches require saved numbers while source and unresolved numbers r
       matches: [],
       choice: 'include',
     }).success
+  ).toBe(true);
+});
+
+test('settings DSNs reject credentials, query, fragment, invalid projects and oversized input', () => {
+  const definition = actions['telemetry.save'];
+  for (const dsn of [
+    null,
+    'https://public@host/1',
+    'http://local@localhost:1234/prefix/123',
+  ]) {
+    expect(definition.arguments.safeParse({dsn}).success).toBe(true);
+  }
+
+  for (const dsn of [
+    '',
+    'http://host/1',
+    'file://public@host/1',
+    'https://public:secret@host/1',
+    'https://public@host/project',
+    'https://public@host/1?q=secret',
+    'https://public@host/1#secret',
+    'https://public@host/1/',
+    'HTTPS://public@host/1',
+    'https:public@host/1',
+    'https://public-key@host/1',
+    'a'.repeat(2049),
+  ]) {
+    expect(definition.arguments.safeParse({dsn}).success).toBe(false);
+  }
+});
+
+test('log linkage retains only valid span IDs and excludes private attributes', () => {
+  expect(
+    safeAttributes({
+      'sentry.trace.parent_span_id': '0123456789abcdef',
+      customer: 'private-customer',
+    })
+  ).toEqual({'sentry.trace.parent_span_id': '0123456789abcdef'});
+  for (const value of ['private-customer', 'a'.repeat(32), '0123456789abcdeG', 123]) {
+    expect(safeAttributes({'sentry.trace.parent_span_id': value})).toEqual({});
+  }
+});
+
+test('passive client observers see safe outcomes and actual caught faults once and cannot alter results', async () => {
+  const {bridge} = makeBridge();
+  const observations: import('@shop-things/contract/client').ClientObservation[] = [];
+  const client = createClient(bridge, observation => {
+    observations.push(observation);
+    throw new Error('reporter failed');
+  });
+  expect(
+    await client.customers.list({session: 'private-session', query: 'private-query'})
+  ).toEqual({status: 'success', value: [record]});
+  const nativeError = new TypeError('private-native-details');
+  bridge.customers.list = async () => {
+    throw nativeError;
+  };
+
+  expect(
+    await client.customers.list({session: 'private-session', query: 'private-query'})
+  ).toMatchObject({status: 'error', error: {code: 'INTERNAL'}});
+  bridge.customers.list = async () => ({
+    status: 'error',
+    error: {code: 'INTERNAL', message: 'Already handled by main.'},
+  });
+  await client.customers.list({session: 'private-session', query: 'private-query'});
+  expect(observations).toHaveLength(3);
+  expect(observations[0]).toMatchObject({action: 'customers.list', outcome: 'success'});
+  expect(observations[1]).toMatchObject({
+    action: 'customers.list',
+    outcome: 'error',
+    errorCode: 'INTERNAL',
+    fault: {kind: 'transport', error: nativeError},
+  });
+  expect(observations[2]).not.toHaveProperty('fault');
+  expect(
+    observations.every(value => !('arguments' in value) && !('result' in value))
   ).toBe(true);
 });
