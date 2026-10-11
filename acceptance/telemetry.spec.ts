@@ -588,18 +588,18 @@ test('production monitoring activates only on cold restart and delivers private 
 
     const mainSpans = signals('span', 'main');
     function owningCustomerAction(item: (typeof mainSpans)[number]) {
-      let current = item;
+      let current: Signal | undefined = item;
       const visited = new Set<string>();
-      while (current && !visited.has(current.span_id)) {
+      while (current?.span_id && !visited.has(current.span_id)) {
         if (current.name === 'customers.create' || current.name === 'customers.update') {
           return current;
         }
 
         visited.add(current.span_id);
+        const traceId: Signal['trace_id'] = current.trace_id;
+        const parentSpanId: Signal['parent_span_id'] = current.parent_span_id;
         current = mainSpans.find(
-          parent =>
-            parent.trace_id === current.trace_id &&
-            parent.span_id === current.parent_span_id
+          parent => parent.trace_id === traceId && parent.span_id === parentSpanId
         );
       }
 
@@ -1392,7 +1392,7 @@ test('Settings can save while actual database startup is held and corrupt monito
 test('packaged mode labels every signal from both processes as production', async ({
   browserName: _browserName,
 }, testInfo) => {
-  test.setTimeout(45000);
+  test.setTimeout(60000);
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-environment-'));
   const envelopes: string[] = [];
   const server = createServer((request, response) => {
@@ -1417,18 +1417,16 @@ test('packaged mode labels every signal from both processes as production', asyn
     throw new Error('Collector did not bind.');
   }
 
-  await writeFile(
-    join(directory, 'telemetry.json'),
-    JSON.stringify({
-      dsn: `http://public@127.0.0.1:${address.port}/1`,
-    })
-  );
+  const settingsPath = join(directory, 'telemetry.json');
+  const insecureDsn = 'http://public@ingest.example.invalid/1';
+  const hostileSettings = JSON.stringify({dsn: insecureDsn});
+  await writeFile(settingsPath, hostileSettings);
   await cp(
     new URL('../packages/db/migrations', import.meta.url),
     join(directory, 'resources', 'migrations'),
     {recursive: true}
   );
-  const application = await launchElectron(directory, {
+  const launchEnvironment = {
     SHOP_THINGS_ACCEPTANCE_PACKAGED: 'true',
     SHOP_THINGS_ACCEPTANCE_RESOURCES: join(directory, 'resources'),
     SHOP_THINGS_ACCEPTANCE_CREATE_PATH: join(
@@ -1436,9 +1434,63 @@ test('packaged mode labels every signal from both processes as production', asyn
       'PRIVATE_SENTINEL_packaged.sqlite'
     ),
     SENTRY_ENVIRONMENT: 'PRIVATE_SENTINEL_environment',
-  });
+  };
+  let application = await launchElectron(directory, launchEnvironment);
   try {
-    const page = await application.firstWindow();
+    let page = await application.firstWindow();
+    await expect(page.getByRole('heading', {name: 'Set Up Your Database'})).toBeVisible();
+    expect(
+      await page.evaluate(() => window.shopThings!.telemetry.status())
+    ).toMatchObject({
+      status: 'success',
+      value: {environment: 'production', activeDsn: null, activeEnabled: false},
+    });
+    await expect(page.locator('meta[content^="connect-src"]')).toHaveAttribute(
+      'content',
+      "connect-src 'none'"
+    );
+    function hasTelemetryClient() {
+      const sentry = Reflect.get(globalThis, '__SENTRY__');
+      const carrier = sentry && Reflect.get(sentry, '11.4.0');
+      return Boolean(
+        (carrier?.acs?.getCurrentScope() ?? carrier?.defaultCurrentScope)?.getClient()
+      );
+    }
+
+    expect(await application.evaluate(hasTelemetryClient)).toBe(false);
+    expect(await page.evaluate(hasTelemetryClient)).toBe(false);
+
+    expect(
+      await page.evaluate(
+        dsn =>
+          window.shopThings!.telemetry.save({
+            dsn,
+            sampling: {errors: 100, traces: 100, logs: 100, metrics: 100},
+          }),
+        insecureDsn
+      )
+    ).toMatchObject({status: 'error', error: {code: 'INTERNAL'}});
+    expect(await readFile(settingsPath, 'utf8')).toBe(hostileSettings);
+    await page.getByRole('link', {name: 'Settings', exact: true}).click();
+    await page.getByRole('tab', {name: 'Monitoring'}).click();
+    const input = page.getByRole('textbox', {name: 'Sentry DSN'});
+    await input.fill(insecureDsn);
+    await page.getByRole('button', {name: 'Save monitoring'}).click();
+    await expect(input).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByRole('alert')).toContainText(
+      'Use an HTTPS Sentry DSN in production'
+    );
+    expect(await readFile(settingsPath, 'utf8')).toBe(hostileSettings);
+    await application.close();
+    expect(envelopes).toEqual([]);
+    await writeFile(
+      settingsPath,
+      JSON.stringify({
+        dsn: `http://public@127.0.0.1:${address.port}/1`,
+      })
+    );
+    application = await launchElectron(directory, launchEnvironment);
+    page = await application.firstWindow();
     await expect(page.getByRole('heading', {name: 'Set Up Your Database'})).toBeVisible();
     expect(await application.evaluate(({app}) => app.isPackaged)).toBe(true);
     expect(

@@ -12,6 +12,7 @@ import type {
 import {
   defaultTelemetrySampling,
   telemetryConfigurationSchema,
+  telemetryDsnSchemaForEnvironment,
   telemetrySamplingSchema,
 } from '@shop-things/contract/schemas';
 
@@ -37,11 +38,14 @@ export class FileTelemetrySettings {
 
       const value: unknown = JSON.parse(readFileSync(settingsPath, 'utf8'));
       configuration = telemetryConfigurationSchema
-        .extend({sampling: telemetrySamplingSchema.default(defaultTelemetrySampling)})
+        .extend({
+          dsn: telemetryDsnSchemaForEnvironment(environment).nullable(),
+          sampling: telemetrySamplingSchema.default(defaultTelemetrySampling),
+        })
         .parse(value);
     } catch (error) {
       if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
-        logError?.(error);
+        logError?.(new Error('Could not load monitoring settings.'));
       }
     }
 
@@ -68,7 +72,9 @@ export class FileTelemetrySettings {
   }
 
   save(configuration: TelemetryConfiguration): Promise<TelemetrySettingsState> {
-    const parsed = telemetryConfigurationSchema.parse(configuration);
+    const parsed = telemetryConfigurationSchema
+      .extend({dsn: telemetryDsnSchemaForEnvironment(this.environment).nullable()})
+      .parse(configuration);
     const write = this.writes.then(async () => {
       await mkdir(dirname(this.settingsPath), {recursive: true});
       const temporary = `${this.settingsPath}.${randomUUID()}.tmp`;

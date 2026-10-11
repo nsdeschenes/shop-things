@@ -382,6 +382,32 @@ test('settings DSNs reject credentials, query, fragment, invalid projects and ov
   }
 });
 
+test('telemetry client rejects production HTTP remote status before callers consume destination URLs', async () => {
+  const {bridge} = makeBridge();
+  const client = createClient(bridge);
+  for (const field of ['savedDsn', 'activeDsn'] as const) {
+    const state = {
+      environment: 'production' as const,
+      savedDsn: 'https://public@host/1',
+      activeDsn: 'https://public@host/1',
+      savedSampling: defaultTelemetrySampling,
+      activeSampling: defaultTelemetrySampling,
+      activeEnabled: true,
+      restartRequired: true,
+      [field]: 'http://public@remote.example/1',
+    };
+    bridge.telemetry.status = async () => ({status: 'success', value: state});
+    bridge.telemetry.save = async () => ({status: 'success', value: state});
+    expect(await client.telemetry.status()).toMatchObject({
+      status: 'error',
+      error: {code: 'INTERNAL'},
+    });
+    expect(
+      await client.telemetry.save({dsn: null, sampling: defaultTelemetrySampling})
+    ).toMatchObject({status: 'error', error: {code: 'INTERNAL'}});
+  }
+});
+
 test('telemetry client contains rejected saves and status calls and rejects invalid active DSNs', async () => {
   const {bridge} = makeBridge();
   const client = createClient(bridge);

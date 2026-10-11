@@ -10,6 +10,88 @@ import {FileTelemetrySettings} from '../src/telemetrySettings.js';
 const first = 'https://public@ingest.example.com/42';
 const second = 'http://local@localhost:9000/sentry/43';
 
+test('production saves and restarts retain HTTPS and only normalized loopback HTTP destinations', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'telemetry-transport-'));
+  try {
+    const path = join(directory, 'telemetry.json');
+    for (const dsn of [
+      first,
+      second,
+      'http://public@LOCALHOST:9000/42',
+      'http://public@127.0.0.1:9000/42',
+      'http://public@[::1]:9000/42',
+      null,
+    ]) {
+      const settings = new FileTelemetrySettings(path, undefined, 'production');
+      await settings.save({dsn, sampling: defaultTelemetrySampling});
+      expect(JSON.parse(await readFile(path, 'utf8')).dsn).toBe(dsn);
+      const restarted = new FileTelemetrySettings(path, undefined, 'production');
+      expect(restarted.startupDsn).toBe(dsn);
+      expect(restarted.status()).toMatchObject({
+        environment: 'production',
+        activeEnabled: dsn !== null,
+        restartRequired: false,
+      });
+    }
+
+    const development = new FileTelemetrySettings(path);
+    const remote = 'http://public@ingest.example.com/42';
+    await development.save({dsn: remote, sampling: defaultTelemetrySampling});
+    expect(new FileTelemetrySettings(path).startupDsn).toBe(remote);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('production rejects insecure saves before writing and disables hostile persisted destinations', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'telemetry-hostile-'));
+  try {
+    const path = join(directory, 'telemetry.json');
+    for (const dsn of [
+      'http://public@ingest.example.com/42',
+      'http://public@localhost.evil/42',
+      'http://public@localhost./42',
+      'http://public@192.168.1.2/42',
+      'http://public@127.0.0.2/42',
+      'http://public@[::ffff:127.0.0.1]/42',
+      'http://localhost@evil.example/42',
+      'http://public@localhost@evil.example/42',
+      'http://public:private@localhost/42',
+      'http://public@localhost/42?private=secret',
+      'invalid-url',
+    ]) {
+      const initial = JSON.stringify({dsn: first, sampling: defaultTelemetrySampling});
+      await writeFile(path, initial);
+      const settings = new FileTelemetrySettings(path, undefined, 'production');
+      await expect(async () =>
+        settings.save({dsn, sampling: defaultTelemetrySampling})
+      ).rejects.toThrow();
+      expect(await readFile(path, 'utf8')).toBe(initial);
+      expect(await readdir(directory)).toEqual(['telemetry.json']);
+      expect(settings.status()).toMatchObject({savedDsn: first, activeDsn: first});
+
+      await writeFile(path, JSON.stringify({dsn}));
+      const errors: unknown[] = [];
+      const restarted = new FileTelemetrySettings(
+        path,
+        error => errors.push(error),
+        'production'
+      );
+      expect(restarted.startupDsn).toBeNull();
+      expect(restarted.status()).toMatchObject({
+        savedDsn: null,
+        activeDsn: null,
+        activeEnabled: false,
+        restartRequired: false,
+      });
+      expect(errors).toHaveLength(1);
+      expect(String(errors[0])).not.toContain(dsn);
+    }
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
 test('missing and corrupt settings fail closed, writes are private, ordered and independent, and startup is immutable', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'telemetry-settings-'));
   const path = join(directory, 'telemetry.json');

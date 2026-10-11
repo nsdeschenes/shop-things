@@ -11,6 +11,10 @@ import createPreviewClient from '../../application/preview';
 const restartMessage = /Restart Shop Things/;
 const previewMessage = /Preview sends no monitoring data/;
 const validationMessage = /Enter a valid HTTP or HTTPS Sentry DSN/;
+const productionValidationMessage = /Use an HTTPS Sentry DSN in production/;
+const customerDisclosure = /Customer number, stock, balances, and donation flag/;
+const personalFieldsDisclosure = /Personal fields and file locations are excluded/;
+const transportDisclosure = /Production requires HTTPS/;
 
 const empty: TelemetrySettingsState = {
   environment: 'development',
@@ -21,6 +25,62 @@ const empty: TelemetrySettingsState = {
   activeEnabled: false,
   restartRequired: false,
 };
+
+test('production monitoring rejects remote HTTP in the field and saves loopback HTTP or disables', async () => {
+  const client = createPreviewClient();
+  const saves: TelemetryConfiguration[] = [];
+  const state = {...empty, environment: 'production' as const};
+  client.telemetry.status = async () => ({status: 'success', value: state});
+  client.telemetry.save = async configuration => {
+    saves.push(configuration);
+    return {
+      status: 'success',
+      value: {
+        ...state,
+        savedDsn: configuration.dsn,
+        restartRequired: configuration.dsn !== null,
+      },
+    };
+  };
+
+  const application = createApplication('http://localhost', true, {client});
+  renderRoute('/settings/monitoring', application);
+  const user = userEvent.setup();
+  try {
+    const input = await screen.findByRole('textbox', {name: 'Sentry DSN'});
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.type(input, 'http://public@remote.example/1');
+    await user.click(screen.getByRole('button', {name: 'Save monitoring'}));
+    expect(saves).toEqual([]);
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(input).toHaveAccessibleDescription(productionValidationMessage);
+    expect(screen.getByRole('alert')).toHaveAttribute('id', 'sentry-dsn-error');
+    await user.clear(input);
+    await user.type(input, 'http://public@127.0.0.1:9000/1');
+    await user.click(screen.getByRole('button', {name: 'Save monitoring'}));
+    expect(saves).toEqual([
+      {dsn: 'http://public@127.0.0.1:9000/1', sampling: defaultTelemetrySampling},
+    ]);
+    expect(input).not.toHaveAttribute('aria-invalid');
+    await user.clear(input);
+    await user.click(screen.getByRole('button', {name: 'Save monitoring'}));
+    expect(saves.at(-1)?.dsn).toBeNull();
+  } finally {
+    application.dispose();
+  }
+});
+
+test('monitoring discloses permitted business fields, private exclusions, and production transport restrictions', async () => {
+  renderRoute('/settings/monitoring');
+  await screen.findByRole('heading', {name: 'Settings'});
+  expect(screen.getByText(customerDisclosure)).toHaveTextContent(
+    'Customer number, stock, balances, and donation flag supplied when creating or updating a customer may be reported.'
+  );
+  expect(screen.getByText(personalFieldsDisclosure)).toBeVisible();
+  expect(screen.getByText(transportDisclosure)).toHaveTextContent(
+    'Production requires HTTPS for remote destinations. HTTP is allowed only for localhost, 127.0.0.1, or [::1]. Development also allows remote HTTP.'
+  );
+});
 
 test('Settings remains usable while startup is held, saves for restart, retains edits after failure and clears', async () => {
   const client = createPreviewClient();

@@ -1,7 +1,7 @@
 import type {TelemetrySampling, TelemetrySettingsState} from '@shop-things/contract';
 import {
   defaultTelemetrySampling,
-  telemetryDsnSchema,
+  telemetryDsnSchemaForEnvironment,
   telemetrySamplingSchema,
 } from '@shop-things/contract/schemas';
 import * as stylex from '@stylexjs/stylex';
@@ -117,12 +117,19 @@ export default function TelemetrySettings({application}: {application: Applicati
   }, [application]);
 
   async function save() {
+    if (!settings) {
+      return;
+    }
+
     setValidationError(null);
     setSamplingErrors({});
     const value = dsn.trim() || null;
-    if (!telemetryDsnSchema.nullable().safeParse(value).success) {
+    const parsedDsn = telemetryDsnSchemaForEnvironment(settings.environment)
+      .nullable()
+      .safeParse(value);
+    if (!parsedDsn.success) {
       setValidationError(
-        'Enter a valid HTTP or HTTPS Sentry DSN, or leave it blank to disable monitoring.'
+        `${parsedDsn.error.issues[0]?.message} Leave it blank to disable monitoring.`
       );
       return;
     }
@@ -181,8 +188,14 @@ export default function TelemetrySettings({application}: {application: Applicati
       <h2 {...stylex.props(styles.title)}>Monitoring</h2>
       <p {...stylex.props(styles.description)}>
         Send application errors, performance traces, logs, and metrics to your Sentry
-        project. Customer records and file locations are excluded. Leave the DSN blank to
-        disable monitoring after restarting.
+        project. Customer number, stock, balances, and donation flag supplied when
+        creating or updating a customer may be reported. Personal fields and file
+        locations are excluded. Leave the DSN blank to disable monitoring after
+        restarting.
+      </p>
+      <p {...stylex.props(styles.description)}>
+        Production requires HTTPS for remote destinations. HTTP is allowed only for
+        localhost, 127.0.0.1, or [::1]. Development also allows remote HTTP.
       </p>
       {!live && (
         <p {...stylex.props(styles.description)}>

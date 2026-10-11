@@ -199,6 +199,21 @@ export const telemetryConfigurationSchema = z.strictObject({
 
 export const telemetryEnvironmentSchema = z.enum(['development', 'production']);
 
+export function telemetryDsnSchemaForEnvironment(
+  environment: z.infer<typeof telemetryEnvironmentSchema>
+) {
+  return telemetryDsnSchema.pipe(
+    z.string().refine(dsn => {
+      const url = new URL(dsn);
+      return (
+        environment === 'development' ||
+        url.protocol === 'https:' ||
+        ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+      );
+    }, 'Use an HTTPS Sentry DSN in production. HTTP is allowed only for localhost, 127.0.0.1, or [::1].')
+  );
+}
+
 export const telemetrySettingsStateSchema = z
   .strictObject({
     environment: telemetryEnvironmentSchema,
@@ -209,6 +224,12 @@ export const telemetrySettingsStateSchema = z
     activeEnabled: z.boolean(),
     restartRequired: z.boolean(),
   })
+  .refine(state => {
+    const dsn = telemetryDsnSchemaForEnvironment(state.environment).nullable();
+    return (
+      dsn.safeParse(state.savedDsn).success && dsn.safeParse(state.activeDsn).success
+    );
+  }, 'Monitoring destination is not allowed in this environment.')
   .refine(
     state =>
       state.activeEnabled === (state.activeDsn !== null) &&
