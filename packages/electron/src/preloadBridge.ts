@@ -20,11 +20,6 @@ export interface RendererIpc {
   ): unknown;
 }
 
-const failed = {
-  status: 'error',
-  error: {code: 'INTERNAL', message: 'The application could not complete the request.'},
-} as const;
-
 export function createPreloadBridge(
   ipc: RendererIpc,
   nextId: () => string = () => crypto.randomUUID()
@@ -93,12 +88,7 @@ export function createPreloadBridge(
         /* Transport failures never expose native details. */
       }
 
-      const result = definition.result.safeParse(failed);
-      if (!result.success) {
-        throw new Error('Invalid contract failure schema.');
-      }
-
-      return result.data;
+      throw new Error('The application transport failed.');
     };
   }
 

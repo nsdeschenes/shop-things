@@ -89,6 +89,14 @@ ipcMain.handle = (channel, listener) => {
     ) {
       const fault = globalThis.acceptanceFault;
       globalThis.acceptanceFault = null;
+      if (fault.reject) {
+        throw new Error(fault.error.message);
+      }
+
+      if (fault.malformed) {
+        return fault.error.message;
+      }
+
       const result = {status: 'error', error: fault.error};
       if (fault.hold) {
         globalThis.acceptanceHeldRead = {channel, result};

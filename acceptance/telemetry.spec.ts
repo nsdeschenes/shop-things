@@ -371,6 +371,29 @@ test('production monitoring activates only on cold restart and delivers private 
       }
     }
 
+    for (const [index, failure] of ['reject', 'malformed'].entries()) {
+      await application.evaluate((_electron, failure) => {
+        Reflect.set(globalThis, 'acceptanceFault', {
+          channel: 'shop-things:customers.list',
+          before: true,
+          [failure]: true,
+          error: {message: 'PRIVATE_SENTINEL_transport'},
+        });
+      }, failure);
+      await page
+        .getByRole('button', {
+          name: index === 0 ? 'Refresh customers' : 'Retry refresh',
+        })
+        .click();
+      await expect(page.getByRole('button', {name: 'Retry refresh'})).toBeVisible();
+      await expect
+        .poll(() => signals('event', 'renderer').length, {timeout: 15000})
+        .toBe(index + 2);
+    }
+
+    await page.getByRole('button', {name: 'Retry refresh'}).click();
+    await expect(page.getByRole('button', {name: 'Refresh customers'})).toBeVisible();
+
     expect(await readFile(join(directory, 'database.json'), 'utf8')).toBe(
       databaseSettings
     );
@@ -424,7 +447,7 @@ test('production monitoring activates only on cold restart and delivers private 
         throw new SyntaxError('PRIVATE_SENTINEL_sampling');
       }, 0);
     });
-    await expect.poll(() => signals('event', 'renderer').length).toBe(2);
+    await expect.poll(() => signals('event', 'renderer').length).toBe(4);
     await expect.poll(() => signals('event', 'main').length).toBe(3);
     expect(destinations.some(value => value.startsWith('/api/2/'))).toBe(false);
     await page.screenshot({path: testInfo.outputPath('settings.png'), fullPage: true});

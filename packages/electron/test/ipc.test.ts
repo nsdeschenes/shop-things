@@ -3,6 +3,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
 import {createClient, applyNewerDatabaseState} from '@shop-things/contract/client';
+import type {ClientObservation} from '@shop-things/contract/client';
 import {actions, defaultTelemetrySampling} from '@shop-things/contract/schemas';
 import {expect, test} from 'vitest';
 
@@ -268,6 +269,52 @@ test('injected named bridge validates payload-only versioned state and removes s
   expect(f.sent.length).toBe(count);
   f.stop();
 });
+
+test.each(['rejected', 'malformed'] as const)(
+  'preload preserves sanitized %s IPC faults for the client observer without changing outcomes',
+  async failure => {
+    const f = fixture();
+    const observations: ClientObservation[] = [];
+    const invoke = f.renderer.invoke;
+    f.renderer.invoke = async (channel, ...payloads) => {
+      if (channel === 'shop-things:customers.get') {
+        if (failure === 'rejected') {
+          throw new Error('PRIVATE_SENTINEL_transport');
+        }
+
+        return {status: 'success', value: 'PRIVATE_SENTINEL_response'};
+      }
+
+      return invoke(channel, ...payloads);
+    };
+
+    const client = createClient(createPreloadBridge(f.renderer), observation => {
+      observations.push(observation);
+    });
+    try {
+      expect(await client.customers.get({session: 's', id: 1})).toEqual({
+        status: 'error',
+        error: {
+          code: 'INTERNAL',
+          message: 'The application could not complete the request.',
+        },
+      });
+      expect(observations).toHaveLength(1);
+      expect(observations[0]).toMatchObject({
+        action: 'customers.get',
+        outcome: 'error',
+        fault: {kind: 'transport', error: {message: 'The application transport failed.'}},
+      });
+      expect(await client.customers.list({session: 's', query: ''})).toMatchObject({
+        status: 'error',
+        error: {code: 'DATABASE_UNAVAILABLE'},
+      });
+      expect(observations[1]?.fault).toBeUndefined();
+    } finally {
+      f.stop();
+    }
+  }
+);
 test('draft controls bypass admission and enforce document/registration/request correlation', async () => {
   const f = fixture();
   f.send(controls.draftRegister, {
