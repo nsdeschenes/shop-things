@@ -6,6 +6,7 @@ import type {
   CustomerReference,
 } from '@shop-things/contract';
 import {
+  defaultTelemetrySampling,
   createCustomerInputSchema,
   updateCustomerInputSchema,
 } from '@shop-things/contract/schemas';
@@ -202,6 +203,8 @@ export default function createPreviewClient(
         value: {
           savedDsn: null,
           activeDsn: null,
+          savedSampling: {...defaultTelemetrySampling},
+          activeSampling: {...defaultTelemetrySampling},
           activeEnabled: false,
           restartRequired: false,
         },

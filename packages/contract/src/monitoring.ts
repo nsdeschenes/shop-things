@@ -145,3 +145,7 @@ export function safeTrace(trace: {trace_id?: unknown; span_id?: unknown} | undef
     ? {trace: {trace_id: trace.trace_id, span_id: trace.span_id}}
     : {};
 }
+
+export function shouldSampleTelemetry(percentage: number, random = Math.random): boolean {
+  return percentage === 100 || (percentage > 0 && random() < percentage / 100);
+}

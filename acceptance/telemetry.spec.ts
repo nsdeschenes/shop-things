@@ -78,7 +78,11 @@ test('production monitoring activates only on cold restart and delivers private 
     ).toBeVisible();
     const databaseSettings = await readFile(join(directory, 'database.json'), 'utf8');
     const result = await page.evaluate(
-      dsn => window.shopThings!.telemetry.save({dsn}),
+      dsn =>
+        window.shopThings!.telemetry.save({
+          dsn,
+          sampling: {errors: 100, traces: 100, logs: 100, metrics: 100},
+        }),
       dsn
     );
     expect(result).toMatchObject({
@@ -182,8 +186,8 @@ test('production monitoring activates only on cold restart and delivers private 
       tags?: {process?: string};
       attributes?: Record<string, {value: unknown}>;
     };
-    function signals(type: string, process: string): Signal[] {
-      return envelopes.flatMap(envelope => {
+    function signals(type: string, process: string, start = 0): Signal[] {
+      return envelopes.slice(start).flatMap(envelope => {
         const lines = envelope.trim().split('\n');
         const found: Signal[] = [];
         for (let index = 1; index + 1 < lines.length; index += 2) {
@@ -327,18 +331,38 @@ test('production monitoring activates only on cold restart and delivers private 
     expect(payloads).not.toContain('"params.customerId":');
     expect(payloads).not.toContain('"url.path.parameter.customerId":');
     expect(JSON.parse(await readFile(join(directory, 'telemetry.json'), 'utf8'))).toEqual(
-      {dsn}
+      {dsn, sampling: {errors: 100, traces: 100, logs: 100, metrics: 100}}
     );
     const changedDsn = `http://public@127.0.0.1:${address.port}/2`;
     await page.getByRole('link', {name: 'Database settings', exact: true}).click();
     await page.getByRole('textbox', {name: 'Sentry DSN'}).fill(changedDsn);
+    await page.getByRole('spinbutton', {name: 'Error sampling (%)'}).fill('0');
+    await page.getByRole('spinbutton', {name: 'Trace sampling (%)'}).fill('0');
     await page.getByRole('button', {name: 'Save monitoring'}).click();
     await expect(page.getByRole('status')).toContainText('Restart Shop Things');
     expect(
       await page.evaluate(() => window.shopThings!.telemetry.status())
     ).toMatchObject({
-      value: {activeDsn: dsn, savedDsn: changedDsn, restartRequired: true},
+      value: {
+        activeDsn: dsn,
+        savedDsn: changedDsn,
+        activeSampling: {errors: 100, traces: 100, logs: 100, metrics: 100},
+        savedSampling: {errors: 0, traces: 0, logs: 100, metrics: 100},
+        restartRequired: true,
+      },
     });
+    await page.evaluate(() => {
+      setTimeout(() => {
+        throw new SyntaxError('PRIVATE_SENTINEL_sampling');
+      }, 0);
+    });
+    await application.evaluate(() => {
+      setTimeout(() => {
+        throw new SyntaxError('PRIVATE_SENTINEL_sampling');
+      }, 0);
+    });
+    await expect.poll(() => signals('event', 'renderer').length).toBe(2);
+    await expect.poll(() => signals('event', 'main').length).toBe(3);
     expect(destinations.some(value => value.startsWith('/api/2/'))).toBe(false);
     await page.screenshot({path: testInfo.outputPath('settings.png'), fullPage: true});
     await testInfo.attach('settings.png', {
@@ -346,6 +370,7 @@ test('production monitoring activates only on cold restart and delivers private 
       contentType: 'image/png',
     });
     await application.close();
+    const samplingStart = envelopes.length;
     application = await launchElectron(directory, launchEnvironment);
     page = await application.firstWindow();
     await expect(
@@ -353,19 +378,156 @@ test('production monitoring activates only on cold restart and delivers private 
     ).toBeVisible();
     expect(
       await page.evaluate(() => window.shopThings!.telemetry.status())
-    ).toMatchObject({value: {activeDsn: changedDsn, restartRequired: false}});
+    ).toMatchObject({
+      value: {
+        activeDsn: changedDsn,
+        activeSampling: {errors: 0, traces: 0, logs: 100, metrics: 100},
+        restartRequired: false,
+      },
+    });
+    await page.evaluate(() => {
+      setTimeout(() => {
+        throw new SyntaxError('PRIVATE_SENTINEL_sampling');
+      }, 0);
+    });
+    await application.evaluate(() => {
+      setTimeout(() => {
+        throw new SyntaxError('PRIVATE_SENTINEL_sampling');
+      }, 0);
+    });
     await expect
       .poll(() => destinations.some(value => value.startsWith('/api/2/')), {
         timeout: 15000,
       })
       .toBe(true);
-    await page.evaluate(() => window.shopThings!.telemetry.save({dsn: null}));
+    await page.getByRole('link', {name: 'Database settings', exact: true}).click();
+    await page.getByRole('spinbutton', {name: 'Log sampling (%)'}).fill('0');
+    await page.getByRole('button', {name: 'Save monitoring'}).click();
+    await expect(page.getByRole('status')).toContainText('Restart Shop Things');
     expect(
       await page.evaluate(() => window.shopThings!.telemetry.status())
     ).toMatchObject({
-      value: {activeDsn: changedDsn, activeEnabled: true, restartRequired: true},
+      value: {
+        activeDsn: changedDsn,
+        activeEnabled: true,
+        activeSampling: {errors: 0, traces: 0, logs: 100, metrics: 100},
+        restartRequired: true,
+      },
     });
+    for (const process of ['main', 'renderer']) {
+      await expect
+        .poll(() => signals('log', process, samplingStart).length, {timeout: 15000})
+        .toBeGreaterThan(0);
+      await expect
+        .poll(() => signals('trace_metric', process, samplingStart).length, {
+          timeout: 15000,
+        })
+        .toBeGreaterThan(0);
+    }
+
     await application.close();
+    for (const process of ['main', 'renderer']) {
+      expect(signals('event', process, samplingStart)).toEqual([]);
+      expect(signals('span', process, samplingStart)).toEqual([]);
+    }
+
+    expect(envelopes.join('\n')).not.toContain('PRIVATE_SENTINEL_sampling');
+    await testInfo.attach('monitoring-sampling-envelopes.json', {
+      body: JSON.stringify(envelopes.slice(samplingStart), null, 2),
+      contentType: 'application/json',
+    });
+    for (const sampling of [
+      {errors: 0, traces: 0, logs: 0, metrics: 100},
+      {errors: 0, traces: 0, logs: 100, metrics: 0},
+      {errors: 0, traces: 0, logs: 0, metrics: 0},
+    ]) {
+      const signalStart = envelopes.length;
+      application = await launchElectron(directory, launchEnvironment);
+      page = await application.firstWindow();
+      await expect(
+        page.getByRole('heading', {name: 'Customers', exact: true})
+      ).toBeVisible();
+      expect(
+        await page.evaluate(() => window.shopThings!.telemetry.status())
+      ).toMatchObject({
+        value: {activeDsn: changedDsn, activeSampling: sampling, restartRequired: false},
+      });
+      await page.evaluate(() => {
+        setTimeout(() => {
+          throw new SyntaxError('PRIVATE_SENTINEL_sampling');
+        }, 0);
+      });
+      await application.evaluate(() => {
+        setTimeout(() => {
+          throw new SyntaxError('PRIVATE_SENTINEL_sampling');
+        }, 0);
+      });
+      await page.getByRole('link', {name: 'Database settings', exact: true}).click();
+      for (const process of ['main', 'renderer']) {
+        if (sampling.logs > 0) {
+          await expect
+            .poll(() => signals('log', process, signalStart).length, {timeout: 15000})
+            .toBeGreaterThan(0);
+        }
+
+        if (sampling.metrics > 0) {
+          await expect
+            .poll(() => signals('trace_metric', process, signalStart).length, {
+              timeout: 15000,
+            })
+            .toBeGreaterThan(0);
+        }
+      }
+
+      const next =
+        sampling.logs === 0 && sampling.metrics === 100
+          ? {logs: 100, metrics: 0}
+          : {logs: 0, metrics: 0};
+      await page
+        .getByRole('spinbutton', {name: 'Log sampling (%)'})
+        .fill(String(next.logs));
+      await page
+        .getByRole('spinbutton', {name: 'Metric sampling (%)'})
+        .fill(String(next.metrics));
+      if (sampling.logs === 0 && sampling.metrics === 0) {
+        await page.getByRole('textbox', {name: 'Sentry DSN'}).fill('');
+      }
+
+      await page.getByRole('button', {name: 'Save monitoring'}).click();
+      await expect(page.getByRole('status')).toContainText('Restart Shop Things');
+      expect(
+        await page.evaluate(() => window.shopThings!.telemetry.status())
+      ).toMatchObject({
+        value: {activeDsn: changedDsn, activeSampling: sampling, restartRequired: true},
+      });
+      await page.waitForTimeout(1500);
+      await application.close();
+      for (const process of ['main', 'renderer']) {
+        expect(signals('event', process, signalStart)).toEqual([]);
+        expect(signals('span', process, signalStart)).toEqual([]);
+        if (sampling.logs === 0) {
+          expect(signals('log', process, signalStart)).toEqual([]);
+        }
+
+        if (sampling.metrics === 0) {
+          expect(signals('trace_metric', process, signalStart)).toEqual([]);
+        }
+      }
+
+      if (sampling.logs === 0 && sampling.metrics === 0) {
+        expect(envelopes.slice(signalStart)).toEqual([]);
+      }
+
+      await testInfo.attach(
+        `monitoring-logs-${sampling.logs}-metrics-${sampling.metrics}.json`,
+        {
+          body: JSON.stringify(envelopes.slice(signalStart), null, 2),
+          contentType: 'application/json',
+        }
+      );
+    }
+
+    expect(envelopes.join('\n')).not.toContain('PRIVATE_SENTINEL');
     const before = envelopes.length;
     application = await launchElectron(directory, launchEnvironment);
     page = await application.firstWindow();

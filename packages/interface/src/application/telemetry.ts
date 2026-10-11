@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/react';
+import type {TelemetrySampling} from '@shop-things/contract';
 import type {ClientObserver} from '@shop-things/contract/client';
 import {
   dataCollection,
@@ -9,6 +10,7 @@ import {
   safeOperation,
   signalNames,
   logMessages,
+  shouldSampleTelemetry,
 } from '@shop-things/contract/monitoring';
 import {isCancelledError} from '@tanstack/react-query';
 import type {AnyRouter} from '@tanstack/react-router';
@@ -17,7 +19,10 @@ import {CustomerRequestError} from './customers';
 
 const browserDiagnosticSpans = /^(?:browser|resource|ui|http|measure)(?:\.|$)/;
 
-export function initializeRendererTelemetry(dsn: string | null): {
+export function initializeRendererTelemetry(
+  dsn: string | null,
+  sampling: TelemetrySampling
+): {
   observe: ClientObserver;
   captureException: (error: unknown) => void;
   instrumentRouter: (router: AnyRouter) => void;
@@ -35,7 +40,8 @@ export function initializeRendererTelemetry(dsn: string | null): {
         dataCollection: {...dataCollection, httpBodies: []},
         sendClientReports: false,
         maxBreadcrumbs: 0,
-        tracesSampleRate: 1,
+        sampleRate: sampling.errors / 100,
+        tracesSampleRate: sampling.traces / 100,
         tracePropagationTargets: [],
         ignoreSpans: [{op: browserDiagnosticSpans}],
         beforeSend(event) {
@@ -86,7 +92,8 @@ export function initializeRendererTelemetry(dsn: string | null): {
           };
         },
         beforeSendLog(log) {
-          return logMessages.has(String(log.message))
+          return logMessages.has(String(log.message)) &&
+            shouldSampleTelemetry(sampling.logs)
             ? {
                 ...log,
                 attributes: {...safeAttributes(log.attributes), process: 'renderer'},
@@ -94,7 +101,7 @@ export function initializeRendererTelemetry(dsn: string | null): {
             : null;
         },
         beforeSendMetric(metric) {
-          return signalNames.has(metric.name)
+          return signalNames.has(metric.name) && shouldSampleTelemetry(sampling.metrics)
             ? {
                 ...metric,
                 attributes: {...safeAttributes(metric.attributes), process: 'renderer'},

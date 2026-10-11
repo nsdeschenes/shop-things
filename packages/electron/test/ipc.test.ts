@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
 import {createClient, applyNewerDatabaseState} from '@shop-things/contract/client';
-import {actions} from '@shop-things/contract/schemas';
+import {actions, defaultTelemetrySampling} from '@shop-things/contract/schemas';
 import {expect, test} from 'vitest';
 
 import {ActionService} from '../src/actionService.js';
@@ -376,10 +376,30 @@ test('authorized monitoring settings bypass held database readiness and retain e
       value: {activeEnabled: false},
     });
     expect(
-      await client.telemetry.save({dsn: 'http://public@localhost:9000/1'})
+      await client.telemetry.save({
+        dsn: 'http://public@localhost:9000/1',
+        sampling: {errors: 25, traces: 0, logs: 50, metrics: 10},
+      })
     ).toMatchObject({
       status: 'success',
-      value: {restartRequired: true, activeEnabled: false},
+      value: {
+        restartRequired: true,
+        activeEnabled: false,
+        savedSampling: {errors: 25, traces: 0, logs: 50, metrics: 10},
+        activeSampling: defaultTelemetrySampling,
+      },
+    });
+    expect(
+      await client.telemetry.save({
+        dsn: null,
+        sampling: {...defaultTelemetrySampling, errors: 101, traces: 0},
+      })
+    ).toMatchObject({status: 'error', error: {code: 'VALIDATION'}});
+    expect(settings.status().savedSampling).toEqual({
+      errors: 25,
+      traces: 0,
+      logs: 50,
+      metrics: 10,
     });
     expect(
       await current.invoke('shop-things:telemetry.save', {

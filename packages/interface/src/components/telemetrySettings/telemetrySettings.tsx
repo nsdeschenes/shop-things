@@ -1,5 +1,9 @@
-import type {TelemetrySettingsState} from '@shop-things/contract';
-import {telemetryDsnSchema} from '@shop-things/contract/schemas';
+import type {TelemetrySampling, TelemetrySettingsState} from '@shop-things/contract';
+import {
+  defaultTelemetrySampling,
+  telemetryDsnSchema,
+  telemetrySamplingSchema,
+} from '@shop-things/contract/schemas';
 import * as stylex from '@stylexjs/stylex';
 import {useEffect, useState, useSyncExternalStore} from 'react';
 
@@ -20,6 +24,7 @@ const styles = stylex.create({
   },
   title: {fontSize: 20, fontWeight: 600, marginBottom: 8},
   description: {color: colors.textMuted, fontSize: 14, lineHeight: 1.6, marginBottom: 16},
+  hint: {color: colors.textMuted, fontSize: 14, lineHeight: 1.6},
   field: {
     gap: 8,
     display: 'flex',
@@ -32,6 +37,29 @@ const styles = stylex.create({
   status: {fontSize: 14, marginTop: 12},
 });
 
+const samplingFields = [
+  {
+    key: 'errors',
+    label: 'Error sampling (%)',
+    description: 'Percentage of errors to send.',
+  },
+  {
+    key: 'traces',
+    label: 'Trace sampling (%)',
+    description: 'Percentage of performance traces to send.',
+  },
+  {
+    key: 'logs',
+    label: 'Log sampling (%)',
+    description: 'Percentage of log entries to send.',
+  },
+  {
+    key: 'metrics',
+    label: 'Metric sampling (%)',
+    description: 'Percentage of metric measurements to send. Counts are not scaled up.',
+  },
+] as const;
+
 export default function TelemetrySettings({application}: {application: Application}) {
   const applicationState = useSyncExternalStore(
     application.subscribe,
@@ -39,6 +67,15 @@ export default function TelemetrySettings({application}: {application: Applicati
   );
   const [settings, setSettings] = useState<TelemetrySettingsState | null>(null);
   const [dsn, setDsn] = useState('');
+  const [sampling, setSampling] = useState({
+    errors: String(defaultTelemetrySampling.errors),
+    traces: String(defaultTelemetrySampling.traces),
+    logs: String(defaultTelemetrySampling.logs),
+    metrics: String(defaultTelemetrySampling.metrics),
+  });
+  const [samplingErrors, setSamplingErrors] = useState<
+    Partial<Record<keyof TelemetrySampling, string>>
+  >({});
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -64,6 +101,12 @@ export default function TelemetrySettings({application}: {application: Applicati
       if (result.status === 'success') {
         setSettings(result.value);
         setDsn(result.value.savedDsn ?? '');
+        setSampling({
+          errors: String(result.value.savedSampling.errors),
+          traces: String(result.value.savedSampling.traces),
+          logs: String(result.value.savedSampling.logs),
+          metrics: String(result.value.savedSampling.metrics),
+        });
       } else {
         setError('Could not load monitoring settings. Reopen Settings to try again.');
       }
@@ -75,11 +118,34 @@ export default function TelemetrySettings({application}: {application: Applicati
 
   async function save() {
     setValidationError(null);
+    setSamplingErrors({});
     const value = dsn.trim() || null;
     if (!telemetryDsnSchema.nullable().safeParse(value).success) {
       setValidationError(
         'Enter a valid HTTP or HTTPS Sentry DSN, or leave it blank to disable monitoring.'
       );
+      return;
+    }
+
+    const percentages = {
+      errors: Number(sampling.errors),
+      traces: Number(sampling.traces),
+      logs: Number(sampling.logs),
+      metrics: Number(sampling.metrics),
+    };
+    const fieldErrors: Partial<Record<keyof TelemetrySampling, string>> = {};
+    for (const field of samplingFields) {
+      if (
+        !sampling[field.key].trim() ||
+        !telemetrySamplingSchema.shape[field.key].safeParse(percentages[field.key])
+          .success
+      ) {
+        fieldErrors[field.key] = 'Enter a percentage from 0 to 100.';
+      }
+    }
+
+    if (Object.keys(fieldErrors).length > 0) {
+      setSamplingErrors(fieldErrors);
       return;
     }
 
@@ -91,10 +157,16 @@ export default function TelemetrySettings({application}: {application: Applicati
     setSaving(true);
     setError(null);
     try {
-      const result = await client.telemetry.save({dsn: value});
+      const result = await client.telemetry.save({dsn: value, sampling: percentages});
       if (result.status === 'success') {
         setSettings(result.value);
         setDsn(result.value.savedDsn ?? '');
+        setSampling({
+          errors: String(result.value.savedSampling.errors),
+          traces: String(result.value.savedSampling.traces),
+          logs: String(result.value.savedSampling.logs),
+          metrics: String(result.value.savedSampling.metrics),
+        });
         setSaved(true);
       } else if (result.status === 'error') {
         setError('Could not save monitoring settings. Try again.');
@@ -119,6 +191,7 @@ export default function TelemetrySettings({application}: {application: Applicati
         </p>
       )}
       <form
+        noValidate
         onSubmit={event => {
           event.preventDefault();
           void save();
@@ -152,11 +225,60 @@ export default function TelemetrySettings({application}: {application: Applicati
             </p>
           )}
         </div>
+        <p {...stylex.props(styles.description)}>
+          Sampling applies across the app after restarting. Use 0% to send none or 100% to
+          send all.
+        </p>
+        {samplingFields.map(field => (
+          <div key={field.key} {...stylex.props(styles.field)}>
+            <label
+              htmlFor={`sentry-sampling-${field.key}`}
+              {...stylex.props(styles.label)}
+            >
+              {field.label}
+            </label>
+            <Input
+              id={`sentry-sampling-${field.key}`}
+              type="number"
+              min={0}
+              max={100}
+              step="any"
+              value={sampling[field.key]}
+              disabled={!live || !settings || saving}
+              aria-describedby={`sentry-sampling-${field.key}-help${samplingErrors[field.key] ? ` sentry-sampling-${field.key}-error` : ''}`}
+              aria-invalid={samplingErrors[field.key] ? true : undefined}
+              onChange={event => {
+                setSampling({...sampling, [field.key]: event.target.value});
+                setSamplingErrors({...samplingErrors, [field.key]: undefined});
+                setSaved(false);
+                setError(null);
+              }}
+            />
+            <p id={`sentry-sampling-${field.key}-help`} {...stylex.props(styles.hint)}>
+              {field.description}
+            </p>
+            {samplingErrors[field.key] && (
+              <p
+                id={`sentry-sampling-${field.key}-error`}
+                role="alert"
+                {...stylex.props(styles.error)}
+              >
+                {samplingErrors[field.key]}
+              </p>
+            )}
+          </div>
+        ))}
         <Button
           variant="primary"
           type="submit"
           disabled={
-            !live || !settings || saving || (dsn.trim() || null) === settings.savedDsn
+            !live ||
+            !settings ||
+            saving ||
+            ((dsn.trim() || null) === settings.savedDsn &&
+              samplingFields.every(
+                field => sampling[field.key] === String(settings.savedSampling[field.key])
+              ))
           }
         >
           {saving ? 'Saving monitoring' : 'Save monitoring'}

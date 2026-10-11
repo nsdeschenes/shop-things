@@ -1,3 +1,5 @@
+import type {TelemetryConfiguration} from '@shop-things/contract';
+import {defaultTelemetrySampling} from '@shop-things/contract/schemas';
 import {act, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, test} from 'vitest';
@@ -13,6 +15,8 @@ const validationMessage = /Enter a valid HTTP or HTTPS Sentry DSN/;
 const empty = {
   savedDsn: null,
   activeDsn: null,
+  savedSampling: {...defaultTelemetrySampling},
+  activeSampling: {...defaultTelemetrySampling},
   activeEnabled: false,
   restartRequired: false,
 };
@@ -88,7 +92,107 @@ test('preview monitoring is inert without storage or native saves', async () => 
   expect(await screen.findByRole('heading', {name: 'Settings'})).toBeVisible();
   expect(screen.getByRole('textbox', {name: 'Sentry DSN'})).toBeDisabled();
   expect(screen.getByRole('button', {name: 'Save monitoring'})).toBeDisabled();
+  expect(screen.getByRole('spinbutton', {name: 'Error sampling (%)'})).toBeDisabled();
+  expect(screen.getByRole('spinbutton', {name: 'Trace sampling (%)'})).toBeDisabled();
+  expect(screen.getByRole('spinbutton', {name: 'Log sampling (%)'})).toBeDisabled();
+  expect(screen.getByRole('spinbutton', {name: 'Metric sampling (%)'})).toBeDisabled();
   expect(screen.getByText(previewMessage)).toBeVisible();
+});
+
+test('sampling-only edits validate, retain failed saves and persist for restart', async () => {
+  const client = createPreviewClient();
+  const dsn = 'https://public@host/1';
+  let savedSampling: TelemetryConfiguration['sampling'] = {...defaultTelemetrySampling};
+  function status() {
+    return {
+      ...empty,
+      savedDsn: dsn,
+      activeDsn: dsn,
+      activeEnabled: true,
+      savedSampling,
+      restartRequired: Object.values(savedSampling).some(
+        percentage => percentage !== 100
+      ),
+    };
+  }
+
+  client.telemetry.status = async () => ({status: 'success', value: status()});
+  const saves: TelemetryConfiguration[] = [];
+  let fail = true;
+  client.telemetry.save = async configuration => {
+    saves.push(configuration);
+    if (fail) {
+      return {status: 'error', error: {code: 'INTERNAL', message: 'Private failure'}};
+    }
+
+    savedSampling = configuration.sampling;
+    return {status: 'success', value: status()};
+  };
+
+  const application = createApplication('http://localhost', true, {client});
+  renderRoute('/settings', application);
+  const user = userEvent.setup();
+  try {
+    const errors = await screen.findByRole('spinbutton', {name: 'Error sampling (%)'});
+    const traces = screen.getByRole('spinbutton', {name: 'Trace sampling (%)'});
+    const logs = screen.getByRole('spinbutton', {name: 'Log sampling (%)'});
+    const metrics = screen.getByRole('spinbutton', {name: 'Metric sampling (%)'});
+    await waitFor(() => expect(errors).toBeEnabled());
+    const save = screen.getByRole('button', {name: 'Save monitoring'});
+    expect(save).toBeDisabled();
+    await user.clear(logs);
+    await user.type(logs, '101');
+    expect(save).toBeEnabled();
+    await user.click(save);
+    expect(saves).toEqual([]);
+    expect(logs).toHaveAttribute('aria-invalid', 'true');
+    await user.clear(logs);
+    await user.type(logs, '100');
+    expect(save).toBeDisabled();
+    await user.clear(metrics);
+    expect(save).toBeEnabled();
+    await user.click(save);
+    expect(saves).toEqual([]);
+    expect(metrics).toHaveAttribute('aria-invalid', 'true');
+    await user.type(metrics, '12.5');
+    await user.clear(logs);
+    await user.type(logs, '30');
+    await user.clear(errors);
+    await user.type(errors, '101');
+    await user.click(save);
+    expect(saves).toEqual([]);
+    expect(errors).toHaveAttribute('aria-invalid', 'true');
+    expect(errors).toHaveAccessibleDescription(
+      'Percentage of errors to send. Enter a percentage from 0 to 100.'
+    );
+    await user.clear(errors);
+    expect(errors).not.toHaveAttribute('aria-invalid');
+    await user.click(save);
+    expect(errors).toHaveAttribute('aria-invalid', 'true');
+    expect(saves).toEqual([]);
+    await user.type(errors, '25.5');
+    await user.clear(traces);
+    await user.type(traces, '0');
+    await user.click(save);
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Could not save monitoring settings.'
+    );
+    expect(errors).toHaveValue(25.5);
+    expect(traces).toHaveValue(0);
+    expect(errors).not.toHaveAttribute('aria-invalid');
+    expect(savedSampling).toEqual(defaultTelemetrySampling);
+    fail = false;
+    await user.click(save);
+    expect(savedSampling).toEqual({errors: 25.5, traces: 0, logs: 30, metrics: 12.5});
+    expect(saves).toEqual([
+      {dsn, sampling: savedSampling},
+      {dsn, sampling: savedSampling},
+    ]);
+    expect(screen.getByRole('status')).toHaveTextContent(restartMessage);
+    expect(save).toBeDisabled();
+  } finally {
+    application.dispose();
+  }
 });
 
 test.each(['success', 'error'] as const)(

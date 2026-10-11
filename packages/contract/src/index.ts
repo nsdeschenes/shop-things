@@ -3,6 +3,8 @@ import type {z} from 'zod';
 import type {
   actions,
   telemetrySettingsStateSchema,
+  telemetrySamplingSchema,
+  telemetryConfigurationSchema,
   importReviewSchema,
   importRowSchema,
   customerSchema,
@@ -33,6 +35,8 @@ export type DraftRequest = z.infer<typeof draftRequestSchema>;
 export type DraftReply = z.infer<typeof draftReplySchema>;
 export type DraftResolution = z.infer<typeof draftResolutionSchema>;
 export type TelemetrySettingsState = z.infer<typeof telemetrySettingsStateSchema>;
+export type TelemetrySampling = z.infer<typeof telemetrySamplingSchema>;
+export type TelemetryConfiguration = z.infer<typeof telemetryConfigurationSchema>;
 export type ActionName = keyof typeof actions;
 export type ActionArguments = {
   [K in ActionName]: z.infer<(typeof actions)[K]['arguments']>;

@@ -179,26 +179,48 @@ export const telemetryDsnSchema = z
     }
   }, 'Enter a valid HTTP or HTTPS Sentry DSN.');
 
+const samplingPercentage = z.number().min(0).max(100);
+export const defaultTelemetrySampling = Object.freeze({
+  errors: 100,
+  traces: 100,
+  logs: 100,
+  metrics: 100,
+});
+export const telemetrySamplingSchema = z.strictObject({
+  errors: samplingPercentage,
+  traces: samplingPercentage,
+  logs: samplingPercentage.default(defaultTelemetrySampling.logs),
+  metrics: samplingPercentage.default(defaultTelemetrySampling.metrics),
+});
+export const telemetryConfigurationSchema = z.strictObject({
+  dsn: telemetryDsnSchema.nullable(),
+  sampling: telemetrySamplingSchema,
+});
+
 export const telemetrySettingsStateSchema = z
   .strictObject({
     savedDsn: telemetryDsnSchema.nullable(),
     activeDsn: telemetryDsnSchema.nullable(),
+    savedSampling: telemetrySamplingSchema,
+    activeSampling: telemetrySamplingSchema,
     activeEnabled: z.boolean(),
     restartRequired: z.boolean(),
   })
   .refine(
     state =>
       state.activeEnabled === (state.activeDsn !== null) &&
-      state.restartRequired === (state.savedDsn !== state.activeDsn),
+      state.restartRequired ===
+        (state.savedDsn !== state.activeDsn ||
+          state.savedSampling.errors !== state.activeSampling.errors ||
+          state.savedSampling.traces !== state.activeSampling.traces ||
+          state.savedSampling.logs !== state.activeSampling.logs ||
+          state.savedSampling.metrics !== state.activeSampling.metrics),
     'Monitoring state does not match its configuration.'
   );
 
 export const actions = {
   'telemetry.status': action(z.undefined(), telemetrySettingsStateSchema),
-  'telemetry.save': action(
-    z.strictObject({dsn: telemetryDsnSchema.nullable()}),
-    telemetrySettingsStateSchema
-  ),
+  'telemetry.save': action(telemetryConfigurationSchema, telemetrySettingsStateSchema),
   'imports.commit': action(
     sessionArguments.extend({importId: token}),
     z.discriminatedUnion('kind', [

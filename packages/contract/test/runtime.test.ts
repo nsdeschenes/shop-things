@@ -8,9 +8,10 @@ import {afterEach, assert, expect, test, vi} from 'vitest';
 
 afterEach(() => vi.unstubAllGlobals());
 import {createClient, getClient} from '@shop-things/contract/client';
-import {safeAttributes} from '@shop-things/contract/monitoring';
+import {safeAttributes, shouldSampleTelemetry} from '@shop-things/contract/monitoring';
 import {
   actions,
+  defaultTelemetrySampling,
   databaseStateSchema,
   draftRequestSchema,
   draftReplySchema,
@@ -51,6 +52,8 @@ function makeBridge() {
         value: {
           savedDsn: null,
           activeDsn: null,
+          savedSampling: {...defaultTelemetrySampling},
+          activeSampling: {...defaultTelemetrySampling},
           activeEnabled: false,
           restartRequired: false,
         },
@@ -348,7 +351,9 @@ test('settings DSNs reject credentials, query, fragment, invalid projects and ov
     'https://public@host/1',
     'http://local@localhost:1234/prefix/123',
   ]) {
-    expect(definition.arguments.safeParse({dsn}).success).toBe(true);
+    expect(
+      definition.arguments.safeParse({dsn, sampling: defaultTelemetrySampling}).success
+    ).toBe(true);
   }
 
   for (const dsn of [
@@ -365,8 +370,68 @@ test('settings DSNs reject credentials, query, fragment, invalid projects and ov
     'https://public-key@host/1',
     'a'.repeat(2049),
   ]) {
-    expect(definition.arguments.safeParse({dsn}).success).toBe(false);
+    expect(
+      definition.arguments.safeParse({dsn, sampling: defaultTelemetrySampling}).success
+    ).toBe(false);
   }
+});
+
+test('sampling percentages are bounded numbers and each signal change requires a restart', () => {
+  for (const field of ['errors', 'traces', 'logs', 'metrics'] as const) {
+    for (const percentage of [0, 12.5, 100]) {
+      expect(
+        actions['telemetry.save'].arguments.safeParse({
+          dsn: null,
+          sampling: {...defaultTelemetrySampling, [field]: percentage},
+        }).success
+      ).toBe(true);
+    }
+
+    for (const percentage of [
+      -0.1,
+      100.1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      '50',
+      null,
+    ]) {
+      expect(
+        actions['telemetry.save'].arguments.safeParse({
+          dsn: null,
+          sampling: {...defaultTelemetrySampling, [field]: percentage},
+        }).success
+      ).toBe(false);
+    }
+
+    const state = {
+      savedDsn: 'https://public@host/1',
+      activeDsn: 'https://public@host/1',
+      activeEnabled: true,
+      savedSampling: {...defaultTelemetrySampling, [field]: 25},
+      activeSampling: defaultTelemetrySampling,
+      restartRequired: true,
+    };
+    expect(
+      actions['telemetry.status'].result.safeParse({status: 'success', value: state})
+        .success
+    ).toBe(true);
+    expect(
+      actions['telemetry.status'].result.safeParse({
+        status: 'success',
+        value: {...state, restartRequired: false},
+      }).success
+    ).toBe(false);
+  }
+});
+
+test('log and metric sampling retains the requested fraction and handles zero and full sampling exactly', () => {
+  const random = vi.fn(() => 0.5);
+  expect(shouldSampleTelemetry(0, random)).toBe(false);
+  expect(shouldSampleTelemetry(100, random)).toBe(true);
+  expect(random).not.toHaveBeenCalled();
+  expect(shouldSampleTelemetry(12.5, () => 0.124)).toBe(true);
+  expect(shouldSampleTelemetry(12.5, () => 0.125)).toBe(false);
+  expect(shouldSampleTelemetry(50, random)).toBe(false);
 });
 
 test('log linkage retains only valid span IDs and excludes private attributes', () => {

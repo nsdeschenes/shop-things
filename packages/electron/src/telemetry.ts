@@ -10,6 +10,7 @@ import {
   safeOperation,
   signalNames,
   logMessages,
+  shouldSampleTelemetry,
 } from '@shop-things/contract/monitoring';
 
 import {FileTelemetrySettings} from './telemetrySettings.js';
@@ -39,7 +40,8 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
         includeServerName: false,
         sendClientReports: false,
         maxBreadcrumbs: 0,
-        tracesSampleRate: 1,
+        sampleRate: settings.startupSampling.errors / 100,
+        tracesSampleRate: settings.startupSampling.traces / 100,
         tracePropagationTargets: [],
         beforeSend(event) {
           return {
@@ -91,12 +93,14 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
           };
         },
         beforeSendLog(log) {
-          return logMessages.has(String(log.message))
+          return logMessages.has(String(log.message)) &&
+            shouldSampleTelemetry(settings.startupSampling.logs)
             ? {...log, attributes: {...safeAttributes(log.attributes), process: 'main'}}
             : null;
         },
         beforeSendMetric(metric) {
-          return signalNames.has(metric.name)
+          return signalNames.has(metric.name) &&
+            shouldSampleTelemetry(settings.startupSampling.metrics)
             ? {
                 ...metric,
                 attributes: {...safeAttributes(metric.attributes), process: 'main'},

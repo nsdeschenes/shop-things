@@ -1,5 +1,6 @@
 import {Toast} from '@base-ui/react/toast';
 import {getClient} from '@shop-things/contract/client';
+import {defaultTelemetrySampling} from '@shop-things/contract/schemas';
 import * as stylex from '@stylexjs/stylex';
 import {QueryClientProvider} from '@tanstack/react-query';
 import {RouterProvider, createRouter} from '@tanstack/react-router';
@@ -40,7 +41,12 @@ const connectionPolicy = document.createElement('meta');
 connectionPolicy.httpEquiv = 'Content-Security-Policy';
 connectionPolicy.content = `connect-src ${activeDsn ? new URL(activeDsn).origin : "'none'"}`;
 document.head.append(connectionPolicy);
-const monitoring = initializeRendererTelemetry(activeDsn);
+const monitoring = initializeRendererTelemetry(
+  activeDsn,
+  configuration?.status === 'success'
+    ? configuration.value.activeSampling
+    : defaultTelemetrySampling
+);
 try {
   if (bridge) {
     bridge = getClient(monitoring.observe);

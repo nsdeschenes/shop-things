@@ -191,7 +191,7 @@ export function registerIpc(options: IpcOptions): () => void {
     'telemetry.save': () =>
       registerAction('telemetry.save', actions['telemetry.save'], async args =>
         options.telemetrySettings
-          ? {status: 'success', value: await options.telemetrySettings.save(args.dsn)}
+          ? {status: 'success', value: await options.telemetrySettings.save(args)}
           : failed
       ),
     'imports.commit': () =>
