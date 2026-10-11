@@ -218,7 +218,7 @@ export default function DatabaseSettings({application}: {application: Applicatio
       <TelemetrySettings application={application} />
       <h2 {...stylex.props(styles.title)}>Database Settings</h2>
       {!database?.available ? (
-        <DatabaseActions application={application} />
+        <DatabaseActions application={application} heading="h3" />
       ) : (
         <>
           <section aria-label="Active database" {...stylex.props(styles.active)}>

@@ -72,7 +72,13 @@ const styles = stylex.create({
   path: {overflowWrap: 'anywhere'},
 });
 
-export default function DatabaseActions({application}: {application: Application}) {
+export default function DatabaseActions({
+  application,
+  heading: Heading = 'h1',
+}: {
+  application: Application;
+  heading?: 'h1' | 'h2' | 'h3';
+}) {
   const state = useSyncExternalStore(application.subscribe, application.getState);
   const protection = useSyncExternalStore(
     application.protection.subscribe,
@@ -100,9 +106,9 @@ export default function DatabaseActions({application}: {application: Application
     <section aria-label="Database" {...stylex.props(styles.region, styles.setupRegion)}>
       {state.phase === 'ready' && !database?.available && (
         <section aria-label="Database setup" {...stylex.props(styles.setup)}>
-          <h1 {...stylex.props(styles.heading)}>
+          <Heading {...stylex.props(styles.heading)}>
             {database?.selectedPath ? 'Recover Database' : 'Set Up Your Database'}
-          </h1>
+          </Heading>
           {database?.selectedPath && (
             <div {...stylex.props(styles.file)}>
               <p {...stylex.props(styles.fileName)}>
