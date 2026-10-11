@@ -72,7 +72,9 @@ export function safeAttributes(attributes: Record<string, unknown> = {}) {
       safe[key] = value;
     } else if (
       key === 'sentry.op' &&
-      ['application.phase', 'application.client', 'navigation'].includes(String(value))
+      ['application.phase', 'application.client', 'navigation', 'pageload'].includes(
+        String(value)
+      )
     ) {
       safe[key] = String(value);
     } else if (key === 'action' || key === 'operation' || key === 'route') {

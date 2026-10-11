@@ -264,6 +264,9 @@ importers:
 
   packages/electron:
     dependencies:
+      '@sentry/electron':
+        specifier: 8.1.0
+        version: 8.1.0(@babel/core@7.29.7(supports-color@8.1.1))
       '@sentry/node':
         specifier: 11.4.0
         version: 11.4.0(@babel/core@7.29.7(supports-color@8.1.1))
@@ -1711,6 +1714,10 @@ packages:
       webpack:
         optional: true
 
+  '@sentry/conventions@0.23.0':
+    resolution: {integrity: sha512-+Euyo7CNVecoOusgUnq27oV97oshifgceKfnGnuKfXrPUVWA/cisvii3E1rlvy2yBrKvl9K1gCEo1Jqog5zjEQ==}
+    engines: {node: '>=14'}
+
   '@sentry/conventions@0.25.0':
     resolution: {integrity: sha512-7SouCAX3qx+AzLsxb6gbl3dKVWNhp2wFjdYQ/T90sGwqPPQUoZVA9YwsWwvx07hqcCiSqFW9mUAzyUftASnuhQ==}
     engines: {node: '>=14'}
@@ -1718,6 +1725,14 @@ packages:
   '@sentry/core@11.4.0':
     resolution: {integrity: sha512-kAhK8XVJuzu1IKx9uSu04OISxTU9BcIyDVOWbY/ATUCYr5Z6L7GRBtOGOlYCbxEuPtdZCw5TrbphnBsyO9fuTA==}
     engines: {node: '>=20.19.0 <22.0.0 || >=22.12.0 <23.0.0 || >=23.2.0'}
+
+  '@sentry/electron@8.1.0':
+    resolution: {integrity: sha512-yoqvA+7ttMXVXa9BdVLEoKLyz6Yl4XG6tMICXTNLA5WONnEFv9zUFdfn3DkJb3IBTYdVPwtBCkpo7r3VrWuQwQ==}
+    peerDependencies:
+      '@sentry/node-native': 11.4.0
+    peerDependenciesMeta:
+      '@sentry/node-native':
+        optional: true
 
   '@sentry/feedback@11.4.0':
     resolution: {integrity: sha512-vGcTGvNMgaL5J+LCwK+HVpubU/4/3TRAexVaJi0VcZmr9LnoGiZlWAQunjvWNsabvvkXs120WbXYc8nHysRNzw==}
@@ -5550,11 +5565,25 @@ snapshots:
     optionalDependencies:
       '@babel/core': 7.29.7(supports-color@8.1.1)
 
+  '@sentry/conventions@0.23.0': {}
+
   '@sentry/conventions@0.25.0': {}
 
   '@sentry/core@11.4.0':
     dependencies:
       '@sentry/conventions': 0.25.0
+
+  '@sentry/electron@8.1.0(@babel/core@7.29.7(supports-color@8.1.1))':
+    dependencies:
+      '@sentry/browser': 11.4.0
+      '@sentry/conventions': 0.23.0
+      '@sentry/core': 11.4.0
+      '@sentry/node': 11.4.0(@babel/core@7.29.7(supports-color@8.1.1))
+      '@sentry/server-utils': 11.4.0
+    transitivePeerDependencies:
+      - '@babel/core'
+      - rollup
+      - webpack
 
   '@sentry/feedback@11.4.0':
     dependencies:

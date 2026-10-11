@@ -14,6 +14,7 @@ const electron = vi.hoisted(() => {
       quit: vi.fn(),
       getPath: vi.fn(() => '/tmp/shop-things-main-test-empty-settings'),
       getVersion: vi.fn(() => '1.0.0'),
+      getAppPath: () => '/shop-things',
       isPackaged: false,
     },
     Menu: {buildFromTemplate: vi.fn(), setApplicationMenu: vi.fn()},

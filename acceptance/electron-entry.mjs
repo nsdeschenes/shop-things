@@ -1,7 +1,7 @@
 import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
-import {app, dialog, ipcMain} from 'electron';
+import {app, dialog, ipcMain, net, utilityProcess} from 'electron';
 
 // Test-only launcher isolates settings and records actual IPC delivery; the application,
 // BrowserWindow, bundled preload, renderer and backend are the built production code.
@@ -11,8 +11,25 @@ if (process.env.SHOP_THINGS_ACCEPTANCE_BOUNDARY) {
 }
 
 globalThis.acceptanceIpc = [];
+globalThis.acceptanceIpcHandlers = [];
+globalThis.acceptanceUtilityFork = Reflect.get(utilityProcess, 'fork');
+globalThis.acceptanceMonitoringPartitions = [];
+if (process.env.SHOP_THINGS_ACCEPTANCE_MONITORING === 'true') {
+  const request = net.request.bind(net);
+  net.request = options => {
+    globalThis.acceptanceMonitoringPartitions.push(
+      typeof options === 'object' ? options.partition : null
+    );
+    return request(options);
+  };
+}
+
 globalThis.acceptanceDialogs = [];
 globalThis.acceptanceDiscard = false;
+dialog.showErrorBox = (title, message) => {
+  globalThis.acceptanceDialogs.push({title, message});
+};
+
 dialog.showMessageBox = async (...args) => {
   const options = args.at(-1);
   globalThis.acceptanceDialogs.push(options);
@@ -54,8 +71,9 @@ dialog.showOpenDialog = async (...args) => selectedFile('open', args);
 
 const handle = ipcMain.handle.bind(ipcMain);
 globalThis.acceptanceDenyHandshake = process.env.SHOP_THINGS_ACCEPTANCE_DENY_HANDSHAKE;
-ipcMain.handle = (channel, listener) =>
-  handle(channel, async (...args) => {
+ipcMain.handle = (channel, listener) => {
+  globalThis.acceptanceIpcHandlers.push(channel);
+  return handle(channel, async (...args) => {
     globalThis.acceptanceIpc.push(channel);
     if (channel === 'shop-things:document' && globalThis.acceptanceDenyHandshake) {
       if (globalThis.acceptanceDenyHandshake !== 'always') {
@@ -112,6 +130,8 @@ ipcMain.handle = (channel, listener) =>
 
     return result;
   });
+};
+
 if (process.env.SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS) {
   const {createDatabase, createCustomer} = await import('../packages/db/dist/index.js');
   const databasePath = join(app.getPath('userData'), 'customers.sqlite');

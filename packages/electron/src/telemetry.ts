@@ -1,4 +1,5 @@
-import * as Sentry from '@sentry/node';
+import * as Sentry from '@sentry/electron/main';
+import {init as initializeTelemetry} from '@sentry/node';
 import type {ActionName} from '@shop-things/contract';
 import {
   dataCollection,
@@ -19,13 +20,16 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
   if (enabled) {
     try {
       process.env.SENTRY_USE_ENVIRONMENT = 'false';
-      Sentry.init({
+      // Electron init installs SDK IPC outside the application's document authorization.
+      initializeTelemetry({
         dsn: settings.startupDsn!,
         release,
         environment: 'production',
         spotlight: false,
         traceLifecycle: 'stream',
         debug: false,
+        transport: Sentry.makeElectronTransport,
+        shutdownTimeout: 1500,
         defaultIntegrations: false,
         integrations: [
           Sentry.onUncaughtExceptionIntegration(),

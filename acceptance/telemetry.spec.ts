@@ -144,6 +144,11 @@ test('production monitoring activates only on cold restart and delivers private 
         throw new RangeError(sentinel);
       }, 0);
     }, sentinel);
+    await application.evaluate((_electron, sentinel) => {
+      setTimeout(() => {
+        throw new URIError(sentinel);
+      }, 0);
+    }, sentinel);
     await page.getByRole('button', {name: 'Retry refresh'}).click();
     await page.getByRole('link', {name: `${sentinel} ${sentinel}`, exact: true}).click();
     await expect(
@@ -213,21 +218,62 @@ test('production monitoring activates only on cold restart and delivers private 
       }
     }
 
+    const nativeTransport = await application.evaluate(
+      ({ipcMain, session, utilityProcess}) => ({
+        partitions: Reflect.get(globalThis, 'acceptanceMonitoringPartitions'),
+        persistent: session.fromPartition('sentry-electron').isPersistent(),
+        sdkListeners: ipcMain
+          .eventNames()
+          .filter(name => String(name).startsWith('sentry-ipc')),
+        sdkHandlers: Reflect.get(globalThis, 'acceptanceIpcHandlers').filter(
+          (name: string) => name.startsWith('sentry-ipc')
+        ),
+        utilityForkUnchanged:
+          utilityProcess.fork === Reflect.get(globalThis, 'acceptanceUtilityFork'),
+      })
+    );
+    expect(nativeTransport.partitions.length).toBeGreaterThan(0);
+    expect(
+      nativeTransport.partitions.every((name: string) => name === 'sentry-electron')
+    ).toBe(true);
+    expect(nativeTransport.persistent).toBe(false);
+    expect(nativeTransport.sdkListeners).toEqual([]);
+    expect(nativeTransport.sdkHandlers).toEqual([]);
+    expect(nativeTransport.utilityForkUnchanged).toBe(true);
+
     for (const route of [
       '/customers/$customerId',
       '/customers/new',
       '/customers/import',
     ]) {
       await expect
-        .poll(() => signals('span', 'renderer').some(item => item.name === route), {
-          timeout: 15000,
-        })
+        .poll(
+          () =>
+            signals('span', 'renderer').some(
+              item =>
+                item.name === route &&
+                item.attributes?.['sentry.op']?.value === 'navigation'
+            ),
+          {timeout: 15000}
+        )
         .toBe(true);
     }
 
+    expect(
+      signals('span', 'renderer').some(
+        item => item.attributes?.['sentry.op']?.value === 'pageload'
+      )
+    ).toBe(true);
+    expect(
+      signals('span', 'renderer').some(item => item.name === 'application.operation')
+    ).toBe(false);
+
     expect(JSON.stringify(signals('event', 'main'))).toContain('"type":"TypeError"');
+    await expect
+      .poll(() => JSON.stringify(signals('event', 'main')), {timeout: 15000})
+      .toContain('"type":"URIError"');
     expect(JSON.stringify(signals('event', 'renderer'))).toContain('"type":"RangeError"');
-    expect(signals('event', 'main')).toHaveLength(1);
+    expect(signals('event', 'main')).toHaveLength(2);
     expect(signals('event', 'renderer')).toHaveLength(1);
     for (const process of ['main', 'renderer']) {
       const span = signals('span', process).find(item => item.name === 'database.status');
@@ -276,6 +322,10 @@ test('production monitoring activates only on cold restart and delivers private 
     expect(payloads).not.toContain('"user":');
     expect(payloads).not.toContain('"breadcrumbs":');
     expect(payloads).not.toContain('"server_name":');
+    expect(payloads).not.toContain('"url.full":');
+    expect(payloads).not.toContain('"url.path":');
+    expect(payloads).not.toContain('"params.customerId":');
+    expect(payloads).not.toContain('"url.path.parameter.customerId":');
     expect(JSON.parse(await readFile(join(directory, 'telemetry.json'), 'utf8'))).toEqual(
       {dsn}
     );
@@ -366,6 +416,9 @@ test('Settings can save while actual database startup is held and corrupt monito
       Reflect.get(globalThis, 'acceptanceReleaseStartup')()
     );
     await page.getByRole('link', {name: 'Back to setup'}).click();
+    await expect(page.getByRole('heading', {name: 'Settings', exact: true})).toHaveCount(
+      0
+    );
     await expect(page.getByRole('heading', {name: 'Set Up Your Database'})).toBeVisible();
     await application.close();
     await writeFile(join(directory, 'telemetry.json'), '{broken');

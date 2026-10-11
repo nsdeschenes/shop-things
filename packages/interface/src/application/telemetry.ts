@@ -11,12 +11,16 @@ import {
   logMessages,
 } from '@shop-things/contract/monitoring';
 import {isCancelledError} from '@tanstack/react-query';
+import type {AnyRouter} from '@tanstack/react-router';
 
 import {CustomerRequestError} from './customers';
+
+const browserDiagnosticSpans = /^(?:browser|resource|ui|http|measure)(?:\.|$)/;
 
 export function initializeRendererTelemetry(dsn: string | null): {
   observe: ClientObserver;
   captureException: (error: unknown) => void;
+  instrumentRouter: (router: AnyRouter) => void;
 } {
   const captured = new WeakSet<object>();
   let enabled = dsn !== null;
@@ -33,6 +37,7 @@ export function initializeRendererTelemetry(dsn: string | null): {
         maxBreadcrumbs: 0,
         tracesSampleRate: 1,
         tracePropagationTargets: [],
+        ignoreSpans: [{op: browserDiagnosticSpans}],
         beforeSend(event) {
           return {
             type: undefined,
@@ -70,7 +75,7 @@ export function initializeRendererTelemetry(dsn: string | null): {
             trace_id: span.trace_id,
             span_id: span.span_id,
             ...(span.parent_span_id ? {parent_span_id: span.parent_span_id} : {}),
-            name: safeOperation(span.name),
+            name: safeOperation(span.name.replace('/customers_', '/customers')),
             start_timestamp: span.start_timestamp,
             ...(span.end_timestamp !== undefined
               ? {end_timestamp: span.end_timestamp}
@@ -170,16 +175,31 @@ export function initializeRendererTelemetry(dsn: string | null): {
     } catch {}
   }
 
-  return {observe, captureException};
-}
+  function instrumentRouter(router: AnyRouter) {
+    if (!enabled) {
+      return;
+    }
 
-export function recordNavigation(route: string, durationMs: number) {
-  try {
-    const span = Sentry.startInactiveSpan({
-      name: safeOperation(route.replace('/customers_', '/customers')),
-      op: 'navigation',
-      startTime: (Date.now() - durationMs) / 1000,
-    });
-    span.end();
-  } catch {}
+    try {
+      Sentry.addIntegration(
+        Sentry.tanstackRouterBrowserTracingIntegration(router, {
+          traceFetch: false,
+          traceXHR: false,
+          enableHTTPTimings: false,
+          enableLongTask: false,
+          enableLongAnimationFrame: false,
+          webVitals: {
+            ignore: ['cls', 'inp', 'lcp'],
+            softNavigations: false,
+            bfcacheNavigations: false,
+          },
+          instrumentBfcacheRestore: false,
+          detectRedirects: false,
+          linkPreviousTrace: 'off',
+        })
+      );
+    } catch {}
+  }
+
+  return {observe, captureException, instrumentRouter};
 }

@@ -8,7 +8,7 @@ import ReactDOM from 'react-dom/client';
 
 import {createApplication} from './application/controller';
 import createApplicationHistory from './application/history';
-import {initializeRendererTelemetry, recordNavigation} from './application/telemetry';
+import {initializeRendererTelemetry} from './application/telemetry';
 import toastManager from './application/toasts';
 import Toasts from './components/toasts/toasts';
 import {routeTree} from './routeTree.gen';
@@ -55,7 +55,6 @@ const application = createApplication(
   bridge ? {client: bridge} : {}
 );
 const queryClient = application.queryClient;
-void application.start();
 window.addEventListener('pagehide', () => application.dispose());
 window.addEventListener('pageshow', event => {
   if (event.persisted) {
@@ -74,15 +73,9 @@ const router = createRouter({
   },
 });
 
-let navigationStarted = performance.now();
-router.subscribe('onBeforeNavigate', () => {
-  navigationStarted = performance.now();
-});
+monitoring.instrumentRouter(router);
+void application.start();
 router.subscribe('onResolved', () => {
-  recordNavigation(
-    router.state.matches.at(-1)?.routeId ?? '/',
-    performance.now() - navigationStarted
-  );
   for (const match of router.state.matches) {
     if (match.status === 'error') {
       monitoring.captureException(match.error);
