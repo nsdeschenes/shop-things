@@ -116,6 +116,9 @@ test('production monitoring activates only on cold restart and delivers private 
     );
     const sentinel = 'PRIVATE_SENTINEL_customer_email_path_sql_query';
     const customerAttributes = {
+      'sentry.message.template': 'PRIVATE_SENTINEL_template',
+      'sentry.message.parameter.0': 'PRIVATE_SENTINEL_parameter',
+      'sentry.message.parameter.1': 'PRIVATE_SENTINEL_parameter',
       'sentry.environment': 'PRIVATE_SENTINEL_scope_environment',
       customerNumber: 73021,
       stock: 9,
@@ -236,6 +239,7 @@ test('production monitoring activates only on cold restart and delivers private 
     await page.getByRole('button', {name: 'Cancel', exact: true}).click();
     await page.evaluate(() => window.shopThings!.database.status());
     type Signal = {
+      body?: string;
       environment?: string;
       name?: string;
       trace_id?: string;
@@ -357,7 +361,12 @@ test('production monitoring activates only on cold restart and delivers private 
                 item.trace_id === span?.trace_id &&
                 item.attributes?.['sentry.trace.parent_span_id']?.value ===
                   span?.span_id &&
-                item.attributes?.action?.value === 'database.status'
+                item.attributes?.action?.value === 'database.status' &&
+                item.body === 'Application action database.status completed' &&
+                item.attributes?.['sentry.message.template']?.value ===
+                  'Application action %s completed' &&
+                item.attributes?.['sentry.message.parameter.0']?.value ===
+                  'database.status'
             ),
           {timeout: 15000}
         )

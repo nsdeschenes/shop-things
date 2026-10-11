@@ -207,7 +207,10 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
               process: 'main',
             });
             Sentry.getActiveSpan()?.setStatus({code: outcome === 'error' ? 2 : 1});
-            Sentry.logger.info('Application action completed', attributes);
+            Sentry.logger.info(
+              Sentry.logger.fmt`Application action ${name} completed`,
+              attributes
+            );
             Sentry.metrics.count('application.action.count', 1, {attributes});
             Sentry.metrics.distribution(
               'application.action.duration',

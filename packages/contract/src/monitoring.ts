@@ -50,6 +50,7 @@ const databaseFiles =
 const traceId = /^[a-f0-9]{32}$/;
 const spanId = /^[a-f0-9]{16}$/;
 const rendererFile = /\/renderer\/assets\/[^/?#]+\.js$/;
+const actionLogTemplate = 'Application action %s completed';
 
 export const dataCollection = {
   userInfo: false,
@@ -74,7 +75,15 @@ export function safeOperation(value: unknown): string {
 export function safeAttributes(attributes: Record<string, unknown> = {}) {
   const safe: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(attributes)) {
-    if (key === 'sentry.environment') {
+    if (key === 'sentry.message.template' && value === actionLogTemplate) {
+      safe[key] = value;
+    } else if (
+      key === 'sentry.message.parameter.0' &&
+      typeof value === 'string' &&
+      Object.hasOwn(actions, value)
+    ) {
+      safe[key] = value;
+    } else if (key === 'sentry.environment') {
       const parsed = telemetryEnvironmentSchema.safeParse(value);
       if (parsed.success) {
         safe[key] = parsed.data;
@@ -170,7 +179,7 @@ export const signalNames = new Set([
   'application.action.duration',
 ]);
 export const logMessages = new Set([
-  'Application action completed',
+  ...Object.keys(actions).map(action => `Application action ${action} completed`),
   'Application lifecycle completed',
 ]);
 

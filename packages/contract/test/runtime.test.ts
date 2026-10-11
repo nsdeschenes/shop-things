@@ -663,6 +663,12 @@ test('final log and metric filtering removes late scope attributes and typed met
           'sentry.trace.parent_span_id': {type: 'string', value: '0123456789abcdef'},
           'sentry.timestamp.sequence': {type: 'integer', value: 4},
           'sentry.environment': {type: 'string', value: 'PRIVATE_ENVIRONMENT'},
+          'sentry.message.template': {
+            type: 'string',
+            value: 'Application action %s completed',
+          },
+          'sentry.message.parameter.0': {type: 'string', value: 'customers.get'},
+          'sentry.message.parameter.1': {type: 'string', value: 'PRIVATE_PARAMETER'},
         },
       },
     ],
@@ -678,17 +684,26 @@ test('final log and metric filtering removes late scope attributes and typed met
     'sentry.trace.parent_span_id': {type: 'string', value: '0123456789abcdef'},
     'sentry.timestamp.sequence': {type: 'integer', value: 4},
     'sentry.environment': {type: 'string', value: 'production'},
+    'sentry.message.template': {type: 'string', value: 'Application action %s completed'},
+    'sentry.message.parameter.0': {type: 'string', value: 'customers.get'},
   });
   expect(JSON.stringify(payload)).not.toContain('PRIVATE');
   const malformed = {
     items: [
       {attributes: 'PRIVATE_EMAIL'},
       {attributes: {balance: {value: 'PRIVATE_EMAIL'}, donate: {value: 'PRIVATE_EMAIL'}}},
+      {
+        attributes: {
+          'sentry.message.template': {value: 'PRIVATE_TEMPLATE'},
+          'sentry.message.parameter.0': {value: 'PRIVATE_PARAMETER'},
+        },
+      },
     ],
   };
   sanitizeLogMetricPayload(malformed, 'development');
   expect(malformed).toEqual({
     items: [
+      {attributes: {'sentry.environment': {type: 'string', value: 'development'}}},
       {attributes: {'sentry.environment': {type: 'string', value: 'development'}}},
       {attributes: {'sentry.environment': {type: 'string', value: 'development'}}},
     ],

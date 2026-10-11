@@ -190,7 +190,10 @@ export function initializeRendererTelemetry(
           }
 
           span.setStatus({code: observation.outcome === 'error' ? 2 : 1});
-          Sentry.logger.info('Application action completed', attributes);
+          Sentry.logger.info(
+            Sentry.logger.fmt`Application action ${observation.action} completed`,
+            attributes
+          );
           Sentry.metrics.count('application.action.count', 1, {attributes});
           Sentry.metrics.distribution(
             'application.action.duration',
