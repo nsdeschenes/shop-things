@@ -1,4 +1,10 @@
 # Changelog
+## 1.1.0
+
+### New Features ✨
+
+- Add opt-in Sentry monitoring through Settings by @nsdeschenes in [#191](https://github.com/nsdeschenes/shop-things/pull/191)
+
 ## 1.0.0
 
 ### Breaking Changes 🛠
