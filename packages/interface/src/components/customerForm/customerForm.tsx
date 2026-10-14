@@ -517,12 +517,26 @@ export default function CustomerForm({
                           label={config.label}
                           inputMode={config.inputMode}
                           uppercase={config.name === 'postalCode'}
-                          style={config.name === 'address' ? styles.wide : undefined}
+                          style={
+                            config.name === 'address' || config.name === 'postalCode'
+                              ? styles.wide
+                              : undefined
+                          }
                         />
                       )
                     }
                   </form.AppField>
                 ))}
+              </div>
+              <p {...stylex.props(styles.help)}>
+                Enter a first name, a last name, or both for a customer.
+              </p>
+            </fieldset>
+          </div>
+          <div {...stylex.props(styles.column)}>
+            <fieldset disabled={disabled} {...stylex.props(styles.fieldset)}>
+              <legend {...stylex.props(styles.legend)}>Account details</legend>
+              <div {...stylex.props(styles.grid)}>
                 {initialRecord ? (
                   <form.AppField name="customerNumber">
                     {field => (
@@ -551,16 +565,6 @@ export default function CustomerForm({
                     </Field.Description>
                   </Field.Root>
                 )}
-              </div>
-              <p {...stylex.props(styles.help)}>
-                Enter a first name, a last name, or both for a customer.
-              </p>
-            </fieldset>
-          </div>
-          <div {...stylex.props(styles.column)}>
-            <fieldset disabled={disabled} {...stylex.props(styles.fieldset)}>
-              <legend {...stylex.props(styles.legend)}>Account details</legend>
-              <div {...stylex.props(styles.grid)}>
                 {balanceFields.map(config => (
                   <form.AppField key={config.name} name={config.name}>
                     {field => (
@@ -568,7 +572,6 @@ export default function CustomerForm({
                         readOnly={blocked === 'deleted'}
                         label={config.label}
                         inputMode={config.inputMode}
-                        style={config.name === 'stock' ? styles.wide : undefined}
                       />
                     )}
                   </form.AppField>
