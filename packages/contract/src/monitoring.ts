@@ -247,6 +247,301 @@ export function safeTrace(trace: {trace_id?: unknown; span_id?: unknown} | undef
     : {};
 }
 
+const errorEventFields = new Set([
+  'event_id',
+  'timestamp',
+  'level',
+  'platform',
+  'release',
+  'dist',
+  'sdk',
+  'environment',
+  'contexts',
+  'tags',
+  'extra',
+  'exception',
+]);
+const mechanismTypes = new Set([
+  'generic',
+  'chained',
+  'auto.core.linked_errors',
+  'auto.browser.global_handlers.onerror',
+  'auto.browser.global_handlers.onunhandledrejection',
+  'auto.node.onunhandledrejection',
+  'auto.function.react.error_handler',
+]);
+
+interface ErrorEvent {
+  sdk?: {settings?: {infer_ip?: 'auto' | 'never'}};
+  environment?: string;
+  tags?: Record<string, unknown>;
+  extra?: Record<string, unknown>;
+  contexts?: {trace?: {trace_id?: string; span_id?: string}};
+  exception?: {
+    values?: {
+      type?: string;
+      value?: string;
+      mechanism?: {
+        type: string;
+        handled?: boolean;
+        synthetic?: boolean;
+        is_exception_group?: boolean;
+        exception_id?: number;
+        parent_id?: number;
+      };
+      stacktrace?: {
+        frames?: {
+          filename?: string;
+          lineno?: number;
+          colno?: number;
+          in_app?: boolean;
+        }[];
+      };
+    }[];
+  };
+}
+
+function retainFields(value: object, fields: ReadonlySet<string>) {
+  for (const key of Object.keys(value)) {
+    if (!fields.has(key)) {
+      Reflect.deleteProperty(value, key);
+    }
+  }
+}
+
+export function sanitizeErrorEvent<T extends ErrorEvent>(
+  event: T,
+  process: 'main' | 'renderer',
+  environment: TelemetryEnvironment,
+  attributes: Record<string, unknown> = {}
+): T {
+  retainFields(event, errorEventFields);
+  event.sdk = {...event.sdk, settings: {...event.sdk?.settings, infer_ip: 'never'}};
+  event.environment = environment;
+  event.contexts = safeTrace(event.contexts?.trace);
+  event.extra = safeAttributes(attributes);
+  event.tags = {...event.extra, process};
+  if (event.exception) {
+    retainFields(event.exception, new Set(['values']));
+  }
+
+  for (const exception of event.exception?.values ?? []) {
+    retainFields(exception, new Set(['type', 'value', 'mechanism', 'stacktrace']));
+    exception.type = safeErrorType(exception.type);
+    exception.value = 'Unexpected application failure.';
+    const mechanism = exception.mechanism;
+    if (mechanism) {
+      retainFields(
+        mechanism,
+        new Set([
+          'type',
+          'handled',
+          'synthetic',
+          'is_exception_group',
+          'exception_id',
+          'parent_id',
+        ])
+      );
+      if (!mechanismTypes.has(mechanism.type)) {
+        mechanism.type = 'generic';
+      }
+
+      for (const key of ['handled', 'synthetic', 'is_exception_group'] as const) {
+        if (typeof mechanism[key] !== 'boolean') {
+          delete mechanism[key];
+        }
+      }
+
+      for (const key of ['exception_id', 'parent_id'] as const) {
+        const value = mechanism[key];
+        if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
+          delete mechanism[key];
+        }
+      }
+    }
+
+    if (exception.stacktrace) {
+      retainFields(exception.stacktrace, new Set(['frames']));
+    }
+
+    for (const frame of exception.stacktrace?.frames ?? []) {
+      retainFields(frame, new Set(['filename', 'lineno', 'colno', 'in_app']));
+      frame.filename = safeFilename(frame.filename);
+      frame.in_app = frame.filename !== 'app:///external';
+      for (const key of ['lineno', 'colno'] as const) {
+        const value = frame[key];
+        if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
+          delete frame[key];
+        }
+      }
+    }
+  }
+
+  return event;
+}
+
+const browserSpanNames: Record<string, string> = {
+  'ui.webvital.cls': 'Cumulative layout shift',
+  'ui.webvital.lcp': 'Largest contentful paint',
+  'ui.interaction.click': 'Click',
+  'ui.interaction.hover': 'Hover',
+  'ui.interaction.drag': 'Drag',
+  'ui.interaction.press': 'Press',
+  'ui.long_task': 'Main thread long task',
+  'ui.long_animation_frame': 'Main thread long animation frame',
+  'browser.paint': 'Browser paint',
+  'browser.unload_event': 'Browser unload',
+  'browser.redirect': 'Browser redirect',
+  'browser.dom_content_loaded_event': 'DOM content loaded',
+  'browser.load_event': 'Browser load',
+  'browser.connect': 'Browser connection',
+  'browser.tls_ssl': 'Browser TLS',
+  'browser.cache': 'Browser cache',
+  'browser.dns': 'Browser DNS',
+  'browser.request': 'Browser request',
+  'browser.response': 'Browser response',
+  resource: 'Resource',
+  ...Object.fromEntries(
+    [
+      'script',
+      'link',
+      'img',
+      'css',
+      'audio',
+      'video',
+      'iframe',
+      'other',
+      'worker',
+      'icon',
+      'frame',
+      'object',
+      'ping',
+      'track',
+    ].map(kind => [`resource.${kind}`, `Resource ${kind}`])
+  ),
+  measure: 'Browser measurement',
+  mark: 'Browser mark',
+};
+const browserNumericAttributes = new Set([
+  ...['cls', 'lcp', 'inp', 'fp', 'fcp', 'ttfb'].map(
+    vital => `browser.web_vital.${vital}.value`
+  ),
+  'browser.web_vital.ttfb.request_time',
+  'browser.web_vital.lcp.load_time',
+  'browser.web_vital.lcp.render_time',
+  'browser.web_vital.lcp.size',
+  'sentry.exclusive_time',
+  'browser.performance.time_origin',
+  'browser.performance.navigation.activation_start',
+  'http.response.status_code',
+  'http.response.size',
+  'http.response.body.size',
+  'http.response.body.decoded_size',
+  'http.redirect_count',
+  ...[
+    'redirect_start',
+    'redirect_end',
+    'worker_start',
+    'fetch_start',
+    'domain_lookup_start',
+    'domain_lookup_end',
+    'connect_start',
+    'secure_connection_start',
+    'connection_end',
+    'request_start',
+    'response_start',
+    'response_end',
+    'time_to_first_byte',
+  ].map(timing => `http.request.${timing}`),
+  'network.connection.rtt',
+  'device.memory.estimated_capacity',
+  'device.processor_count',
+]);
+const browserEnums: Record<string, readonly string[]> = {
+  'sentry.origin': [
+    'auto.http.browser.cls',
+    'auto.http.browser.lcp',
+    'auto.http.browser.inp',
+    'auto.ui.browser.metrics',
+    'auto.resource.browser.metrics',
+    'auto.pageload.react.tanstack_router',
+    'auto.navigation.react.tanstack_router',
+    'auto.pageload.browser',
+    'auto.navigation.browser',
+    'auto.navigation.browser.bfcache',
+  ],
+  'browser.navigation.type': [
+    'navigate',
+    'reload',
+    'back-forward',
+    'back-forward-cache',
+    'prerender',
+    'restore',
+    'soft-navigation',
+  ],
+  'browser.web_vital.inp.interaction_type': ['click', 'hover', 'drag', 'press'],
+  'browser.paint.type': ['first-paint', 'first-contentful-paint'],
+  'resource.render_blocking_status': ['blocking', 'non-blocking'],
+};
+
+export function safeBrowserSpanName(op: unknown, name: string): string {
+  return typeof op === 'string' && Object.hasOwn(browserSpanNames, op)
+    ? browserSpanNames[op]!
+    : safeOperation(name.replace('/customers_', '/customers'));
+}
+
+export function safeBrowserAttributes(
+  attributes: Record<string, unknown>,
+  userAgent: string
+) {
+  const safe = safeAttributes(attributes);
+  const op = attributes['sentry.op'];
+  if (
+    typeof op !== 'string' ||
+    !(Object.hasOwn(browserSpanNames, op) || op === 'pageload' || op === 'navigation')
+  ) {
+    return safe;
+  }
+
+  safe['sentry.op'] = op;
+  for (const [key, value] of Object.entries(attributes)) {
+    if (
+      browserNumericAttributes.has(key) &&
+      typeof value === 'number' &&
+      Number.isFinite(value) &&
+      value >= 0
+    ) {
+      safe[key] = value;
+    } else if (
+      typeof value === 'string' &&
+      Object.hasOwn(browserEnums, key) &&
+      browserEnums[key]?.includes(value)
+    ) {
+      safe[key] = value;
+    } else if (
+      key === 'sentry.pageload.span_id' &&
+      typeof value === 'string' &&
+      spanId.test(value)
+    ) {
+      safe[key] = value;
+    } else if (key === 'sentry.segment.name' || key === 'sentry.transaction') {
+      safe[key] = safeOperation(
+        typeof value === 'string' ? value.replace('/customers_', '/customers') : value
+      );
+    }
+  }
+
+  if (
+    'browser.web_vital.lcp.value' in safe ||
+    'browser.web_vital.cls.value' in safe ||
+    'browser.web_vital.inp.value' in safe
+  ) {
+    safe['user_agent.original'] = userAgent;
+  }
+
+  return safe;
+}
+
 export function shouldSampleTelemetry(percentage: number, random = Math.random): boolean {
   return percentage === 100 || (percentage > 0 && random() < percentage / 100);
 }

@@ -11,12 +11,37 @@ import launchElectron from './launchElectron.js';
 const dismissNotification = /^Dismiss (?:error|notification)$/;
 
 const monitoringTabUrl = /#\/settings\/monitoring$/;
+interface BrowserSignal {
+  event_id?: string;
+  name?: string;
+  tags?: {process?: string};
+  extra?: Record<string, unknown>;
+  sdk: {
+    name: string;
+    version: string;
+    integrations: string[];
+    settings: {infer_ip: string};
+  };
+  exception: {
+    values: {
+      mechanism: {
+        type: string;
+        handled?: boolean;
+        parent_id?: number;
+        exception_id?: number;
+      };
+      stacktrace: {frames: unknown[]};
+    }[];
+  };
+  attributes: Record<string, {value: string | number | boolean}>;
+}
+
 const customerKeys = ['customerNumber', 'stock', 'previousBalance', 'balance', 'donate'];
 
 test('production monitoring activates only on cold restart and delivers private signals from both processes', async ({
   browserName: _browserName,
 }, testInfo) => {
-  test.setTimeout(90000);
+  test.setTimeout(180000);
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-monitoring-'));
   const envelopes: string[] = [];
   const destinations: string[] = [];
@@ -521,7 +546,7 @@ test('production monitoring activates only on cold restart and delivers private 
     await expect.poll(() => signals('event', 'main').length, {timeout: 15000}).toBe(4);
     await expect
       .poll(() => signals('event', 'renderer').length, {timeout: 15000})
-      .toBe(2);
+      .toBe(3);
     expect(
       signals('event', 'main').some(
         item =>
@@ -704,7 +729,7 @@ test('production monitoring activates only on cold restart and delivers private 
       await expect(page.getByRole('button', {name: 'Retry refresh'})).toBeVisible();
       await expect
         .poll(() => signals('event', 'renderer').length, {timeout: 15000})
-        .toBe(index + 3);
+        .toBe(index + 4);
     }
 
     await page.getByRole('button', {name: 'Retry refresh'}).click();
@@ -764,7 +789,7 @@ test('production monitoring activates only on cold restart and delivers private 
         throw new SyntaxError('PRIVATE_SENTINEL_sampling');
       }, 0);
     });
-    await expect.poll(() => signals('event', 'renderer').length).toBe(5);
+    await expect.poll(() => signals('event', 'renderer').length).toBe(6);
     await expect.poll(() => signals('event', 'main').length).toBe(5);
     await page.evaluate(async () => {
       const carrier = Reflect.get(Reflect.get(globalThis, '__SENTRY__'), '11.4.0');
@@ -1597,6 +1622,312 @@ test('packaged mode labels every signal from both processes as production', asyn
       contentType: 'application/json',
     });
   } finally {
+    await application.close().catch(() => {});
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('native browser diagnostics and error capture retain SDK fidelity without private payloads', async ({
+  browserName: _browserName,
+}, testInfo) => {
+  test.setTimeout(60000);
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-browser-monitoring-'));
+  const envelopes: string[] = [];
+  const browserFixture = await readFile(
+    new URL('../acceptance-reports/harness/telemetry-errors.mjs', import.meta.url),
+    'utf8'
+  );
+  const server = createServer((request, response) => {
+    response.setHeader('Access-Control-Allow-Origin', '*');
+    response.setHeader('Access-Control-Allow-Headers', '*');
+    response.setHeader('Timing-Allow-Origin', '*');
+    if (request.method === 'GET') {
+      if (request.url?.startsWith('/PRIVATE_SENTINEL_script.js')) {
+        response.setHeader('Content-Type', 'text/javascript');
+        response.end(browserFixture);
+      } else {
+        response.setHeader('Content-Type', 'image/png');
+        response.end(
+          Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=',
+            'base64'
+          )
+        );
+      }
+
+      return;
+    }
+
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', chunk => {
+      body += chunk;
+    });
+    request.on('end', () => {
+      if (request.method !== 'OPTIONS') {
+        envelopes.push(body);
+      }
+
+      response.end('{}');
+    });
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Collector did not bind.');
+  }
+
+  await writeFile(
+    join(directory, 'telemetry.json'),
+    JSON.stringify({dsn: `http://public@127.0.0.1:${address.port}/1`})
+  );
+  const application = await launchElectron(directory);
+  function signals(type: string) {
+    return envelopes.flatMap(body => {
+      const lines = body.split('\n');
+      const values: BrowserSignal[] = [];
+      for (let index = 1; index + 1 < lines.length; index += 2) {
+        if (JSON.parse(lines[index]!).type === type) {
+          const payload = JSON.parse(lines[index + 1]!);
+          values.push(...(payload.items ?? [payload]));
+        }
+      }
+
+      return values;
+    });
+  }
+
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByRole('heading', {name: 'Set Up Your Database'})).toBeVisible();
+    await page.addInitScript(() => {
+      document.addEventListener('DOMContentLoaded', () => {
+        const content = document.createElement('div');
+        content.id = 'PRIVATE_SENTINEL_lcp_element';
+        content.className = 'PRIVATE_SENTINEL_lcp_class';
+        content.textContent = 'PRIVATE_SENTINEL_visible_content '.repeat(20);
+        content.style.cssText =
+          'font-size:40px;line-height:1.2;width:90vw;height:250px;background:#eee';
+        document.body.prepend(content);
+        const spacer = document.createElement('div');
+        document.body.prepend(spacer);
+        setTimeout(() => {
+          spacer.style.height = '120px';
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              Reflect.set(window, 'acceptanceLayoutShiftFinished', true);
+            })
+          );
+        }, 700);
+      });
+    });
+    await page.reload();
+    await expect
+      .poll(() =>
+        page.evaluate(() => Boolean(Reflect.get(window, 'acceptanceLayoutShiftFinished')))
+      )
+      .toBe(true);
+    const runtime = await page.evaluate(() => ({
+      userAgent: navigator.userAgent,
+      longFrame: PerformanceObserver.supportedEntryTypes.includes('long-animation-frame'),
+      paints: performance.getEntriesByType('paint').map(entry => entry.name),
+      navigationTiming: performance.getEntriesByType('navigation').length > 0,
+    }));
+    await page.evaluate(() => {
+      const carrier = Reflect.get(Reflect.get(globalThis, '__SENTRY__'), '11.4.0');
+      const scope = carrier.acs?.getCurrentScope() ?? carrier.defaultCurrentScope;
+      scope.setAttributes({
+        'user_agent.original': 'PRIVATE_SENTINEL_poisoned_ua',
+        'browser.secret.value': 123,
+        'browser.web_vital.lcp.element': 'PRIVATE_SENTINEL_poisoned_selector',
+        customerNumber: 123456,
+        stock: 123,
+      });
+      scope.setExtras({secret: 'PRIVATE_SENTINEL_extra'});
+      scope.setUser({email: 'PRIVATE_SENTINEL_email'});
+    });
+    await page.evaluate(async origin => {
+      const module = await import(
+        `${origin}/PRIVATE_SENTINEL_script.js?private=PRIVATE_SENTINEL_query`
+      );
+      module.installBrowserWork(
+        `${origin}/PRIVATE_SENTINEL_resource.png?private=PRIVATE_SENTINEL_query`
+      );
+    }, `http://127.0.0.1:${address.port}`);
+    await page.getByRole('link', {name: 'Settings', exact: true}).click();
+    await expect(
+      page.getByRole('heading', {name: 'Settings', exact: true})
+    ).toBeVisible();
+    await expect
+      .poll(
+        () =>
+          signals('span').some(span => span.attributes?.['browser.web_vital.inp.value']),
+        {timeout: 15000}
+      )
+      .toBe(true);
+    await expect
+      .poll(
+        () =>
+          signals('span').some(
+            span =>
+              span.attributes?.['sentry.op']?.value ===
+              (runtime.longFrame ? 'ui.long_animation_frame' : 'ui.long_task')
+          ),
+        {timeout: 15000}
+      )
+      .toBe(true);
+    await application.evaluate(({BrowserWindow}) =>
+      BrowserWindow.getAllWindows()[0]!.hide()
+    );
+    await expect
+      .poll(
+        () =>
+          signals('span').some(
+            span => Number(span.attributes?.['browser.web_vital.cls.value']?.value) > 0
+          ),
+        {timeout: 15000}
+      )
+      .toBe(true);
+    await expect
+      .poll(
+        () =>
+          signals('span').some(span => span.attributes?.['browser.web_vital.lcp.value']),
+        {timeout: 15000}
+      )
+      .toBe(true);
+    const harness = await readFile(
+      new URL('../acceptance-reports/harness/telemetry-errors.mjs', import.meta.url),
+      'utf8'
+    );
+    const ids = await page.evaluate(
+      async ({source, dsn}) => {
+        const module = await import(
+          URL.createObjectURL(new Blob([source], {type: 'text/javascript'}))
+        );
+        return module.captureFailures(dsn);
+      },
+      {source: harness, dsn: `http://public@127.0.0.1:${address.port}/1`}
+    );
+    await expect
+      .poll(
+        () => signals('event').filter(event => event.tags?.process === 'renderer').length,
+        {timeout: 15000}
+      )
+      .toBe(7);
+    const events = signals('event').filter(event => event.tags?.process === 'renderer');
+    expect(events.filter(event => event.event_id === ids.duplicate)).toHaveLength(1);
+    for (const id of ids.distinct) {
+      expect(events.some(event => event.event_id === id)).toBe(true);
+    }
+
+    expect(
+      events.some(
+        event => event.event_id === ids.expected || event.event_id === ids.cancelled
+      )
+    ).toBe(false);
+    const linked = events.find(event => event.event_id === ids.linked)!;
+    expect(linked.exception.values).toHaveLength(2);
+    expect(linked.exception.values[0].mechanism.parent_id).toBe(
+      linked.exception.values[1].mechanism.exception_id
+    );
+    expect(
+      events.some(event =>
+        event.exception.values.some(
+          exception =>
+            exception.mechanism.type === 'auto.browser.global_handlers.onerror' &&
+            exception.mechanism.handled === false
+        )
+      )
+    ).toBe(true);
+    expect(
+      events.some(event =>
+        event.exception.values.some(
+          exception =>
+            exception.mechanism.type ===
+              'auto.browser.global_handlers.onunhandledrejection' &&
+            exception.mechanism.handled === false
+        )
+      )
+    ).toBe(true);
+    expect(
+      events.some(event =>
+        event.exception.values.some(
+          exception => exception.mechanism.type === 'auto.function.react.error_handler'
+        )
+      )
+    ).toBe(true);
+    for (const event of events) {
+      expect(event.sdk).toMatchObject({
+        name: 'sentry.javascript.react',
+        version: '11.4.0',
+        settings: {infer_ip: 'never'},
+      });
+      expect(event.sdk.integrations).toEqual(
+        expect.arrayContaining(['GlobalHandlers', 'Dedupe', 'LinkedErrors'])
+      );
+      expect(event.tags).toEqual({process: 'renderer'});
+      expect(event.extra).toEqual({});
+    }
+
+    expect(linked.exception.values[1].stacktrace.frames.length).toBeGreaterThan(1);
+    const spans = signals('span');
+    for (const vital of ['cls', 'lcp', 'inp']) {
+      const span = spans.find(
+        span => Number(span.attributes?.[`browser.web_vital.${vital}.value`]?.value) > 0
+      )!;
+      const value = span.attributes[`browser.web_vital.${vital}.value`].value;
+      expect(Number.isFinite(value)).toBe(true);
+      expect(value).toBeGreaterThan(0);
+      expect(span.attributes['user_agent.original'].value).toBe(runtime.userAgent);
+    }
+
+    const pageload = spans.find(
+      span =>
+        span.attributes?.['sentry.op']?.value === 'pageload' &&
+        span.attributes?.['browser.web_vital.fcp.value']
+    );
+    for (const [paint, metric] of [
+      ['first-paint', 'fp'],
+      ['first-contentful-paint', 'fcp'],
+    ] as const) {
+      if (runtime.paints.includes(paint)) {
+        expect(pageload).toBeDefined();
+        expect(
+          Number.isFinite(pageload!.attributes[`browser.web_vital.${metric}.value`].value)
+        ).toBe(true);
+      }
+    }
+
+    if (runtime.navigationTiming) {
+      expect(pageload).toBeDefined();
+      expect(
+        Number.isFinite(pageload!.attributes['browser.web_vital.ttfb.value'].value)
+      ).toBe(true);
+      expect(
+        Number.isFinite(pageload!.attributes['browser.web_vital.ttfb.request_time'].value)
+      ).toBe(true);
+    }
+
+    expect(
+      spans.some(
+        span =>
+          span.name === 'Resource img' &&
+          Number.isFinite(span.attributes?.['http.request.response_end']?.value)
+      )
+    ).toBe(true);
+    expect(
+      spans.some(span => span.attributes?.['sentry.op']?.value === 'browser.response')
+    ).toBe(true);
+    expect(envelopes.join('\n')).not.toContain('PRIVATE_SENTINEL');
+    expect(
+      spans.some(span => span.attributes?.customerNumber || span.attributes?.stock)
+    ).toBe(false);
+  } finally {
+    await testInfo.attach('native-browser-envelopes.json', {
+      body: JSON.stringify(envelopes, null, 2),
+      contentType: 'application/json',
+    });
     await application.close().catch(() => {});
     await new Promise<void>(resolve => server.close(() => resolve()));
     await rm(directory, {recursive: true, force: true});
