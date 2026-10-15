@@ -35,15 +35,13 @@ const operationNames = new Set([
   '/customers/import',
   '/customers/new',
 ]);
-const appFiles =
-  /\/(?:src|dist)\/(main|telemetry|actionService|ipc|settings|telemetrySettings|files|customerImport|importMatches|document|draftCoordinator|nativeDialogs|customerImportNumbers|ipcWire|preload|preloadBridge)\.(?:js|ts)$/;
-const databaseFiles =
-  /\/(?:packages\/db|node_modules\/@shop-things\/db)\/(?:src|dist)\/(index|customers|schema|relations|lifecycle)\.(?:js|ts)$/;
 const spanId = /^[a-f0-9]{16}$/;
-const rendererFile = /\/renderer\/assets\/[^/?#]+\.js$/;
 const actionLogTemplate = 'Application action %s completed';
-const absoluteModulePath = /^(?:\/|[A-Za-z]:[\\/]|file:)/;
-const privateUrlAttribute = /^url\.(?!template$)/;
+const homeUsername =
+  /^((?:file:\/\/)?(?:\/(?:home|Users)\/|\/?[A-Za-z]:\/Users\/))[^/]+(?=\/|$)/i;
+const codeUrl = /^(?:https?|file|blob):/i;
+const urlQueryFragment = /[?#].*$/;
+const privateUrlAttribute = /^url\.(?:full|path|query|fragment)(?:\.|$)/;
 const privateVitalAttribute =
   /^(?:browser\.web_vital\.[^.]+|lcp)\.(?:url|element|selector|target|id|source(?:\..*)?)$/;
 
@@ -194,27 +192,10 @@ export function safeSignalAttributes(attributes: Record<string, unknown> = {}) {
   };
 }
 
-export function safeFilename(value: unknown): string {
-  if (typeof value !== 'string') {
-    return 'app:///external';
-  }
-
+export function scrubCodeLocation(value: string): string {
   const normalized = value.replaceAll('\\', '/');
-  const match = normalized.match(appFiles);
-  if (match) {
-    return `app:///${match[1]}.js`;
-  }
-
-  const databaseMatch = normalized.match(databaseFiles);
-  if (databaseMatch) {
-    return `app:///db/${databaseMatch[1]}.js`;
-  }
-
-  if (rendererFile.test(normalized)) {
-    return 'app:///renderer.js';
-  }
-
-  return 'app:///external';
+  const redacted = normalized.replace(homeUsername, '$1[Filtered]');
+  return codeUrl.test(redacted) ? redacted.replace(urlQueryFragment, '') : redacted;
 }
 
 export const signalNames = new Set([
@@ -251,16 +232,14 @@ interface ErrorEvent {
 function scrubStacktrace(stacktrace: Stacktrace | undefined): void {
   for (const frame of stacktrace?.frames ?? []) {
     if (frame.filename !== undefined) {
-      frame.filename = safeFilename(frame.filename);
+      frame.filename = scrubCodeLocation(frame.filename);
     }
 
     if (frame.abs_path !== undefined) {
-      frame.abs_path = safeFilename(frame.abs_path);
+      frame.abs_path = scrubCodeLocation(frame.abs_path);
     }
 
-    for (const key of ['vars', 'pre_context', 'context_line', 'post_context', 'source']) {
-      Reflect.deleteProperty(frame, key);
-    }
+    Reflect.deleteProperty(frame, 'vars');
   }
 }
 
@@ -270,23 +249,29 @@ export function sanitizeErrorEvent<T extends ErrorEvent>(
   environment: TelemetryEnvironment,
   attributes: Record<string, unknown> = {}
 ): T {
-  for (const key of [
-    'user',
-    'request',
-    'message',
-    'logentry',
-    'fingerprint',
-    'breadcrumbs',
-    'transaction',
-    'server_name',
-  ]) {
+  for (const key of ['user', 'request', 'message', 'logentry']) {
     Reflect.deleteProperty(event, key);
   }
 
   event.sdk = {...event.sdk, settings: {...event.sdk?.settings, infer_ip: 'never'}};
   event.environment = environment;
-  event.extra = safeAttributes(attributes);
-  event.tags = {...event.extra, process};
+  for (const field of ['extra', 'tags'] as const) {
+    const values: Record<string, unknown> = {
+      ...event[field],
+      ...safeSignalAttributes(attributes),
+    };
+    scrubPrivateAttributes(values);
+    if ('process' in values || field === 'tags') {
+      values.process = process;
+    }
+
+    if ('sentry.environment' in values) {
+      values['sentry.environment'] = environment;
+    }
+
+    event[field] = values;
+  }
+
   for (const [name, context] of Object.entries(event.contexts ?? {})) {
     if (name === 'customer' || name === 'user' || name === 'request') {
       delete event.contexts?.[name];
@@ -305,11 +290,6 @@ export function sanitizeErrorEvent<T extends ErrorEvent>(
 
   for (const exception of event.exception?.values ?? []) {
     exception.value = 'Unexpected application failure.';
-    if (exception.mechanism) {
-      Reflect.deleteProperty(exception.mechanism, 'data');
-      Reflect.deleteProperty(exception.mechanism, 'source');
-    }
-
     scrubStacktrace(exception.stacktrace);
   }
 
@@ -319,15 +299,18 @@ export function sanitizeErrorEvent<T extends ErrorEvent>(
 
   for (const image of event.debug_meta?.images ?? []) {
     for (const key of ['code_file', 'debug_file']) {
-      if (typeof Reflect.get(image, key) === 'string') {
-        Reflect.set(image, key, safeFilename(Reflect.get(image, key)));
+      const value = Reflect.get(image, key);
+      if (typeof value === 'string') {
+        Reflect.set(image, key, scrubCodeLocation(value));
       }
     }
   }
 
   for (const name of Object.keys(event.modules ?? {})) {
-    if (absoluteModulePath.test(name)) {
-      delete event.modules?.[name];
+    const redacted = scrubCodeLocation(name);
+    if (event.modules && redacted !== name) {
+      event.modules[redacted] = event.modules[name]!;
+      delete event.modules[name];
     }
   }
 
@@ -354,19 +337,10 @@ const privateAttributes = new Set([
   'path',
   'filename',
   'abs_path',
-  'server.address',
   'http.url',
   'http.target',
   'http.request.url',
-  'code.file.path',
-  'code.filepath',
-  'ui.component_name',
   'browser.script.invoker',
-  'browser.script.source_url',
-  'db.system.name',
-  'db.operation.name',
-  'db.collection.name',
-  'db.query.method',
   'db.query.text',
   'db.statement',
 ]);
@@ -393,6 +367,13 @@ export function scrubPrivateAttributes(attributes: Record<string, unknown>): voi
     }
 
     if (
+      ['code.file.path', 'code.filepath', 'browser.script.source_url'].includes(key) &&
+      typeof attributes[key] === 'string'
+    ) {
+      attributes[key] = scrubCodeLocation(attributes[key]);
+    }
+
+    if (
       (key === 'sentry.message.template' ||
         key.startsWith('sentry.message.parameter.')) &&
       !(key in safeAttributes({[key]: attributes[key]}))
@@ -413,21 +394,17 @@ export function scrubPrivateAttributes(attributes: Record<string, unknown>): voi
 
 export function scrubBrowserSpan<
   T extends {name: string; attributes: Record<string, unknown>},
->(span: T, userAgent: string): T {
+>(span: T): T {
   if (
-    span.name === span.attributes['code.file.path'] ||
     span.name === span.attributes['browser.web_vital.lcp.element'] ||
     span.name === span.attributes['browser.web_vital.inp.target']
   ) {
     span.name = '[Filtered]';
   } else {
-    span.name = span.name.replace(/(?:https?|file|blob):\/\/\S+/g, '[Filtered]');
+    span.name = scrubCodeLocation(span.name);
   }
 
   scrubPrivateAttributes(span.attributes);
-  if ('user_agent.original' in span.attributes) {
-    span.attributes['user_agent.original'] = userAgent;
-  }
 
   return span;
 }
@@ -476,7 +453,7 @@ export function sanitizeLogMetricPayload(
           key !== 'process' &&
           typeof item.attributes === 'object' &&
           item.attributes !== null
-            ? Reflect.get(item.attributes, key)
+            ? {...Reflect.get(item.attributes, key), value}
             : {
                 type:
                   typeof value === 'number'

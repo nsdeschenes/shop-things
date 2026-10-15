@@ -13,7 +13,8 @@ const previewMessage = /Preview sends no monitoring data/;
 const validationMessage = /Enter a valid HTTP or HTTPS Sentry DSN/;
 const productionValidationMessage = /Use an HTTPS Sentry DSN in production/;
 const customerDisclosure = /Customer number, stock, balances, and donation flag/;
-const personalFieldsDisclosure = /Personal fields and file locations are excluded/;
+const personalFieldsDisclosure =
+  /Personal fields and selected data file locations are excluded\. Application code locations may be reported/;
 const transportDisclosure = /Production requires HTTPS/;
 
 const empty: TelemetrySettingsState = {

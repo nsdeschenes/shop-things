@@ -170,7 +170,7 @@ test('production monitoring activates only on cold restart and delivers private 
       previousBalance: '97.31',
       balance: '98.42',
       donate: true,
-      'db.system.name': 'PRIVATE_SENTINEL_db_system',
+      'db.system.name': 'sqlite',
       'db.operation.name': 'DELETE',
       'db.collection.name': 'sqlite_master',
       'db.query.method': 'exec',
@@ -1135,7 +1135,12 @@ test('production monitoring activates only on cold restart and delivers private 
 
           for (const fields of [item.attributes, item.tags, item.extra]) {
             expect(
-              Object.keys(fields ?? {}).filter(key => key.startsWith('db.'))
+              Object.keys(fields ?? {}).filter(
+                key =>
+                  key === 'db.query.text' ||
+                  key === 'db.statement' ||
+                  key.startsWith('db.query.parameter.')
+              )
             ).toEqual([]);
           }
         }
@@ -1652,7 +1657,7 @@ test('native browser diagnostics and error capture retain SDK fidelity without p
     response.setHeader('Access-Control-Allow-Headers', '*');
     response.setHeader('Timing-Allow-Origin', '*');
     if (request.method === 'GET') {
-      if (request.url?.startsWith('/PRIVATE_SENTINEL_script.js')) {
+      if (request.url?.startsWith('/telemetry-work.js')) {
         response.setHeader('Content-Type', 'text/javascript');
         response.end(browserFixture);
       } else {
@@ -1751,18 +1756,17 @@ test('native browser diagnostics and error capture retain SDK fidelity without p
       const carrier = Reflect.get(Reflect.get(globalThis, '__SENTRY__'), '11.4.0');
       const scope = carrier.acs?.getCurrentScope() ?? carrier.defaultCurrentScope;
       scope.setAttributes({
-        'user_agent.original': 'PRIVATE_SENTINEL_poisoned_ua',
         'browser.secret.value': 123,
         'browser.web_vital.lcp.element': 'PRIVATE_SENTINEL_poisoned_selector',
         customerNumber: 123456,
         stock: 123,
       });
-      scope.setExtras({secret: 'PRIVATE_SENTINEL_extra'});
+      scope.setExtras({email: 'PRIVATE_SENTINEL_extra', diagnostic: 'native-extra'});
       scope.setUser({email: 'PRIVATE_SENTINEL_email'});
     });
     await page.evaluate(async origin => {
       const module = await import(
-        `${origin}/PRIVATE_SENTINEL_script.js?private=PRIVATE_SENTINEL_query`
+        `${origin}/telemetry-work.js?private=PRIVATE_SENTINEL_query`
       );
       module.installBrowserWork(
         `${origin}/PRIVATE_SENTINEL_resource.png?private=PRIVATE_SENTINEL_query`
@@ -1841,6 +1845,7 @@ test('native browser diagnostics and error capture retain SDK fidelity without p
     ).toBe(false);
     const linked = events.find(event => event.event_id === ids.linked)!;
     expect(linked.exception.values).toHaveLength(2);
+    expect(linked.exception.values[0].mechanism.source).toBe('cause');
     expect(linked.exception.values[0].mechanism.parent_id).toBe(
       linked.exception.values[1].mechanism.exception_id
     );
@@ -1880,7 +1885,7 @@ test('native browser diagnostics and error capture retain SDK fidelity without p
         expect.arrayContaining(['GlobalHandlers', 'Dedupe', 'LinkedErrors'])
       );
       expect(event.tags).toEqual({process: 'renderer'});
-      expect(event.extra).toEqual({});
+      expect(event.extra).toEqual({diagnostic: 'native-extra'});
     }
 
     expect(linked.exception.values[1].stacktrace.frames.length).toBeGreaterThan(1);
@@ -1891,6 +1896,20 @@ test('native browser diagnostics and error capture retain SDK fidelity without p
         )
       )
     ).toBe(true);
+    if (runtime.longFrame) {
+      await expect
+        .poll(
+          () =>
+            signals('span').some(span =>
+              String(span.attributes?.['code.file.path']?.value).endsWith(
+                '/telemetry-work.js'
+              )
+            ),
+          {timeout: 15000}
+        )
+        .toBe(true);
+    }
+
     const spans = signals('span');
     expect(
       spans.some(span => span.attributes?.['browser.secret.value']?.value === 123)

@@ -2,9 +2,10 @@ import {expect, test} from 'vitest';
 
 import {scrubBrowserSpan, sanitizeErrorEvent} from '../src/monitoring.js';
 
-test('error privacy preserves native identity, linked mechanisms and every frame', () => {
+test('error privacy preserves native diagnostics and source identity with trusted customer attributes', () => {
   const event = {
     event_id: 'a'.repeat(32),
+    future_metadata: {enabled: true},
     timestamp: 123,
     release: '1.0',
     sdk: {
@@ -15,53 +16,46 @@ test('error privacy preserves native identity, linked mechanisms and every frame
     },
     user: {email: 'PRIVATE_SENTINEL'},
     request: {url: 'PRIVATE_SENTINEL'},
-    fingerprint: ['PRIVATE_SENTINEL'],
     message: 'PRIVATE_SENTINEL',
+    fingerprint: ['customer-editor', 'linked-failure'],
+    transaction: '/customers/$customerId',
     contexts: {
       trace: {trace_id: 'b'.repeat(32), span_id: 'c'.repeat(16)},
       customer: {email: 'PRIVATE_SENTINEL'},
       future_runtime: {version: 'next', enabled: true},
     },
-    tags: {customerNumber: 12, email: 'PRIVATE_SENTINEL'},
-    extra: {stock: 99},
+    tags: {customerNumber: 12, email: 'PRIVATE_SENTINEL', diagnostic: 'native-tag'},
+    extra: {stock: 99, donate: true, diagnostic: 'native-extra'},
     exception: {
       values: [
         {
           type: 'TypeError',
+          future: 'native exception metadata',
           value: 'PRIVATE_SENTINEL',
           mechanism: {
             type: 'auto.core.linked_errors',
             handled: true,
             exception_id: 0,
             parent_id: 1,
-            source: 'PRIVATE_SENTINEL',
-            data: {name: 'PRIVATE_SENTINEL'},
+            future: 'native mechanism metadata',
+            source: 'cause',
+            data: {name: 'TypeError', code: 'MODULE_NOT_FOUND'},
           },
           stacktrace: {
             frames: [
               {
-                filename: '/private/src/telemetry.ts',
+                filename: '/home/PRIVATE_SENTINEL/project/src/UnlistedFeature.ts',
+                abs_path: 'file:///home/PRIVATE_SENTINEL/project/src/UnlistedFeature.ts',
                 lineno: 5,
                 colno: 3,
                 function: 'nativeFunction',
                 vars: {email: 'PRIVATE_SENTINEL'},
-              },
-              {
-                filename: '/private/renderer/assets/chunk.js',
-                lineno: 8,
-                colno: 9,
-                context_line: 'PRIVATE_SENTINEL',
+                pre_context: ['function nativeFunction() {'],
+                context_line: '  throw new TypeError();',
+                post_context: ['}'],
+                source: 'nativeFunction',
               },
             ],
-          },
-        },
-        {
-          type: 'RangeError',
-          value: 'PRIVATE_SENTINEL',
-          mechanism: {
-            type: 'auto.browser.global_handlers.onerror',
-            handled: false,
-            exception_id: 1,
           },
         },
       ],
@@ -70,6 +64,7 @@ test('error privacy preserves native identity, linked mechanisms and every frame
   expect(sanitizeErrorEvent(event, 'renderer', 'development', {stock: 2})).toBe(event);
   expect(event).toEqual({
     event_id: 'a'.repeat(32),
+    future_metadata: {enabled: true},
     timestamp: 123,
     release: '1.0',
     sdk: {
@@ -79,42 +74,43 @@ test('error privacy preserves native identity, linked mechanisms and every frame
       settings: {infer_ip: 'never'},
     },
     environment: 'development',
+    fingerprint: ['customer-editor', 'linked-failure'],
+    transaction: '/customers/$customerId',
     contexts: {
       trace: {trace_id: 'b'.repeat(32), span_id: 'c'.repeat(16)},
       future_runtime: {version: 'next', enabled: true},
     },
-    tags: {stock: 2, process: 'renderer'},
-    extra: {stock: 2},
+    tags: {stock: 2, diagnostic: 'native-tag', process: 'renderer'},
+    extra: {stock: 2, diagnostic: 'native-extra'},
     exception: {
       values: [
         {
           type: 'TypeError',
+          future: 'native exception metadata',
           value: 'Unexpected application failure.',
           mechanism: {
             type: 'auto.core.linked_errors',
             handled: true,
             exception_id: 0,
             parent_id: 1,
+            future: 'native mechanism metadata',
+            source: 'cause',
+            data: {name: 'TypeError', code: 'MODULE_NOT_FOUND'},
           },
           stacktrace: {
             frames: [
               {
-                filename: 'app:///telemetry.js',
+                filename: '/home/[Filtered]/project/src/UnlistedFeature.ts',
+                abs_path: 'file:///home/[Filtered]/project/src/UnlistedFeature.ts',
                 lineno: 5,
                 colno: 3,
                 function: 'nativeFunction',
+                pre_context: ['function nativeFunction() {'],
+                context_line: '  throw new TypeError();',
+                post_context: ['}'],
+                source: 'nativeFunction',
               },
-              {filename: 'app:///renderer.js', lineno: 8, colno: 9},
             ],
-          },
-        },
-        {
-          type: 'RangeError',
-          value: 'Unexpected application failure.',
-          mechanism: {
-            type: 'auto.browser.global_handlers.onerror',
-            handled: false,
-            exception_id: 1,
           },
         },
       ],
@@ -123,78 +119,104 @@ test('error privacy preserves native identity, linked mechanisms and every frame
   expect(JSON.stringify(event)).not.toContain('PRIVATE_SENTINEL');
 });
 
-test('browser diagnostics preserve future SDK names, operations and measurements', () => {
+test('browser diagnostics retain native metadata and static identities while excluding private carriers', () => {
   const attributes = {
     'sentry.op': 'ui.future.vital',
-    'sentry.origin': 'auto.future.browser',
-    'sentry.pageload.span_id': 'a'.repeat(16),
     'browser.web_vital.future.value': 243,
     'browser.future.status': 'new SDK enum',
-    'browser.secret.value': 123,
-    'browser.future.id': 'native SDK ID',
     'code.function.name': 'nativeFunction',
+    'code.file.path': '/Users/PRIVATE_SENTINEL/project/renderer/assets/chunk-ABC123.js',
+    'code.filepath': 'src/UnlistedFeature.ts',
+    'browser.script.source_url':
+      'https://cdn.example.com/telemetry-work.js?private=PRIVATE_SENTINEL',
+    'browser.script.invoker_type': 'user-callback',
+    'ui.component_name': 'CustomerEditor',
+    'server.address': 'cdn.example.com',
+    'url.scheme': 'https',
+    'url.domain': 'cdn.example.com',
+    'url.future.metadata': 'native diagnostic',
+    'url.template': '/customers/$customerId',
+    'db.system.name': 'sqlite',
+    'db.operation.name': 'SELECT',
+    'db.collection.name': 'customers',
+    'db.query.method': 'all',
+    'user_agent.original': 'actual browser UA',
     'browser.web_vital.lcp.element': 'PRIVATE_SENTINEL',
-    'browser.web_vital.lcp.id': 'PRIVATE_SENTINEL',
-    'browser.web_vital.lcp.url': 'PRIVATE_SENTINEL',
     'browser.web_vital.inp.target': 'PRIVATE_SENTINEL',
-    'url.path.parameter.customerId': 'PRIVATE_SENTINEL',
-    'params.customerId': 'PRIVATE_SENTINEL',
     'browser.web_vital.cls.source.1': 'PRIVATE_SENTINEL',
-    'code.file.path': 'PRIVATE_SENTINEL',
-    'ui.component_name': 'PRIVATE_SENTINEL',
+    'browser.script.invoker': 'PRIVATE_SENTINEL',
+    'url.full': 'PRIVATE_SENTINEL',
+    'url.path.parameter.customerId': 'PRIVATE_SENTINEL',
+    'url.query': 'PRIVATE_SENTINEL',
+    'url.fragment': 'PRIVATE_SENTINEL',
+    'params.customerId': 'PRIVATE_SENTINEL',
+    'db.statement': 'PRIVATE_SENTINEL',
+    'db.query.text': 'PRIVATE_SENTINEL',
+    'db.query.parameter.1': 'PRIVATE_SENTINEL',
     email: 'PRIVATE_SENTINEL',
     'user.email': 'PRIVATE_SENTINEL',
-    'user.id': 'PRIVATE_SENTINEL',
-    'sentry.message.template': 'PRIVATE_SENTINEL',
-    'sentry.message.parameter.0': 'PRIVATE_SENTINEL',
-    'db.statement': 'PRIVATE_SENTINEL',
     stock: 'null',
-    'user_agent.original': 'PRIVATE_SENTINEL',
   };
-  const span = {name: 'Native SDK diagnostic', attributes, future_metadata: true};
-  expect(scrubBrowserSpan(span, 'actual browser UA')).toBe(span);
+  const span = {name: attributes['code.file.path'], attributes, future_metadata: true};
+  expect(scrubBrowserSpan(span)).toBe(span);
   expect(span).toEqual({
-    name: 'Native SDK diagnostic',
+    name: '/Users/[Filtered]/project/renderer/assets/chunk-ABC123.js',
     future_metadata: true,
     attributes: {
       'sentry.op': 'ui.future.vital',
-      'sentry.origin': 'auto.future.browser',
-      'sentry.pageload.span_id': 'a'.repeat(16),
       'browser.web_vital.future.value': 243,
       'browser.future.status': 'new SDK enum',
-      'browser.secret.value': 123,
-      'browser.future.id': 'native SDK ID',
       'code.function.name': 'nativeFunction',
+      'code.file.path': '/Users/[Filtered]/project/renderer/assets/chunk-ABC123.js',
+      'code.filepath': 'src/UnlistedFeature.ts',
+      'browser.script.source_url': 'https://cdn.example.com/telemetry-work.js',
+      'browser.script.invoker_type': 'user-callback',
+      'ui.component_name': 'CustomerEditor',
+      'server.address': 'cdn.example.com',
+      'url.scheme': 'https',
+      'url.domain': 'cdn.example.com',
+      'url.future.metadata': 'native diagnostic',
+      'url.template': '/customers/$customerId',
+      'db.system.name': 'sqlite',
+      'db.operation.name': 'SELECT',
+      'db.collection.name': 'customers',
+      'db.query.method': 'all',
       'user_agent.original': 'actual browser UA',
     },
   });
+  expect(JSON.stringify(span)).not.toContain('PRIVATE_SENTINEL');
   expect(
-    scrubBrowserSpan({name: '/customers_/$customerId', attributes: {}}, 'UA').name
-  ).toBe('/customers_/$customerId');
+    scrubBrowserSpan({
+      name: 'https://cdn.example.com/asset.js?private=secret',
+      attributes: {},
+    }).name
+  ).toBe('https://cdn.example.com/asset.js');
   expect(
-    scrubBrowserSpan({name: 'http://host/PRIVATE_SENTINEL', attributes: {}}, 'UA').name
+    scrubBrowserSpan({
+      name: 'PRIVATE_SENTINEL',
+      attributes: {'browser.web_vital.lcp.element': 'PRIVATE_SENTINEL'},
+    }).name
   ).toBe('[Filtered]');
-  expect(
-    scrubBrowserSpan(
-      {name: 'CustomerEditor', attributes: {'ui.component_name': 'CustomerEditor'}},
-      'UA'
-    ).name
-  ).toBe('CustomerEditor');
 });
 
-test('error privacy preserves future exception identities, graph metadata and frame fields', () => {
+test('native source maps, modules, threads and unknown absolute source paths survive', () => {
   const event = {
-    future_metadata: {enabled: true},
     debug_meta: {
       images: [
         {
           type: 'sourcemap',
-          code_file: '/PRIVATE_SENTINEL/bundle.js',
+          code_file: '/home/PRIVATE_SENTINEL/project/renderer/assets/chunk-ABC123.js',
+          debug_file:
+            'C:\\Users\\PRIVATE_SENTINEL\\project\\dist\\UnlistedFeature.js.map',
           debug_id: 'native-debug-id',
         },
       ],
     },
-    modules: {'/PRIVATE_SENTINEL/module.js': '1.0', '@sdk/module': '2.0'},
+    modules: {
+      '/Users/PRIVATE_SENTINEL/project/node_modules/other/index.js': '1.0',
+      '/opt/app/unlisted-module.js': '2.0',
+      '@sdk/module': '3.0',
+    },
     threads: {
       values: [
         {
@@ -202,42 +224,10 @@ test('error privacy preserves future exception identities, graph metadata and fr
           stacktrace: {
             frames: [
               {
-                filename: '/PRIVATE_SENTINEL/thread.js',
+                filename: '/opt/app/unlisted-thread.js',
                 function: 'nativeThread',
-                vars: {secret: 'PRIVATE_SENTINEL'},
-              },
-            ],
-          },
-        },
-      ],
-    },
-    contexts: {runtime: {name: 'future SDK runtime', future: 42}},
-    exception: {
-      values: [
-        {
-          type: 'NativeFutureError',
-          value: 'PRIVATE_SENTINEL',
-          future: 'native exception metadata',
-          mechanism: {
-            type: 'auto.future.integration',
-            exception_id: 37,
-            parent_id: 99,
-            future: 'native mechanism metadata',
-            source: 'PRIVATE_SENTINEL',
-            data: {secret: 'PRIVATE_SENTINEL'},
-          },
-          stacktrace: {
-            frames: [
-              {
-                filename: '/private/src/telemetry.ts',
-                abs_path: '/private/src/telemetry.ts',
-                function: 'nativeFunction',
-                lineno: 12,
-                colno: 7,
-                in_app: false,
                 future: true,
-                vars: {secret: 'PRIVATE_SENTINEL'},
-                pre_context: ['PRIVATE_SENTINEL'],
+                vars: {email: 'PRIVATE_SENTINEL'},
               },
             ],
           },
@@ -246,41 +236,32 @@ test('error privacy preserves future exception identities, graph metadata and fr
     },
   };
   sanitizeErrorEvent(event, 'main', 'production');
-  expect(event.future_metadata).toEqual({enabled: true});
   expect(event.debug_meta.images).toEqual([
-    {type: 'sourcemap', code_file: 'app:///external', debug_id: 'native-debug-id'},
+    {
+      type: 'sourcemap',
+      code_file: '/home/[Filtered]/project/renderer/assets/chunk-ABC123.js',
+      debug_file: 'C:/Users/[Filtered]/project/dist/UnlistedFeature.js.map',
+      debug_id: 'native-debug-id',
+    },
   ]);
-  expect(event.modules).toEqual({'@sdk/module': '2.0'});
+  expect(event.modules).toEqual({
+    '/Users/[Filtered]/project/node_modules/other/index.js': '1.0',
+    '/opt/app/unlisted-module.js': '2.0',
+    '@sdk/module': '3.0',
+  });
   expect(event.threads.values).toEqual([
     {
       id: 7,
-      stacktrace: {frames: [{filename: 'app:///external', function: 'nativeThread'}]},
+      stacktrace: {
+        frames: [
+          {
+            filename: '/opt/app/unlisted-thread.js',
+            function: 'nativeThread',
+            future: true,
+          },
+        ],
+      },
     },
   ]);
-  expect(event.contexts.runtime).toEqual({name: 'future SDK runtime', future: 42});
-  expect(event.exception.values[0]).toEqual({
-    type: 'NativeFutureError',
-    value: 'Unexpected application failure.',
-    future: 'native exception metadata',
-    mechanism: {
-      type: 'auto.future.integration',
-      exception_id: 37,
-      parent_id: 99,
-      future: 'native mechanism metadata',
-    },
-    stacktrace: {
-      frames: [
-        {
-          filename: 'app:///telemetry.js',
-          abs_path: 'app:///telemetry.js',
-          function: 'nativeFunction',
-          lineno: 12,
-          colno: 7,
-          in_app: false,
-          future: true,
-        },
-      ],
-    },
-  });
   expect(JSON.stringify(event)).not.toContain('PRIVATE_SENTINEL');
 });

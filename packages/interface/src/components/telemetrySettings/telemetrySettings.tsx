@@ -189,9 +189,9 @@ export default function TelemetrySettings({application}: {application: Applicati
       <p {...stylex.props(styles.description)}>
         Send application errors, performance traces, logs, and metrics to your Sentry
         project. Customer number, stock, balances, and donation flag supplied when
-        creating or updating a customer may be reported. Personal fields and file
-        locations are excluded. Leave the DSN blank to disable monitoring after
-        restarting.
+        creating or updating a customer may be reported. Personal fields and selected data
+        file locations are excluded. Application code locations may be reported. Leave the
+        DSN blank to disable monitoring after restarting.
       </p>
       <p {...stylex.props(styles.description)}>
         Production requires HTTPS for remote destinations. HTTP is allowed only for

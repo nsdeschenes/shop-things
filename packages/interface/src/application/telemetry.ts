@@ -28,7 +28,6 @@ export function initializeRendererTelemetry(
   reportReactError: (error: unknown, errorInfo: ErrorInfo) => void;
   instrumentRouter: (router: AnyRouter) => void;
 } {
-  const userAgent = navigator.userAgent;
   let enabled = dsn !== null;
   if (enabled) {
     try {
@@ -65,7 +64,7 @@ export function initializeRendererTelemetry(
           );
         },
         beforeSendSpan(span) {
-          scrubBrowserSpan(span, userAgent);
+          scrubBrowserSpan(span);
           span.attributes = {
             ...span.attributes,
             process: 'renderer',

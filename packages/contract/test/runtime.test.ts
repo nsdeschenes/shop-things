@@ -12,7 +12,7 @@ import {
   safeAttributes,
   shouldSampleTelemetry,
   sanitizeLogMetricPayload,
-  safeFilename,
+  scrubCodeLocation,
 } from '@shop-things/contract/monitoring';
 import {
   actions,
@@ -444,49 +444,45 @@ test('telemetry client contains rejected saves and status calls and rejects inva
   });
 });
 
-test('application stack filenames retain Electron and database frames without private paths', () => {
-  for (const name of [
-    'main',
-    'telemetry',
-    'actionService',
-    'ipc',
-    'settings',
-    'telemetrySettings',
-    'files',
-    'customerImport',
-    'importMatches',
-    'document',
-    'draftCoordinator',
-    'nativeDialogs',
-    'customerImportNumbers',
-    'ipcWire',
-    'preload',
-    'preloadBridge',
-  ]) {
-    expect(safeFilename(`/private/user/packages/electron/src/${name}.ts`)).toBe(
-      `app:///${name}.js`
-    );
-    expect(safeFilename(`C:\\private\\user\\app\\dist\\${name}.js`)).toBe(
-      `app:///${name}.js`
-    );
-  }
-
-  for (const name of ['index', 'customers', 'schema', 'relations', 'lifecycle']) {
-    expect(safeFilename(`/private/user/packages/db/src/${name}.ts`)).toBe(
-      `app:///db/${name}.js`
-    );
-    expect(
-      safeFilename(`/private/user/app.asar/node_modules/@shop-things/db/dist/${name}.js`)
-    ).toBe(`app:///db/${name}.js`);
-  }
-
-  for (const filename of [
-    '/private/user/node_modules/other/dist/index.js',
-    '/private/user/packages/db/src/private.ts',
-    '/private/user/src/document.ts?customer=private',
-    undefined,
-  ]) {
-    expect(safeFilename(filename)).toBe('app:///external');
+test('code locations redact only home usernames and URL query data', () => {
+  const cases = [
+    [
+      '/home/PRIVATE_USER/project/src/UnlistedFeature.ts',
+      '/home/[Filtered]/project/src/UnlistedFeature.ts',
+    ],
+    [
+      '/Users/PRIVATE_USER/project/renderer/assets/chunk-ABC123.js',
+      '/Users/[Filtered]/project/renderer/assets/chunk-ABC123.js',
+    ],
+    [
+      'C:\\Users\\PRIVATE_USER\\app\\dist\\preload.js',
+      'C:/Users/[Filtered]/app/dist/preload.js',
+    ],
+    [
+      'file:///home/PRIVATE_USER/project/src/CustomerEditor.tsx',
+      'file:///home/[Filtered]/project/src/CustomerEditor.tsx',
+    ],
+    [
+      'file:///C:/Users/PRIVATE_USER/app/dist/main.js?private=secret#fragment',
+      'file:///C:/Users/[Filtered]/app/dist/main.js',
+    ],
+    [
+      '/opt/app/resources/app.asar/dist/new-module.js',
+      '/opt/app/resources/app.asar/dist/new-module.js',
+    ],
+    ['src/new-module.ts', 'src/new-module.ts'],
+    ['node:internal/process/task_queues', 'node:internal/process/task_queues'],
+    [
+      'https://cdn.example.com/assets/chunk-ABC123.js',
+      'https://cdn.example.com/assets/chunk-ABC123.js',
+    ],
+    [
+      'https://cdn.example.com/telemetry-work.js?private=secret#fragment',
+      'https://cdn.example.com/telemetry-work.js',
+    ],
+  ];
+  for (const [input, expected] of cases) {
+    expect(scrubCodeLocation(input!)).toBe(expected);
   }
 });
 
@@ -751,6 +747,12 @@ test('final log and metric filtering removes private scope values and preserves 
             unit: 'millisecond',
             future: true,
           },
+          'code.file.path': {
+            type: 'string',
+            value:
+              'file:///home/PRIVATE_USER/app/src/new-module.ts?private=PRIVATE_QUERY',
+            future: true,
+          },
           email: {type: 'string', value: 'PRIVATE_EMAIL'},
           customer: {type: 'string', value: JSON.stringify(values)},
           customerNumber: {type: 'integer', value: 73021, unit: 'PRIVATE_UNIT'},
@@ -775,6 +777,11 @@ test('final log and metric filtering removes private scope values and preserves 
   sanitizeLogMetricPayload(payload, 'production', 'main');
   expect(payload.items[0]?.attributes).toEqual({
     'sdk.future.metric': {type: 'double', value: 123, unit: 'millisecond', future: true},
+    'code.file.path': {
+      type: 'string',
+      value: 'file:///home/[Filtered]/app/src/new-module.ts',
+      future: true,
+    },
     customerNumber: {type: 'integer', value: 73021},
     donate: {type: 'boolean', value: false},
     stock: {type: 'integer', value: 9},
