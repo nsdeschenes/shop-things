@@ -1,4 +1,14 @@
 # Changelog
+## 1.2.0
+
+### New Features ✨
+
+- (telemetry) Restore browser metrics and native error capture by @nsdeschenes in [#194](https://github.com/nsdeschenes/shop-things/pull/194)
+
+### Bug Fixes 🐛
+
+- (interface) Place customer number beside items in stock by @nsdeschenes in [#193](https://github.com/nsdeschenes/shop-things/pull/193)
+
 ## 1.1.0
 
 ### New Features ✨
