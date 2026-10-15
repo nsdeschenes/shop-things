@@ -71,6 +71,7 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
             ? {
                 ...log,
                 attributes: {
+                  ...log.attributes,
                   ...safeSignalAttributes({
                     ...actionContext.getStore(),
                     ...log.attributes,
@@ -86,6 +87,7 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
             ? {
                 ...metric,
                 attributes: {
+                  ...metric.attributes,
                   ...safeSignalAttributes({
                     ...actionContext.getStore(),
                     ...metric.attributes,
@@ -110,7 +112,7 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
           if (header.type === 'span') {
             querySpans.sanitizeEnvelope(payload);
           } else if (header.type === 'log' || header.type === 'trace_metric') {
-            sanitizeLogMetricPayload(payload, settings.environment);
+            sanitizeLogMetricPayload(payload, settings.environment, 'main');
           }
         }
       });

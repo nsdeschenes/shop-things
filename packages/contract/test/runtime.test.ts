@@ -739,12 +739,18 @@ test('client observations project validated customer arguments without exposing 
   ).toBe(true);
 });
 
-test('final log and metric filtering removes late scope attributes and typed metadata while preserving safe values', () => {
+test('final log and metric filtering removes private scope values and preserves native SDK metadata', () => {
   const payload = {
     items: [
       {
         attributes: {
           firstName: {type: 'string', value: 'PRIVATE_FIRST'},
+          'sdk.future.metric': {
+            type: 'double',
+            value: 123,
+            unit: 'millisecond',
+            future: true,
+          },
           email: {type: 'string', value: 'PRIVATE_EMAIL'},
           customer: {type: 'string', value: JSON.stringify(values)},
           customerNumber: {type: 'integer', value: 73021, unit: 'PRIVATE_UNIT'},
@@ -766,8 +772,9 @@ test('final log and metric filtering removes late scope attributes and typed met
       },
     ],
   };
-  sanitizeLogMetricPayload(payload, 'production');
+  sanitizeLogMetricPayload(payload, 'production', 'main');
   expect(payload.items[0]?.attributes).toEqual({
+    'sdk.future.metric': {type: 'double', value: 123, unit: 'millisecond', future: true},
     customerNumber: {type: 'integer', value: 73021},
     donate: {type: 'boolean', value: false},
     stock: {type: 'integer', value: 9},
@@ -777,6 +784,7 @@ test('final log and metric filtering removes late scope attributes and typed met
     'sentry.trace.parent_span_id': {type: 'string', value: '0123456789abcdef'},
     'sentry.timestamp.sequence': {type: 'integer', value: 4},
     'sentry.environment': {type: 'string', value: 'production'},
+    process: {type: 'string', value: 'main'},
     'sentry.message.template': {type: 'string', value: 'Application action %s completed'},
     'sentry.message.parameter.0': {type: 'string', value: 'customers.get'},
   });
@@ -793,12 +801,27 @@ test('final log and metric filtering removes late scope attributes and typed met
       },
     ],
   };
-  sanitizeLogMetricPayload(malformed, 'development');
+  sanitizeLogMetricPayload(malformed, 'development', 'renderer');
   expect(malformed).toEqual({
     items: [
-      {attributes: {'sentry.environment': {type: 'string', value: 'development'}}},
-      {attributes: {'sentry.environment': {type: 'string', value: 'development'}}},
-      {attributes: {'sentry.environment': {type: 'string', value: 'development'}}},
+      {
+        attributes: {
+          'sentry.environment': {type: 'string', value: 'development'},
+          process: {type: 'string', value: 'renderer'},
+        },
+      },
+      {
+        attributes: {
+          'sentry.environment': {type: 'string', value: 'development'},
+          process: {type: 'string', value: 'renderer'},
+        },
+      },
+      {
+        attributes: {
+          'sentry.environment': {type: 'string', value: 'development'},
+          process: {type: 'string', value: 'renderer'},
+        },
+      },
     ],
   });
 });

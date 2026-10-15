@@ -3,6 +3,7 @@ import {createServer} from 'node:http';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {createGunzip} from 'node:zlib';
 
 import {expect, test} from '@playwright/test';
 
@@ -54,11 +55,15 @@ test('production monitoring activates only on cold restart and delivers private 
     }
 
     let body = '';
-    request.setEncoding('utf8');
-    request.on('data', chunk => {
+    const bodyStream =
+      request.headers['content-encoding'] === 'gzip'
+        ? request.pipe(createGunzip())
+        : request;
+    bodyStream.setEncoding('utf8');
+    bodyStream.on('data', chunk => {
       body += chunk;
     });
-    request.on('end', () => {
+    bodyStream.on('end', () => {
       envelopes.push(body);
       destinations.push(request.url ?? '');
       response.end('{}');
@@ -512,9 +517,9 @@ test('production monitoring activates only on cold restart and delivers private 
     expect(nativeTransport.utilityForkUnchanged).toBe(true);
 
     for (const route of [
-      '/customers/$customerId',
-      '/customers/new',
-      '/customers/import',
+      '/customers_/$customerId',
+      '/customers_/new',
+      '/customers_/import',
     ]) {
       await expect
         .poll(
@@ -1424,11 +1429,15 @@ test('packaged mode labels every signal from both processes as production', asyn
     response.setHeader('Access-Control-Allow-Origin', '*');
     response.setHeader('Access-Control-Allow-Headers', '*');
     let body = '';
-    request.setEncoding('utf8');
-    request.on('data', chunk => {
+    const bodyStream =
+      request.headers['content-encoding'] === 'gzip'
+        ? request.pipe(createGunzip())
+        : request;
+    bodyStream.setEncoding('utf8');
+    bodyStream.on('data', chunk => {
       body += chunk;
     });
-    request.on('end', () => {
+    bodyStream.on('end', () => {
       if (request.method !== 'OPTIONS') {
         envelopes.push(body);
       }
@@ -1660,11 +1669,15 @@ test('native browser diagnostics and error capture retain SDK fidelity without p
     }
 
     let body = '';
-    request.setEncoding('utf8');
-    request.on('data', chunk => {
+    const bodyStream =
+      request.headers['content-encoding'] === 'gzip'
+        ? request.pipe(createGunzip())
+        : request;
+    bodyStream.setEncoding('utf8');
+    bodyStream.on('data', chunk => {
       body += chunk;
     });
-    request.on('end', () => {
+    bodyStream.on('end', () => {
       if (request.method !== 'OPTIONS') {
         envelopes.push(body);
       }
@@ -1871,7 +1884,17 @@ test('native browser diagnostics and error capture retain SDK fidelity without p
     }
 
     expect(linked.exception.values[1].stacktrace.frames.length).toBeGreaterThan(1);
+    expect(
+      events.some(event =>
+        event.exception.values.some(exception =>
+          exception.stacktrace?.frames?.some(frame => frame.function === 'CustomerEditor')
+        )
+      )
+    ).toBe(true);
     const spans = signals('span');
+    expect(
+      spans.some(span => span.attributes?.['browser.secret.value']?.value === 123)
+    ).toBe(true);
     for (const vital of ['cls', 'lcp', 'inp']) {
       const span = spans.find(
         span => Number(span.attributes?.[`browser.web_vital.${vital}.value`]?.value) > 0
@@ -1912,7 +1935,7 @@ test('native browser diagnostics and error capture retain SDK fidelity without p
     expect(
       spans.some(
         span =>
-          span.name === 'Resource img' &&
+          String(span.attributes?.['sentry.op']?.value).startsWith('resource.') &&
           Number.isFinite(span.attributes?.['http.request.response_end']?.value)
       )
     ).toBe(true);

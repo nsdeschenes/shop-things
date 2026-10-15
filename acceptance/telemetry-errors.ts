@@ -71,7 +71,7 @@ export function captureFailures(dsn: string) {
   );
   const cancelled = Sentry.captureException(new CancelledError());
   monitoring.reportReactError(new SyntaxError('PRIVATE_SENTINEL_react'), {
-    componentStack: '\n    at PRIVATE_SENTINEL_component (/PRIVATE_SENTINEL_path:1:2)',
+    componentStack: '\n    at CustomerEditor (/PRIVATE_SENTINEL_path:1:2)',
   });
   setTimeout(() => {
     throw new URIError('PRIVATE_SENTINEL_global');

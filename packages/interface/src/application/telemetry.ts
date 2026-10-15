@@ -6,8 +6,7 @@ import {
   safeAttributes,
   safeSignalAttributes,
   sanitizeErrorEvent,
-  safeBrowserAttributes,
-  safeBrowserSpanName,
+  scrubBrowserSpan,
   signalNames,
   logMessages,
   shouldSampleTelemetry,
@@ -66,9 +65,9 @@ export function initializeRendererTelemetry(
           );
         },
         beforeSendSpan(span) {
-          span.name = safeBrowserSpanName(span.attributes['sentry.op'], span.name);
+          scrubBrowserSpan(span, userAgent);
           span.attributes = {
-            ...safeBrowserAttributes(span.attributes, userAgent),
+            ...span.attributes,
             process: 'renderer',
             'sentry.environment': environment,
           };
@@ -80,6 +79,7 @@ export function initializeRendererTelemetry(
             ? {
                 ...log,
                 attributes: {
+                  ...log.attributes,
                   ...safeSignalAttributes(log.attributes),
                   process: 'renderer',
                 },
@@ -91,6 +91,7 @@ export function initializeRendererTelemetry(
             ? {
                 ...metric,
                 attributes: {
+                  ...metric.attributes,
                   ...safeSignalAttributes(metric.attributes),
                   process: 'renderer',
                 },
@@ -105,7 +106,7 @@ export function initializeRendererTelemetry(
       Sentry.getClient()?.on('beforeEnvelope', ([, items]) => {
         for (const [header, payload] of items) {
           if (header.type === 'log' || header.type === 'trace_metric') {
-            sanitizeLogMetricPayload(payload, environment);
+            sanitizeLogMetricPayload(payload, environment, 'renderer');
           }
         }
       });
