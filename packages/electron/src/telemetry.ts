@@ -1,15 +1,17 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
 
 import * as Sentry from '@sentry/electron/main';
-import {init as initializeTelemetry} from '@sentry/node';
+import {
+  init as initializeTelemetry,
+  dedupeIntegration,
+  linkedErrorsIntegration,
+} from '@sentry/node';
 import type {ActionName} from '@shop-things/contract';
 import {
   dataCollection,
-  safeTrace,
   safeAttributes,
   safeSignalAttributes,
-  safeErrorType,
-  safeFilename,
+  sanitizeErrorEvent,
   signalNames,
   logMessages,
   shouldSampleTelemetry,
@@ -21,7 +23,6 @@ import {FileTelemetrySettings} from './telemetrySettings.js';
 
 export function createMainTelemetry(settings: FileTelemetrySettings, release: string) {
   let enabled = settings.startupDsn !== null;
-  const captured = new WeakSet<object>();
   const actionContext = new AsyncLocalStorage<
     Record<string, string | number | boolean>
   >();
@@ -45,6 +46,8 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
         integrations: [
           Sentry.onUncaughtExceptionIntegration(),
           Sentry.onUnhandledRejectionIntegration(),
+          dedupeIntegration(),
+          linkedErrorsIntegration(),
         ],
         dataCollection: {...dataCollection, httpBodies: []},
         includeServerName: false,
@@ -54,41 +57,12 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
         tracesSampleRate: settings.startupSampling.traces / 100,
         tracePropagationTargets: [],
         beforeSend(event, hint) {
-          // Capture hints stay separate from SDK scope extra and tags.
-          const attributes = safeAttributes(hint.data?.actionAttributes);
-          return {
-            type: undefined,
-            sdk: {settings: {infer_ip: 'never' as const}},
-            event_id: event.event_id ?? '',
-            timestamp: event.timestamp ?? Date.now() / 1000,
-            level: event.level ?? 'error',
-            contexts: safeTrace(event.contexts?.trace),
-            platform: 'node',
-            release,
-            environment: settings.environment,
-            tags: {...attributes, process: 'main'},
-            extra: attributes,
-            exception: {
-              values:
-                event.exception?.values?.slice(-1).map(exception => ({
-                  mechanism: {
-                    type: 'generic',
-                    handled: exception.mechanism?.handled ?? true,
-                  },
-                  type: safeErrorType(exception.type),
-                  value: 'Unexpected application failure.',
-                  stacktrace: {
-                    frames:
-                      exception.stacktrace?.frames?.slice(-30).map(frame => ({
-                        filename: safeFilename(frame.filename),
-                        lineno: frame.lineno ?? 0,
-                        colno: frame.colno ?? 0,
-                        in_app: safeFilename(frame.filename) !== 'app:///external',
-                      })) ?? [],
-                  },
-                })) ?? [],
-            },
-          };
+          return sanitizeErrorEvent(
+            event,
+            'main',
+            settings.environment,
+            hint.data?.actionAttributes
+          );
         },
         beforeSendSpan: querySpans.project,
         beforeSendLog(log) {
@@ -97,6 +71,7 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
             ? {
                 ...log,
                 attributes: {
+                  ...log.attributes,
                   ...safeSignalAttributes({
                     ...actionContext.getStore(),
                     ...log.attributes,
@@ -112,6 +87,7 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
             ? {
                 ...metric,
                 attributes: {
+                  ...metric.attributes,
                   ...safeSignalAttributes({
                     ...actionContext.getStore(),
                     ...metric.attributes,
@@ -136,7 +112,7 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
           if (header.type === 'span') {
             querySpans.sanitizeEnvelope(payload);
           } else if (header.type === 'log' || header.type === 'trace_metric') {
-            sanitizeLogMetricPayload(payload, settings.environment);
+            sanitizeLogMetricPayload(payload, settings.environment, 'main');
           }
         }
       });
@@ -151,14 +127,6 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
     }
 
     try {
-      if (typeof error === 'object' && error !== null) {
-        if (captured.has(error)) {
-          return;
-        }
-
-        captured.add(error);
-      }
-
       const span = Sentry.getActiveSpan();
       Sentry.captureException(error, {
         data: {

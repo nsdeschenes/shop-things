@@ -35,24 +35,15 @@ const operationNames = new Set([
   '/customers/import',
   '/customers/new',
 ]);
-const errorTypes = new Set([
-  'Error',
-  'TypeError',
-  'RangeError',
-  'SyntaxError',
-  'ReferenceError',
-  'URIError',
-  'EvalError',
-  'DatabaseError',
-]);
-const appFiles =
-  /\/(?:src|dist)\/(main|telemetry|actionService|ipc|settings|telemetrySettings|files|customerImport|importMatches|document|draftCoordinator|nativeDialogs|customerImportNumbers|ipcWire|preload|preloadBridge)\.(?:js|ts)$/;
-const databaseFiles =
-  /\/(?:packages\/db|node_modules\/@shop-things\/db)\/(?:src|dist)\/(index|customers|schema|relations|lifecycle)\.(?:js|ts)$/;
-const traceId = /^[a-f0-9]{32}$/;
 const spanId = /^[a-f0-9]{16}$/;
-const rendererFile = /\/renderer\/assets\/[^/?#]+\.js$/;
 const actionLogTemplate = 'Application action %s completed';
+const homeUsername =
+  /^((?:file:\/\/)?(?:\/(?:home|Users)\/|\/?[A-Za-z]:\/Users\/))[^/]+(?=\/|$)/i;
+const codeUrl = /^(?:https?|file|blob):/i;
+const urlQueryFragment = /[?#].*$/;
+const privateUrlAttribute = /^url\.(?:full|path|query|fragment)(?:\.|$)/;
+const privateVitalAttribute =
+  /^(?:browser\.web_vital\.[^.]+|lcp)\.(?:url|element|selector|target|id|source(?:\..*)?)$/;
 
 export const dataCollection = {
   userInfo: false,
@@ -188,10 +179,6 @@ export function customerArgumentAttributes(action: ActionName, args: unknown) {
   return safeAttributes(attributes);
 }
 
-export function safeErrorType(value: unknown) {
-  return typeof value === 'string' && errorTypes.has(value) ? value : 'Error';
-}
-
 export function safeSignalAttributes(attributes: Record<string, unknown> = {}) {
   // Explicit placeholders block SDK scope values for omitted customer fields.
   // Span and final envelope filters reject these invalid domain values.
@@ -205,27 +192,10 @@ export function safeSignalAttributes(attributes: Record<string, unknown> = {}) {
   };
 }
 
-export function safeFilename(value: unknown): string {
-  if (typeof value !== 'string') {
-    return 'app:///external';
-  }
-
+export function scrubCodeLocation(value: string): string {
   const normalized = value.replaceAll('\\', '/');
-  const match = normalized.match(appFiles);
-  if (match) {
-    return `app:///${match[1]}.js`;
-  }
-
-  const databaseMatch = normalized.match(databaseFiles);
-  if (databaseMatch) {
-    return `app:///db/${databaseMatch[1]}.js`;
-  }
-
-  if (rendererFile.test(normalized)) {
-    return 'app:///renderer.js';
-  }
-
-  return 'app:///external';
+  const redacted = normalized.replace(homeUsername, '$1[Filtered]');
+  return codeUrl.test(redacted) ? redacted.replace(urlQueryFragment, '') : redacted;
 }
 
 export const signalNames = new Set([
@@ -237,14 +207,206 @@ export const logMessages = new Set([
   'Application lifecycle completed',
 ]);
 
-export function safeTrace(trace: {trace_id?: unknown; span_id?: unknown} | undefined) {
-  return trace &&
-    typeof trace.trace_id === 'string' &&
-    traceId.test(trace.trace_id) &&
-    typeof trace.span_id === 'string' &&
-    spanId.test(trace.span_id)
-    ? {trace: {trace_id: trace.trace_id, span_id: trace.span_id}}
-    : {};
+interface Stacktrace {
+  frames?: {filename?: string; abs_path?: string}[];
+}
+
+interface ErrorEvent {
+  sdk?: {settings?: {infer_ip?: 'auto' | 'never'}};
+  environment?: string;
+  tags?: Record<string, unknown>;
+  extra?: Record<string, unknown>;
+  contexts?: Record<string, unknown>;
+  debug_meta?: {images?: object[]};
+  modules?: Record<string, string>;
+  threads?: {values?: {stacktrace?: Stacktrace}[]};
+  exception?: {
+    values?: {
+      value?: string;
+      mechanism?: object;
+      stacktrace?: Stacktrace;
+    }[];
+  };
+}
+
+function scrubStacktrace(stacktrace: Stacktrace | undefined): void {
+  for (const frame of stacktrace?.frames ?? []) {
+    if (frame.filename !== undefined) {
+      frame.filename = scrubCodeLocation(frame.filename);
+    }
+
+    if (frame.abs_path !== undefined) {
+      frame.abs_path = scrubCodeLocation(frame.abs_path);
+    }
+
+    Reflect.deleteProperty(frame, 'vars');
+  }
+}
+
+export function sanitizeErrorEvent<T extends ErrorEvent>(
+  event: T,
+  process: 'main' | 'renderer',
+  environment: TelemetryEnvironment,
+  attributes: Record<string, unknown> = {}
+): T {
+  for (const key of ['user', 'request', 'message', 'logentry']) {
+    Reflect.deleteProperty(event, key);
+  }
+
+  event.sdk = {...event.sdk, settings: {...event.sdk?.settings, infer_ip: 'never'}};
+  event.environment = environment;
+  for (const field of ['extra', 'tags'] as const) {
+    const values: Record<string, unknown> = {
+      ...event[field],
+      ...safeSignalAttributes(attributes),
+    };
+    scrubPrivateAttributes(values);
+    if ('process' in values || field === 'tags') {
+      values.process = process;
+    }
+
+    if ('sentry.environment' in values) {
+      values['sentry.environment'] = environment;
+    }
+
+    event[field] = values;
+  }
+
+  for (const [name, context] of Object.entries(event.contexts ?? {})) {
+    if (name === 'customer' || name === 'user' || name === 'request') {
+      delete event.contexts?.[name];
+    } else if (typeof context === 'object' && context !== null) {
+      scrubPrivateAttributes(context as Record<string, unknown>);
+      if (
+        name === 'trace' &&
+        'data' in context &&
+        typeof context.data === 'object' &&
+        context.data !== null
+      ) {
+        scrubPrivateAttributes(context.data as Record<string, unknown>);
+      }
+    }
+  }
+
+  for (const exception of event.exception?.values ?? []) {
+    exception.value = 'Unexpected application failure.';
+    scrubStacktrace(exception.stacktrace);
+  }
+
+  for (const thread of event.threads?.values ?? []) {
+    scrubStacktrace(thread.stacktrace);
+  }
+
+  for (const image of event.debug_meta?.images ?? []) {
+    for (const key of ['code_file', 'debug_file']) {
+      const value = Reflect.get(image, key);
+      if (typeof value === 'string') {
+        Reflect.set(image, key, scrubCodeLocation(value));
+      }
+    }
+  }
+
+  for (const name of Object.keys(event.modules ?? {})) {
+    const redacted = scrubCodeLocation(name);
+    if (event.modules && redacted !== name) {
+      event.modules[redacted] = event.modules[name]!;
+      delete event.modules[name];
+    }
+  }
+
+  return event;
+}
+
+const privateAttributes = new Set([
+  'firstName',
+  'lastName',
+  'address',
+  'city',
+  'province',
+  'postalCode',
+  'phone',
+  'email',
+  'comments',
+  'id',
+  'customer',
+  'arguments',
+  'result',
+  'query',
+  'queryKey',
+  'dsn',
+  'path',
+  'filename',
+  'abs_path',
+  'http.url',
+  'http.target',
+  'http.request.url',
+  'browser.script.invoker',
+  'db.query.text',
+  'db.statement',
+]);
+const customerAttributeNames = [
+  'customerNumber',
+  'stock',
+  'previousBalance',
+  'balance',
+  'donate',
+] as const;
+
+export function scrubPrivateAttributes(attributes: Record<string, unknown>): void {
+  for (const key of Object.keys(attributes)) {
+    if (
+      privateAttributes.has(key) ||
+      key.startsWith('user.') ||
+      key.startsWith('params.') ||
+      key.startsWith('db.query.parameter.') ||
+      privateUrlAttribute.test(key) ||
+      privateVitalAttribute.test(key) ||
+      key.startsWith('ui.element.')
+    ) {
+      delete attributes[key];
+    }
+
+    if (
+      ['code.file.path', 'code.filepath', 'browser.script.source_url'].includes(key) &&
+      typeof attributes[key] === 'string'
+    ) {
+      attributes[key] = scrubCodeLocation(attributes[key]);
+    }
+
+    if (
+      (key === 'sentry.message.template' ||
+        key.startsWith('sentry.message.parameter.')) &&
+      !(key in safeAttributes({[key]: attributes[key]}))
+    ) {
+      delete attributes[key];
+    }
+  }
+
+  for (const key of customerAttributeNames) {
+    if (
+      key in attributes &&
+      !customerSchema.shape[key].safeParse(attributes[key]).success
+    ) {
+      delete attributes[key];
+    }
+  }
+}
+
+export function scrubBrowserSpan<
+  T extends {name: string; attributes: Record<string, unknown>},
+>(span: T): T {
+  if (
+    span.name === span.attributes['browser.web_vital.lcp.element'] ||
+    span.name === span.attributes['browser.web_vital.inp.target']
+  ) {
+    span.name = '[Filtered]';
+  } else {
+    span.name = scrubCodeLocation(span.name);
+  }
+
+  scrubPrivateAttributes(span.attributes);
+
+  return span;
 }
 
 export function shouldSampleTelemetry(percentage: number, random = Math.random): boolean {
@@ -253,7 +415,8 @@ export function shouldSampleTelemetry(percentage: number, random = Math.random):
 
 export function sanitizeLogMetricPayload(
   payload: unknown,
-  environment: TelemetryEnvironment
+  environment: TelemetryEnvironment,
+  process: 'main' | 'renderer'
 ): void {
   if (
     typeof payload !== 'object' ||
@@ -279,19 +442,27 @@ export function sanitizeLogMetricPayload(
       }
     }
 
+    scrubPrivateAttributes(raw);
+
     item.attributes = Object.fromEntries(
-      Object.entries({...safeAttributes(raw), 'sentry.environment': environment}).map(
+      Object.entries({...raw, process, 'sentry.environment': environment}).map(
         ([key, value]) => [
           key,
-          {
-            type:
-              typeof value === 'number'
-                ? Number.isInteger(value)
-                  ? 'integer'
-                  : 'double'
-                : typeof value,
-            value,
-          },
+          !customerAttributeNames.some(name => name === key) &&
+          key !== 'sentry.environment' &&
+          key !== 'process' &&
+          typeof item.attributes === 'object' &&
+          item.attributes !== null
+            ? {...Reflect.get(item.attributes, key), value}
+            : {
+                type:
+                  typeof value === 'number'
+                    ? Number.isInteger(value)
+                      ? 'integer'
+                      : 'double'
+                    : typeof value,
+                value,
+              },
         ]
       )
     );
