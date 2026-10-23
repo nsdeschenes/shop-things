@@ -1,58 +1,27 @@
-import {isAbsolute} from 'node:path';
+import {promiseAdapter} from './compatibility.js';
+import * as operations from './effect.js';
 
-import {Database} from '@tursodatabase/database';
-import {drizzle} from 'drizzle-orm/tursodatabase/database';
-import {migrate} from 'drizzle-orm/tursodatabase/migrator';
-
-import {observeQueries} from './queryObserver.js';
-import type {QueryObserver} from './queryTelemetry.js';
-import {relations} from './relations.js';
-import * as schema from './schema.js';
-
-function createTypedDatabase(client: Database) {
-  return drizzle({client, relations});
-}
-
-export {relations, schema};
-
-export type AppDatabase = ReturnType<typeof createTypedDatabase>;
-
-export interface DatabaseHandle {
-  db: AppDatabase;
-  close(): void;
-}
-
-export interface OpenDatabaseOptions {
-  queryObserver?: QueryObserver;
-}
-
-export function openDatabase(
-  databaseFilePath: string,
-  options: OpenDatabaseOptions = {}
-): DatabaseHandle {
-  const client = new Database(databaseFilePath);
-  const observed = options.queryObserver
-    ? observeQueries(client, options.queryObserver)
-    : client;
-
-  return {
-    db: createTypedDatabase(observed),
-    close: () => client.close(),
-  };
-}
-
-export async function runMigrations(
-  db: AppDatabase,
-  {migrationsFolder}: {migrationsFolder: string}
-): Promise<void> {
-  if (!isAbsolute(migrationsFolder)) {
-    throw new Error('migrationsFolder must be an absolute path');
-  }
-
-  await migrate(db, {migrationsFolder});
-}
-
-export * from './customers.js';
-export * from './lifecycle.js';
-
+export {openDatabase} from './database.js';
+export type {AppDatabase, DatabaseHandle, OpenDatabaseOptions} from './database.js';
+export {DatabaseError} from './failure.js';
+export type {
+  CustomerValues,
+  CustomerChanges,
+  CustomerData,
+  CustomerRevision,
+} from './customers.js';
+export {relations} from './relations.js';
+export * as schema from './schema.js';
 export * from './queryTelemetry.js';
+
+export const runMigrations = promiseAdapter(operations.runMigrations);
+export const recognizeDatabase = promiseAdapter(operations.recognizeDatabase);
+export const openExistingDatabase = promiseAdapter(operations.openExistingDatabase);
+export const createDatabase = promiseAdapter(operations.createDatabase);
+export const backupDatabase = promiseAdapter(operations.backupDatabase);
+export const listCustomers = promiseAdapter(operations.listCustomers);
+export const getCustomer = promiseAdapter(operations.getCustomer);
+export const createCustomer = promiseAdapter(operations.createCustomer);
+export const importCustomerBatch = promiseAdapter(operations.importCustomerBatch);
+export const updateCustomer = promiseAdapter(operations.updateCustomer);
+export const deleteCustomer = promiseAdapter(operations.deleteCustomer);

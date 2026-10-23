@@ -1,16 +1,11 @@
 import {and, eq, sql} from 'drizzle-orm';
+import {Effect} from 'effect';
 
-import type {AppDatabase} from './index.js';
+import type {AppDatabase} from './database.js';
+import {attempt, DatabaseError, DatabaseNativeError, native} from './failure.js';
+import type {DatabaseFailure} from './failure.js';
 import {customers} from './schema.js';
-
-export class DatabaseError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string
-  ) {
-    super(message);
-  }
-}
+import {transaction} from './transaction.js';
 
 const textFields = [
   'firstName',
@@ -182,234 +177,270 @@ function verifyMoney(row: Row, values: CustomerValues) {
   }
 }
 
-function translateError(error: unknown): never {
+function translateError(error: DatabaseFailure): DatabaseFailure {
+  const original = error instanceof DatabaseNativeError ? error.cause : error;
   if (
-    (String(error) + (error instanceof Error ? String(error.cause) : '')).includes(
-      'UNIQUE constraint failed: customers.customerNumber'
-    )
+    (
+      String(original) + (original instanceof Error ? String(original.cause) : '')
+    ).includes('UNIQUE constraint failed: customers.customerNumber')
   ) {
-    throw new DatabaseError(
+    return new DatabaseError(
       'CUSTOMER_NUMBER_CONFLICT',
       'Customer number is already assigned'
     );
   }
 
-  throw error;
+  return error;
 }
 
-export async function listCustomers(
+export function listCustomers(
   db: AppDatabase,
   query = ''
-): Promise<CustomerData[]> {
-  const needle = query.trim();
-  // Turso REGEXP uses Unicode case folding; escape literal input before binding it.
-  const pattern = '(?i)' + needle.replace(regexMetacharacters, '\\$&');
-  const number =
-    customerNumberPattern.test(needle) && Number.isSafeInteger(Number(needle))
-      ? Number(needle)
-      : -1;
-  const rows = await db
-    .select()
-    .from(customers)
-    .where(
-      needle
-        ? sql`coalesce(${customers.firstName}, '') regexp ${pattern} or coalesce(${customers.lastName}, '') regexp ${pattern} or ${customers.customerNumber} = ${number}`
-        : undefined
-    )
-    .orderBy(customers.customerNumber, customers.id);
-  return rows.map(normalize);
+): Effect.Effect<CustomerData[], DatabaseFailure> {
+  return Effect.gen(function* () {
+    const needle = query.trim();
+    // Turso REGEXP uses Unicode case folding; escape literal input before binding it.
+    const pattern = '(?i)' + needle.replace(regexMetacharacters, '\\$&');
+    const number =
+      customerNumberPattern.test(needle) && Number.isSafeInteger(Number(needle))
+        ? Number(needle)
+        : -1;
+    const rows = yield* native(() =>
+      db
+        .select()
+        .from(customers)
+        .where(
+          needle
+            ? sql`coalesce(${customers.firstName}, '') regexp ${pattern} or coalesce(${customers.lastName}, '') regexp ${pattern} or ${customers.customerNumber} = ${number}`
+            : undefined
+        )
+        .orderBy(customers.customerNumber, customers.id)
+    );
+    return rows.map(normalize);
+  });
 }
 
-export async function getCustomer(
+export function getCustomer(
   db: AppDatabase,
   id: number
-): Promise<CustomerData | null> {
-  const [row] = await db.select().from(customers).where(eq(customers.id, id));
-  return row ? normalize(row) : null;
+): Effect.Effect<CustomerData | null, DatabaseFailure> {
+  return Effect.gen(function* () {
+    const [row] = yield* native(() =>
+      db.select().from(customers).where(eq(customers.id, id))
+    );
+    return row ? normalize(row) : null;
+  });
 }
 
-export async function createCustomer(
+export function createCustomer(
   db: AppDatabase,
   values: CustomerValues
-): Promise<CustomerData> {
-  const parsed = validate(values, true);
-  requireName(values);
-  try {
-    return await db.transaction(async tx => {
-      const [row] = await tx
-        .insert(customers)
-        .values({
-          firstName: '',
-          lastName: '',
-          address: '',
-          city: '',
-          province: '',
-          postalCode: '',
-          phone: '',
-          email: '',
-          comments: '',
-          stock: 0,
-          balance: 0,
-          previousBalance: 0,
-          donate: false,
-          ...parsed,
-          customerNumber: sql`(select min(candidate) from (select 1 as candidate union all select customerNumber + 1 from customers where customerNumber >= 1) where candidate not in (select customerNumber from customers where customerNumber is not null))`,
-        })
-        .returning();
-      if (!row) {
-        throw new Error('Customer insert returned no row');
-      }
+): Effect.Effect<CustomerData, DatabaseFailure> {
+  return Effect.gen(function* () {
+    const parsed = yield* attempt(() => validate(values, true));
+    yield* attempt(() => requireName(values));
+    return yield* transaction(
+      db,
+      Effect.gen(function* () {
+        const [row] = yield* native(() =>
+          db
+            .insert(customers)
+            .values({
+              firstName: '',
+              lastName: '',
+              address: '',
+              city: '',
+              province: '',
+              postalCode: '',
+              phone: '',
+              email: '',
+              comments: '',
+              stock: 0,
+              balance: 0,
+              previousBalance: 0,
+              donate: false,
+              ...parsed,
+              customerNumber: sql`(select min(candidate) from (select 1 as candidate union all select customerNumber + 1 from customers where customerNumber >= 1) where candidate not in (select customerNumber from customers where customerNumber is not null))`,
+            })
+            .returning()
+        );
+        if (!row) {
+          return yield* attempt(() => {
+            throw new Error('Customer insert returned no row');
+          });
+        }
 
-      const [stored] = await tx.select().from(customers).where(eq(customers.id, row.id));
-      if (!stored) {
-        throw new Error('Customer insert was not persisted');
-      }
+        const [stored] = yield* native(() =>
+          db.select().from(customers).where(eq(customers.id, row.id))
+        );
+        if (!stored) {
+          return yield* attempt(() => {
+            throw new Error('Customer insert was not persisted');
+          });
+        }
 
-      verifyMoney(stored, values);
-      return normalize(stored);
-    });
-  } catch (error) {
-    return translateError(error);
-  }
+        yield* attempt(() => verifyMoney(stored, values));
+        return normalize(stored);
+      })
+    ).pipe(Effect.mapError(translateError));
+  });
 }
 
-// The callback plans from the same locked snapshot used by every insertion.
-// Native dialogs must finish before entering this transaction.
-export async function importCustomerBatch(
+export function importCustomerBatch(
   db: AppDatabase,
   plan: (saved: CustomerData[]) => CustomerChanges[] | null
-): Promise<CustomerData[] | null> {
-  let began = false;
-  try {
-    // The installed Drizzle adapter ignores transaction behavior configuration.
-    await db.run('BEGIN IMMEDIATE');
-    began = true;
-    const values = plan(await listCustomers(db));
-    if (values === null) {
-      await db.run('ROLLBACK');
-      began = false;
-      return null;
-    }
-
-    const added: CustomerData[] = [];
-    for (const value of values) {
-      const parsed = validate(value, false);
-      requireName(value);
-      if (value.customerNumber === undefined) {
-        throw new DatabaseError('VALIDATION', 'An import customer number is required');
+): Effect.Effect<CustomerData[] | null, DatabaseFailure> {
+  return transaction(
+    db,
+    Effect.gen(function* () {
+      const saved = yield* listCustomers(db);
+      const values = yield* attempt(() => plan(saved));
+      if (values === null) {
+        return null;
       }
 
-      const [row] = await db
-        .insert(customers)
-        .values({
-          firstName: '',
-          lastName: '',
-          address: '',
-          city: '',
-          province: '',
-          postalCode: '',
-          phone: '',
-          email: '',
-          comments: '',
-          stock: 0,
-          balance: 0,
-          previousBalance: 0,
-          donate: false,
-          ...parsed,
-          customerNumber: value.customerNumber,
-        })
-        .returning();
-      if (!row) {
-        throw new Error('Customer import returned no row');
+      const added: CustomerData[] = [];
+      for (const value of values) {
+        const parsed = yield* attempt(() => validate(value, false));
+        yield* attempt(() => requireName(value));
+        if (value.customerNumber === undefined) {
+          return yield* Effect.fail(
+            new DatabaseError('VALIDATION', 'An import customer number is required')
+          );
+        }
+
+        const customerNumber = value.customerNumber;
+        const [row] = yield* native(() =>
+          db
+            .insert(customers)
+            .values({
+              firstName: '',
+              lastName: '',
+              address: '',
+              city: '',
+              province: '',
+              postalCode: '',
+              phone: '',
+              email: '',
+              comments: '',
+              stock: 0,
+              balance: 0,
+              previousBalance: 0,
+              donate: false,
+              ...parsed,
+              customerNumber,
+            })
+            .returning()
+        );
+        if (!row) {
+          return yield* attempt(() => {
+            throw new Error('Customer import returned no row');
+          });
+        }
+
+        const [stored] = yield* native(() =>
+          db.select().from(customers).where(eq(customers.id, row.id))
+        );
+        if (!stored) {
+          return yield* attempt(() => {
+            throw new Error('Imported customer was not persisted');
+          });
+        }
+
+        yield* attempt(() => verifyMoney(stored, value));
+        added.push(normalize(stored));
       }
 
-      const [stored] = await db.select().from(customers).where(eq(customers.id, row.id));
-      if (!stored) {
-        throw new Error('Imported customer was not persisted');
-      }
-
-      verifyMoney(stored, value);
-      added.push(normalize(stored));
+      return added;
+    }),
+    {
+      begin: 'BEGIN IMMEDIATE',
+      rollbackResult: result => result === null,
+      retryRollbackFailure: true,
     }
-
-    await db.run('COMMIT');
-    began = false;
-    return added;
-  } catch (error) {
-    if (began) {
-      await db.run('ROLLBACK');
-    }
-
-    return translateError(error);
-  }
+  ).pipe(Effect.mapError(translateError));
 }
 
-export async function updateCustomer(
+export function updateCustomer(
   db: AppDatabase,
   reference: CustomerRevision,
   changes: CustomerChanges
-): Promise<CustomerData> {
-  const parsed = validate(changes, false);
-  try {
-    return await db.transaction(async tx => {
-      const [old] = await tx
-        .select()
-        .from(customers)
-        .where(eq(customers.id, reference.id));
-      if (!old) {
-        throw new DatabaseError('NOT_FOUND', 'Customer no longer exists');
-      }
-
-      if (String(old.revision) !== reference.revision) {
-        throw new DatabaseError(
-          'STALE_CUSTOMER',
-          'Customer changed; reload before editing'
+): Effect.Effect<CustomerData, DatabaseFailure> {
+  return Effect.gen(function* () {
+    const parsed = yield* attempt(() => validate(changes, false));
+    return yield* transaction(
+      db,
+      Effect.gen(function* () {
+        const [old] = yield* native(() =>
+          db.select().from(customers).where(eq(customers.id, reference.id))
         );
-      }
+        if (!old) {
+          return yield* Effect.fail(
+            new DatabaseError('NOT_FOUND', 'Customer no longer exists')
+          );
+        }
 
-      requireName({...old, ...changes});
-      const [row] = await tx
-        .update(customers)
-        .set({...parsed, revision: sql`${customers.revision} + 1`})
-        .where(and(eq(customers.id, reference.id), eq(customers.revision, old.revision)))
-        .returning();
-      if (!row) {
-        throw new DatabaseError(
-          'STALE_CUSTOMER',
-          'Customer changed; reload before editing'
+        if (String(old.revision) !== reference.revision) {
+          return yield* Effect.fail(
+            new DatabaseError('STALE_CUSTOMER', 'Customer changed; reload before editing')
+          );
+        }
+
+        yield* attempt(() => requireName({...old, ...changes}));
+        const [row] = yield* native(() =>
+          db
+            .update(customers)
+            .set({...parsed, revision: sql`${customers.revision} + 1`})
+            .where(
+              and(eq(customers.id, reference.id), eq(customers.revision, old.revision))
+            )
+            .returning()
         );
-      }
+        if (!row) {
+          return yield* Effect.fail(
+            new DatabaseError('STALE_CUSTOMER', 'Customer changed; reload before editing')
+          );
+        }
 
-      const [stored] = await tx.select().from(customers).where(eq(customers.id, row.id));
-      if (!stored) {
-        throw new Error('Customer update was not persisted');
-      }
+        const [stored] = yield* native(() =>
+          db.select().from(customers).where(eq(customers.id, row.id))
+        );
+        if (!stored) {
+          return yield* attempt(() => {
+            throw new Error('Customer update was not persisted');
+          });
+        }
 
-      verifyMoney(stored, changes);
-      return normalize(stored);
-    });
-  } catch (error) {
-    return translateError(error);
-  }
+        yield* attempt(() => verifyMoney(stored, changes));
+        return normalize(stored);
+      })
+    ).pipe(Effect.mapError(translateError));
+  });
 }
 
-export async function deleteCustomer(
+export function deleteCustomer(
   db: AppDatabase,
   reference: CustomerRevision
-): Promise<void> {
-  const rows = await db
-    .delete(customers)
-    .where(
-      and(
-        eq(customers.id, reference.id),
-        sql`cast(${customers.revision} as text) = ${reference.revision}`
-      )
-    )
-    .returning({id: customers.id});
-  if (!rows.length) {
-    throw new DatabaseError(
-      (await getCustomer(db, reference.id)) ? 'STALE_CUSTOMER' : 'NOT_FOUND',
-      'Customer changed or no longer exists'
+): Effect.Effect<void, DatabaseFailure> {
+  return Effect.gen(function* () {
+    const rows = yield* native(() =>
+      db
+        .delete(customers)
+        .where(
+          and(
+            eq(customers.id, reference.id),
+            sql`cast(${customers.revision} as text) = ${reference.revision}`
+          )
+        )
+        .returning({id: customers.id})
     );
-  }
+    if (!rows.length) {
+      yield* Effect.fail(
+        new DatabaseError(
+          (yield* getCustomer(db, reference.id)) ? 'STALE_CUSTOMER' : 'NOT_FOUND',
+          'Customer changed or no longer exists'
+        )
+      );
+    }
+  });
 }

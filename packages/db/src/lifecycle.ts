@@ -3,10 +3,14 @@ import {access, open, stat, unlink} from 'node:fs/promises';
 import {dirname, isAbsolute} from 'node:path';
 
 import {sql} from 'drizzle-orm';
+import {migrate} from 'drizzle-orm/tursodatabase/migrator';
+import {Cause, Effect} from 'effect';
 
-import {DatabaseError} from './customers.js';
-import {openDatabase, runMigrations} from './index.js';
-import type {AppDatabase, DatabaseHandle, OpenDatabaseOptions} from './index.js';
+import {openDatabase} from './database.js';
+import type {AppDatabase, DatabaseHandle, OpenDatabaseOptions} from './database.js';
+import {attempt, DatabaseError, native} from './failure.js';
+import type {DatabaseFailure} from './failure.js';
+import {transaction} from './transaction.js';
 
 const initialMigration = '20260929093112_wealthy_hemingway';
 const integrityMigration = '20260929120000_customer_integrity';
@@ -36,10 +40,10 @@ const expectedColumns = [
   'comments',
 ];
 
-export async function recognizeDatabase(db: AppDatabase): Promise<void> {
-  try {
-    const migrations = await db.all<{name: string}>(
-      'select name from __drizzle_migrations order by id'
+export function recognizeDatabase(db: AppDatabase): Effect.Effect<void, DatabaseFailure> {
+  return Effect.gen(function* () {
+    const migrations = yield* native(() =>
+      db.all<{name: string}>('select name from __drizzle_migrations order by id')
     );
     const names = migrations.map(row => row.name);
 
@@ -51,12 +55,14 @@ export async function recognizeDatabase(db: AppDatabase): Promise<void> {
       throw new Error('Unsupported migration history');
     }
 
-    const columns = await db.all<{
-      name: string;
-      type: string;
-      pk: number;
-      notnull: number;
-    }>('pragma table_info(customers)');
+    const columns = yield* native(() =>
+      db.all<{
+        name: string;
+        type: string;
+        pk: number;
+        notnull: number;
+      }>('pragma table_info(customers)')
+    );
     const expected = [
       ...expectedColumns.map(name =>
         name === 'phone' && !names.includes(phoneMigration) ? 'homePhone' : name
@@ -94,8 +100,8 @@ export async function recognizeDatabase(db: AppDatabase): Promise<void> {
         throw new Error('Missing revision constraint');
       }
 
-      const indexes = await db.all<{name: string; unique: number}>(
-        'pragma index_list(customers)'
+      const indexes = yield* native(() =>
+        db.all<{name: string; unique: number}>('pragma index_list(customers)')
       );
 
       if (
@@ -106,16 +112,18 @@ export async function recognizeDatabase(db: AppDatabase): Promise<void> {
         throw new Error('Missing customer uniqueness');
       }
 
-      const indexedColumns = await db.all<{name: string}>(
-        'pragma index_info(customers_customer_number_unique)'
+      const indexedColumns = yield* native(() =>
+        db.all<{name: string}>('pragma index_info(customers_customer_number_unique)')
       );
 
       if (indexedColumns.length !== 1 || indexedColumns[0]?.name !== 'customerNumber') {
         throw new Error('Incorrect uniqueness index');
       }
 
-      const triggers = await db.all<{sql: string}>(
-        "select sql from sqlite_master where type = 'trigger' and name = 'customers_revision'"
+      const triggers = yield* native(() =>
+        db.all<{sql: string}>(
+          "select sql from sqlite_master where type = 'trigger' and name = 'customers_revision'"
+        )
       );
 
       if (triggers.length !== 1 || !triggers[0]?.sql.includes('OLD.revision + 1')) {
@@ -124,8 +132,10 @@ export async function recognizeDatabase(db: AppDatabase): Promise<void> {
     }
 
     if (names.includes(numberMigration)) {
-      const [table] = await db.all<{sql: string}>(
-        "select sql from sqlite_master where type = 'table' and name = 'customers'"
+      const [table] = yield* native(() =>
+        db.all<{sql: string}>(
+          "select sql from sqlite_master where type = 'table' and name = 'customers'"
+        )
       );
       if (
         columns.find(column => column.name === 'customerNumber')?.notnull !== 1 ||
@@ -142,8 +152,10 @@ export async function recognizeDatabase(db: AppDatabase): Promise<void> {
       }
     }
 
-    const tables = await db.all<{name: string}>(
-      "select name from sqlite_master where type = 'table' and name not glob 'sqlite_*' and name not glob '__turso_internal_*'"
+    const tables = yield* native(() =>
+      db.all<{name: string}>(
+        "select name from sqlite_master where type = 'table' and name not glob 'sqlite_*' and name not glob '__turso_internal_*'"
+      )
     );
 
     if (
@@ -151,94 +163,149 @@ export async function recognizeDatabase(db: AppDatabase): Promise<void> {
     ) {
       throw new Error('Unrelated tables');
     }
-  } catch {
-    throw new DatabaseError(
-      'UNSUPPORTED_DATABASE',
-      'Select a recognized application database with a supported schema'
-    );
-  }
+  }).pipe(
+    Effect.catchCause(cause =>
+      Cause.hasInterrupts(cause)
+        ? Effect.failCause(cause)
+        : Effect.fail(
+            new DatabaseError(
+              'UNSUPPORTED_DATABASE',
+              'Select a recognized application database with a supported schema'
+            )
+          )
+    )
+  );
 }
 
-async function writableFile(path: string) {
-  if (!isAbsolute(path)) {
-    throw new DatabaseError('VALIDATION', 'Database path must be absolute');
-  }
-
-  const info = await stat(path);
-  if (!info.isFile()) {
-    throw new DatabaseError('UNSUPPORTED_DATABASE', 'Database must be a regular file');
-  }
-
-  if ((info.mode & 0o222) === 0) {
-    throw new DatabaseError('READ_ONLY', 'Open a writable database copy');
-  }
-
-  try {
-    await access(path, constants.R_OK | constants.W_OK);
-    await access(dirname(path), constants.W_OK);
-  } catch {
-    throw new DatabaseError('READ_ONLY', 'Open a writable database copy');
-  }
-}
-
-export async function openExistingDatabase(
-  path: string,
-  options: OpenDatabaseOptions & {migrationsFolder: string}
-): Promise<DatabaseHandle> {
-  await writableFile(path);
-  const handle = openDatabase(path, options);
-
-  try {
-    await recognizeDatabase(handle.db);
-    await runMigrations(handle.db, options);
-    // A transaction that writes and rolls back tests driver-level writability without changing data.
-    await handle.db.run('begin immediate');
-    try {
-      await handle.db.run('update customers set revision = revision where 0');
-    } finally {
-      await handle.db.run('rollback');
+function writableFile(path: string): Effect.Effect<void, DatabaseFailure> {
+  return Effect.gen(function* () {
+    if (!isAbsolute(path)) {
+      return yield* Effect.fail(
+        new DatabaseError('VALIDATION', 'Database path must be absolute')
+      );
     }
 
-    return handle;
-  } catch (error) {
-    handle.close();
-    throw error;
-  }
+    const info = yield* native(() => stat(path));
+    if (!info.isFile()) {
+      return yield* Effect.fail(
+        new DatabaseError('UNSUPPORTED_DATABASE', 'Database must be a regular file')
+      );
+    }
+
+    if ((info.mode & 0o222) === 0) {
+      return yield* Effect.fail(
+        new DatabaseError('READ_ONLY', 'Open a writable database copy')
+      );
+    }
+
+    yield* native(() => access(path, constants.R_OK | constants.W_OK)).pipe(
+      Effect.flatMap(() => native(() => access(dirname(path), constants.W_OK))),
+      Effect.mapError(
+        () => new DatabaseError('READ_ONLY', 'Open a writable database copy')
+      )
+    );
+  });
 }
 
-export async function createDatabase(
+export function runMigrations(
+  db: AppDatabase,
+  {migrationsFolder}: {migrationsFolder: string}
+): Effect.Effect<void, DatabaseFailure> {
+  return Effect.gen(function* () {
+    if (!isAbsolute(migrationsFolder)) {
+      return yield* attempt(() => {
+        throw new Error('migrationsFolder must be an absolute path');
+      });
+    }
+
+    yield* native(() => migrate(db, {migrationsFolder}));
+  });
+}
+
+export function openExistingDatabase(
   path: string,
   options: OpenDatabaseOptions & {migrationsFolder: string}
-): Promise<DatabaseHandle> {
-  if (!isAbsolute(path)) {
-    throw new DatabaseError('VALIDATION', 'Database path must be absolute');
-  }
-
-  const file = await open(path, 'wx');
-  await file.close();
-  const handle = openDatabase(path, options);
-  try {
-    await runMigrations(handle.db, options);
-    return handle;
-  } catch (error) {
-    handle.close();
-    await unlink(path);
-    throw error;
-  }
+): Effect.Effect<DatabaseHandle, DatabaseFailure> {
+  return Effect.gen(function* () {
+    yield* writableFile(path);
+    return yield* Effect.uninterruptibleMask(restore =>
+      Effect.gen(function* () {
+        const handle = yield* attempt(() => openDatabase(path, options));
+        yield* restore(
+          Effect.gen(function* () {
+            yield* recognizeDatabase(handle.db);
+            yield* runMigrations(handle.db, options);
+            yield* transaction(
+              handle.db,
+              native(() =>
+                handle.db.run('update customers set revision = revision where 0')
+              ),
+              {begin: 'BEGIN IMMEDIATE', rollbackResult: () => true}
+            );
+          })
+        ).pipe(
+          Effect.catchCause(cause =>
+            attempt(() => handle.close()).pipe(
+              Effect.flatMap(() => Effect.failCause(cause))
+            )
+          )
+        );
+        return handle;
+      })
+    );
+  });
 }
 
-export async function backupDatabase(
+export function createDatabase(
+  path: string,
+  options: OpenDatabaseOptions & {migrationsFolder: string}
+): Effect.Effect<DatabaseHandle, DatabaseFailure> {
+  return Effect.gen(function* () {
+    if (!isAbsolute(path)) {
+      return yield* Effect.fail(
+        new DatabaseError('VALIDATION', 'Database path must be absolute')
+      );
+    }
+
+    return yield* Effect.uninterruptibleMask(restore =>
+      Effect.gen(function* () {
+        yield* Effect.acquireUseRelease(
+          native(() => open(path, 'wx')),
+          () => Effect.void,
+          file => native(() => file.close())
+        );
+        const handle = yield* attempt(() => openDatabase(path, options));
+        yield* restore(runMigrations(handle.db, options)).pipe(
+          Effect.catchCause(cause =>
+            attempt(() => handle.close()).pipe(
+              Effect.flatMap(() => native(() => unlink(path))),
+              Effect.flatMap(() => Effect.failCause(cause))
+            )
+          )
+        );
+        return handle;
+      })
+    );
+  });
+}
+
+export function backupDatabase(
   db: AppDatabase,
   destination: string
-): Promise<void> {
-  if (!isAbsolute(destination)) {
-    throw new DatabaseError('VALIDATION', 'Backup path must be absolute');
-  }
+): Effect.Effect<void, DatabaseFailure> {
+  return Effect.gen(function* () {
+    if (!isAbsolute(destination)) {
+      return yield* Effect.fail(
+        new DatabaseError('VALIDATION', 'Backup path must be absolute')
+      );
+    }
 
-  // VACUUM INTO snapshots committed contents including pages still in the journal.
-  if (destination.includes('\0')) {
-    throw new DatabaseError('VALIDATION', 'Invalid backup path');
-  }
+    if (destination.includes('\0')) {
+      return yield* Effect.fail(new DatabaseError('VALIDATION', 'Invalid backup path'));
+    }
 
-  await db.run(sql.raw("VACUUM INTO '" + destination.replaceAll("'", "''") + "'"));
+    yield* native(() =>
+      db.run(sql.raw("VACUUM INTO '" + destination.replaceAll("'", "''") + "'"))
+    );
+  });
 }
