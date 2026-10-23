@@ -30,7 +30,7 @@ export default defineConfig({
   optimizeDeps: {
     holdUntilCrawlEnd: false,
     // HMR is disabled, so lazy Tabs must not replace the mounted React dependency graph.
-    include: ['@base-ui/react/tabs'],
+    include: ['@base-ui/react/tabs', 'effect/Effect', 'effect/Result'],
   },
   server: {
     // Electron's cooperative watcher owns updates before a document can replace drafts.

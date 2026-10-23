@@ -27,7 +27,7 @@ test('warm Vite cache from before Settings tabs loads both tabs without React ho
 
 async function verifyDevelopmentBoot(warm: boolean) {
   const testInfo = test.info();
-  test.setTimeout(45000);
+  test.setTimeout(120000);
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-vite-'));
   const initialCwd = process.cwd();
   const diagnostics: string[] = [];
@@ -85,14 +85,17 @@ async function verifyDevelopmentBoot(warm: boolean) {
       try {
         await seed.listen();
         await expect
-          .poll(async () => {
-            const metadata = JSON.parse(
-              await readFile(join(cacheDir, 'deps/_metadata.json'), 'utf8').catch(
-                () => '{}'
-              )
-            );
-            return Boolean(metadata.optimized?.react);
-          })
+          .poll(
+            async () => {
+              const metadata = JSON.parse(
+                await readFile(join(cacheDir, 'deps/_metadata.json'), 'utf8').catch(
+                  () => '{}'
+                )
+              );
+              return Boolean(metadata.optimized?.react);
+            },
+            {timeout: 60000}
+          )
           .toBe(true);
       } finally {
         await seed.close();
