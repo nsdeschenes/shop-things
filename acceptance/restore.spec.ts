@@ -224,11 +224,13 @@ test('Restore failures preserve source, working database and settings; held pick
     expect(await readFile(corrupt, 'utf8')).toBe('unsupported backup bytes');
     const settingsBytes = await readFile(join(directory, 'database.json'));
     await application.evaluate(() => {
-      const settings = Reflect.get(globalThis, 'acceptanceService').options.settings;
-      Reflect.set(globalThis, 'acceptanceSettingsWrite', settings.write.bind(settings));
-      settings.write = async () => {
-        throw new Error('Controlled settings persistence failure');
-      };
+      const native = Reflect.get(globalThis, 'acceptanceNative');
+      const settings = Reflect.get(globalThis, 'acceptanceBackend').options.settings;
+      Reflect.set(globalThis, 'acceptanceSettingsWrite', settings.writeEffect);
+      settings.writeEffect = () =>
+        native(async () => {
+          throw new Error('Controlled settings persistence failure');
+        });
     });
     const failedDestination = join(directory, 'settings-copy.sqlite');
     await restore(application, page, source, failedDestination);
@@ -238,10 +240,8 @@ test('Restore failures preserve source, working database and settings; held pick
     await expect(access(failedDestination)).rejects.toThrow();
     expect(await readFile(join(directory, 'database.json'))).toEqual(settingsBytes);
     await application.evaluate(() => {
-      Reflect.get(globalThis, 'acceptanceService').options.settings.write = Reflect.get(
-        globalThis,
-        'acceptanceSettingsWrite'
-      );
+      Reflect.get(globalThis, 'acceptanceBackend').options.settings.writeEffect =
+        Reflect.get(globalThis, 'acceptanceSettingsWrite');
     });
     await application.evaluate(() =>
       Reflect.get(globalThis, 'acceptanceFiles').push({hold: true})
@@ -312,9 +312,9 @@ test('Restore migrates only a separate read-only backup copy, cleans failed migr
     const before = await stateAndRecord(page);
     const hash = new URL(page.url()).hash;
     await application.evaluate(async () => {
-      const service = Reflect.get(globalThis, 'acceptanceService');
-      await service.active.db.run('PRAGMA wal_checkpoint(TRUNCATE)');
-      Reflect.set(globalThis, 'acceptanceMigrations', service.options.migrationsFolder);
+      const backend = Reflect.get(globalThis, 'acceptanceBackend');
+      await backend.active.db.run('PRAGMA wal_checkpoint(TRUNCATE)');
+      Reflect.set(globalThis, 'acceptanceMigrations', backend.options.migrationsFolder);
       Reflect.set(globalThis, 'acceptanceDiscard', true);
     });
     const workingBytes = await readFile(join(directory, 'customers.sqlite'));
@@ -327,7 +327,7 @@ test('Restore migrates only a separate read-only backup copy, cleans failed migr
       'select * from missing_restore_table;'
     );
     await application.evaluate((_electron, path) => {
-      Reflect.get(globalThis, 'acceptanceService').options.migrationsFolder = path;
+      Reflect.get(globalThis, 'acceptanceBackend').options.migrationsFolder = path;
     }, broken);
     const failed = join(directory, 'failed-migration.sqlite');
     await restore(application, page, source, failed);
@@ -339,7 +339,7 @@ test('Restore migrates only a separate read-only backup copy, cleans failed migr
     expect(await readFile(source)).toEqual(sourceBytes);
     expect(await readFile(join(directory, 'customers.sqlite'))).toEqual(workingBytes);
     await application.evaluate(() => {
-      Reflect.get(globalThis, 'acceptanceService').options.migrationsFolder = Reflect.get(
+      Reflect.get(globalThis, 'acceptanceBackend').options.migrationsFolder = Reflect.get(
         globalThis,
         'acceptanceMigrations'
       );

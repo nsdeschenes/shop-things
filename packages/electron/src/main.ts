@@ -1,10 +1,10 @@
 import {dirname, join} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 
-import * as databaseOperations from '@shop-things/db/effect';
 import {app, BrowserWindow, ipcMain, Menu, dialog} from 'electron';
 
 import {ActionService} from './actionService.js';
+import {effectDatabaseOperations as databaseOperations} from './backend.js';
 import {isTrustedRendererUrl, trackAuthorizedDocument} from './document.js';
 import {DraftCoordinator} from './draftCoordinator.js';
 import {registerIpc} from './ipc.js';

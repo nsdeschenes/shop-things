@@ -46,6 +46,8 @@ type DatabasePort = {
 };
 
 type Admission = {idle: Deferred.Deferred<void>} | null;
+export const effectDatabaseOperations = {...nativeDatabase};
+
 type Lifecycle = 'open' | 'closing' | 'reloading' | 'unprotected';
 interface OwnedState {
   active: DatabaseHandle | null;
@@ -57,7 +59,7 @@ interface OwnedState {
 
 function databasePort(injected?: DatabaseOperations): DatabasePort {
   if (!injected) {
-    return nativeDatabase;
+    return effectDatabaseOperations;
   }
 
   return Object.fromEntries(
