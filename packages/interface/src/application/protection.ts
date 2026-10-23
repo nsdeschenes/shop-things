@@ -1,4 +1,7 @@
 import type {Client, DraftRequest, DraftResolution} from '@shop-things/contract';
+import {Cause, Deferred, Effect, Exit} from 'effect';
+
+import {nativePromise, nextMicrotask, runRenderer} from './effects';
 
 export type DraftValues = Readonly<Record<string, string | boolean | number>>;
 export interface DraftEditor {
@@ -41,8 +44,8 @@ type PendingAction = {editor: DraftEditor | null} & (
 export function createDraftProtection(getClient: () => Client | null) {
   let editor: DraftEditor | null = null;
   let pendingAction: PendingAction | null = null;
-  let previewPrompt: ((approved: boolean) => void) | null = null;
-  let saving: Promise<unknown> | null = null;
+  let previewPrompt: Deferred.Deferred<boolean> | null = null;
+  let saving: Deferred.Deferred<unknown, unknown> | null = null;
   let state: {
     registeredEditor: DraftEditor | null;
     confirmingDiscard: boolean;
@@ -106,22 +109,32 @@ export function createDraftProtection(getClient: () => Client | null) {
     };
   }
 
-  async function save<T>(work: () => Promise<T>): Promise<T> {
-    if (state.frozen || saving) {
-      throw new Error('Wait for the current operation to finish.');
-    }
+  function save<T>(work: () => Promise<T>): Promise<T> {
+    return runRenderer(
+      Effect.gen(function* () {
+        if (state.frozen || saving) {
+          return yield* Effect.fail(
+            new Error('Wait for the current operation to finish.')
+          );
+        }
 
-    const pending = Promise.resolve().then(work);
-    saving = pending;
-    publish(null);
-    try {
-      return await pending;
-    } finally {
-      if (saving === pending) {
-        saving = null;
-        publish();
-      }
-    }
+        const pending = Deferred.makeUnsafe<unknown, unknown>();
+        saving = pending;
+        publish(null);
+        return yield* nextMicrotask.pipe(
+          Effect.andThen(nativePromise(work)),
+          Effect.onExit(exit =>
+            Effect.sync(() => {
+              Deferred.doneUnsafe(pending, exit);
+              if (saving === pending) {
+                saving = null;
+                publish();
+              }
+            })
+          )
+        );
+      })
+    );
   }
 
   function beginAction(action: PendingAction) {
@@ -150,41 +163,50 @@ export function createDraftProtection(getClient: () => Client | null) {
     publish(null);
   }
 
-  async function confirmDiscard(): Promise<boolean> {
-    if (!readDirty()) {
-      return true;
-    }
+  function confirmDiscard() {
+    return Effect.gen(function* () {
+      if (!readDirty()) {
+        yield* nextMicrotask;
+        return true;
+      }
 
-    const result = await getClient()?.drafts.confirmDiscard();
-    if (result?.status === 'cancelled') {
-      return false;
-    }
-
-    if (result?.status !== 'success') {
-      throw new Error(
-        result?.status === 'error'
-          ? result.error.message
-          : 'Draft protection is unavailable.'
+      const result = yield* nativePromise(
+        () => getClient()?.drafts.confirmDiscard() ?? Promise.resolve(undefined)
       );
-    }
+      if (result?.status === 'cancelled') {
+        return false;
+      }
 
-    return true;
+      if (result?.status !== 'success') {
+        return yield* Effect.fail(
+          new Error(
+            result?.status === 'error'
+              ? result.error.message
+              : 'Draft protection is unavailable.'
+          )
+        );
+      }
+
+      return true;
+    });
   }
 
-  async function prepare(request: DraftRequest) {
-    const pending: PendingAction = {kind: 'lifecycle', request, editor};
-    beginAction(pending);
-    try {
-      await saving;
-    } catch {
-      /* Failed Save leaves its entered values intact. */
-    }
+  function prepare(request: DraftRequest) {
+    return Effect.gen(function* () {
+      const pending: PendingAction = {kind: 'lifecycle', request, editor};
+      beginAction(pending);
+      if (saving) {
+        yield* Deferred.await(saving).pipe(Effect.catchCause(() => Effect.void));
+      } else {
+        yield* nextMicrotask;
+      }
 
-    if (!isCurrentAction(pending)) {
-      throw new Error('Draft preparation was aborted.');
-    }
+      if (!isCurrentAction(pending)) {
+        return yield* Effect.fail(new Error('Draft preparation was aborted.'));
+      }
 
-    return {...request, hasUnsavedDraft: readDirty()};
+      return {...request, hasUnsavedDraft: readDirty()};
+    });
   }
 
   function resolve(resolution: DraftResolution): boolean {
@@ -201,47 +223,55 @@ export function createDraftProtection(getClient: () => Client | null) {
     return true;
   }
 
-  async function blockNavigation(target: string): Promise<boolean> {
-    if (pendingAction || saving) {
-      return true;
-    }
-
-    if (!isDirty()) {
-      return false;
-    }
-
-    const pending: PendingAction = {
-      kind: 'navigation',
-      target,
-      editor,
-      approved: false,
-      readToken: crypto.randomUUID(),
-    };
-    beginAction(pending);
-    try {
-      const approved = await confirmDiscard();
-      if (!isCurrentAction(pending)) {
+  function blockNavigation(target: string) {
+    return Effect.gen(function* () {
+      if (pendingAction || saving) {
         return true;
       }
 
-      if (approved) {
-        pending.approved = true;
+      if (!isDirty()) {
         return false;
       }
 
-      finishAction(pending);
-    } catch (error) {
-      if (isCurrentAction(pending)) {
-        finishAction(pending);
-        publish(
-          error instanceof Error
-            ? error.message
-            : 'Could not confirm navigation. Your edits are retained. Try again.'
-        );
-      }
-    }
+      const pending: PendingAction = {
+        kind: 'navigation',
+        target,
+        editor,
+        approved: false,
+        readToken: crypto.randomUUID(),
+      };
+      beginAction(pending);
+      return yield* Effect.gen(function* () {
+        const approved = yield* confirmDiscard();
+        if (!isCurrentAction(pending)) {
+          return true;
+        }
 
-    return true;
+        if (approved) {
+          pending.approved = true;
+          return false;
+        }
+
+        finishAction(pending);
+        return true;
+      }).pipe(
+        Effect.catchCause(cause =>
+          Effect.sync(() => {
+            if (isCurrentAction(pending)) {
+              finishAction(pending);
+              const failure = Cause.squash(cause);
+              publish(
+                failure instanceof Error
+                  ? failure.message
+                  : 'Could not confirm navigation. Your edits are retained. Try again.'
+              );
+            }
+
+            return true;
+          })
+        )
+      );
+    });
   }
 
   function navigationResolved(target: string, committed = true) {
@@ -263,50 +293,56 @@ export function createDraftProtection(getClient: () => Client | null) {
   function answerDiscard(approved: boolean) {
     const answer = previewPrompt;
     previewPrompt = null;
-    answer?.(approved);
+    if (answer) {
+      Deferred.doneUnsafe(answer, Exit.succeed(approved));
+    }
+
     publish();
   }
 
   function confirmPreviewDiscard(): Promise<boolean> {
-    if (previewPrompt) {
-      return Promise.resolve(false);
-    }
+    return runRenderer(
+      Effect.suspend(() => {
+        if (previewPrompt) {
+          return Effect.succeed(false);
+        }
 
-    return new Promise(resolve => {
-      previewPrompt = resolve;
-      publish();
-    });
+        previewPrompt = Deferred.makeUnsafe<boolean>();
+        publish();
+        return Deferred.await(previewPrompt);
+      })
+    );
   }
 
-  async function replaceDraft<T>(
-    load: (isCurrent: () => boolean) => Promise<T>,
+  function replaceDraft<T>(
+    load: (isCurrent: () => boolean) => Effect.Effect<T, unknown>,
     commit: (value: T) => void
-  ): Promise<boolean> {
-    if (state.frozen || saving) {
-      throw new Error('Wait for the current operation to finish.');
-    }
-
-    const pending: PendingAction = {kind: 'replacement', editor};
-    beginAction(pending);
-    function isCurrent() {
-      return isCurrentAction(pending) && editor === pending.editor;
-    }
-
-    try {
-      if (!(await confirmDiscard()) || !isCurrent()) {
-        return false;
+  ) {
+    return Effect.gen(function* () {
+      if (state.frozen || saving) {
+        return yield* Effect.fail(new Error('Wait for the current operation to finish.'));
       }
 
-      const value = await load(isCurrent);
-      if (!isCurrent()) {
-        return false;
+      const pending: PendingAction = {kind: 'replacement', editor};
+      beginAction(pending);
+      function isCurrent() {
+        return isCurrentAction(pending) && editor === pending.editor;
       }
 
-      commit(value);
-      return true;
-    } finally {
-      finishAction(pending);
-    }
+      return yield* Effect.gen(function* () {
+        if (!(yield* confirmDiscard()) || !isCurrent()) {
+          return false;
+        }
+
+        const value = yield* load(isCurrent);
+        if (!isCurrent()) {
+          return false;
+        }
+
+        commit(value);
+        return true;
+      }).pipe(Effect.ensuring(Effect.sync(() => finishAction(pending))));
+    });
   }
 
   function dispose() {
@@ -317,7 +353,15 @@ export function createDraftProtection(getClient: () => Client | null) {
 
   return {
     registerEditor,
-    replaceDraft,
+    effects: {prepare, replaceDraft},
+    replaceDraft<T>(
+      load: (isCurrent: () => boolean) => Promise<T>,
+      commit: (value: T) => void
+    ) {
+      return runRenderer(
+        replaceDraft(current => nativePromise(() => load(current)), commit)
+      );
+    },
     save,
     answerDiscard,
     confirmPreviewDiscard,
@@ -329,9 +373,9 @@ export function createDraftProtection(getClient: () => Client | null) {
       navigate();
       return true;
     },
-    prepare,
+    prepare: (request: DraftRequest) => runRenderer(prepare(request)),
     resolve,
-    blockNavigation,
+    blockNavigation: (target: string) => runRenderer(blockNavigation(target)),
     navigationResolved,
     navigationLoaded(target: string, destination: string) {
       if (

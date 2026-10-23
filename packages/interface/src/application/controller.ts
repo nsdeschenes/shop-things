@@ -8,8 +8,10 @@ import type {
 } from '@shop-things/contract';
 import {applyNewerDatabaseState, getClient} from '@shop-things/contract/client';
 import {CancelledError, QueryClient} from '@tanstack/react-query';
+import {Cause, Deferred, Effect, Exit, Scope, Semaphore} from 'effect';
 
 import {CustomerRequestError, customerKeys} from './customers';
+import {nativePromise, nextMicrotask, runRenderer} from './effects';
 import createPreviewClient from './preview';
 import {createDraftProtection} from './protection';
 import toastManager, {createToasts} from './toasts';
@@ -56,6 +58,14 @@ const busy = {
   },
 } as const;
 
+interface RendererCoordinator {
+  generation: number;
+  scope: Scope.Closeable;
+  semaphore: Semaphore.Semaphore;
+  reconciliation: Deferred.Deferred<void, unknown> | null;
+  searches: Map<string, object>;
+}
+
 export function createApplication(
   url: string,
   attached = Reflect.has(window, 'shopThings'),
@@ -90,18 +100,19 @@ export function createApplication(
     refreshingCustomers: false,
     refreshError: null,
   };
-  let generation = 0;
-  let stopState: (() => void) | null = null;
-  let stopProtection: (() => void) | null = null;
+  const coordinator: RendererCoordinator = {
+    scope: Scope.makeUnsafe(),
+    generation: 0,
+    semaphore: Semaphore.makeUnsafe(1),
+    reconciliation: null,
+    searches: new Map<string, object>(),
+  };
   let protectionRequest: DraftRequest | null = null;
   let pendingSessionChange: {
     database: DatabaseState;
     previousSession: string | null;
   } | null = null;
   let lastAvailableSession: string | null = null;
-  let reconcilePromise: Promise<void> | null = null;
-  let queue: Promise<unknown> = Promise.resolve();
-  const searches = new Map<string, object>();
   const listeners = new Set<() => void>();
   const refreshListeners = new Set<() => Promise<void>>();
   const sessionListeners = new Set<(database: DatabaseState) => void>();
@@ -147,7 +158,6 @@ export function createApplication(
       database: accepted,
       refreshError: previous?.session === accepted.session ? state.refreshError : null,
     });
-    // An unavailable state retains the route/draft. A new available session resets it.
     if (
       previous !== null &&
       accepted.available &&
@@ -170,23 +180,27 @@ export function createApplication(
     );
   }
 
-  function serialize<T>(operation: () => Promise<T>): Promise<T> {
-    const result = queue.then(operation, operation);
-    queue = result.catch(() => {});
-    return result;
+  function serialize<T, E>(operation: Effect.Effect<T, E>) {
+    return coordinator.semaphore.withPermit(
+      nextMicrotask.pipe(Effect.andThen(operation))
+    );
   }
 
-  async function reconcile() {
-    if (reconcilePromise) {
-      return reconcilePromise;
-    }
+  function reconcile() {
+    return Effect.suspend(() => {
+      if (coordinator.reconciliation) {
+        return Deferred.await(coordinator.reconciliation);
+      }
 
-    const attempt = generation;
-    publish({...state, reconciling: true, recoveryRequired: true});
-    reconcilePromise = (async () => {
-      try {
-        const result = await client?.database.status();
-        if (attempt !== generation) {
+      const pending = Deferred.makeUnsafe<void, unknown>();
+      coordinator.reconciliation = pending;
+      const attempt = coordinator.generation;
+      publish({...state, reconciling: true, recoveryRequired: true});
+      return Effect.gen(function* () {
+        const result = yield* nativePromise(
+          () => client?.database.status() ?? Promise.resolve(undefined)
+        );
+        if (attempt !== coordinator.generation) {
           return;
         }
 
@@ -202,99 +216,112 @@ export function createApplication(
                 : 'Could not check the database. Try again.',
           });
         }
-      } finally {
-        if (attempt === generation) {
-          reconcilePromise = null;
-          publish({...state, reconciling: false});
-        }
-      }
-    })();
-    return reconcilePromise;
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (attempt === coordinator.generation) {
+              coordinator.reconciliation = null;
+              publish({...state, reconciling: false});
+            }
+          })
+        ),
+        Effect.onExit(exit => Effect.sync(() => Deferred.doneUnsafe(pending, exit)))
+      );
+    });
   }
 
-  async function coordinatedRequest<T extends {status: string}>(
+  function coordinatedRequest<T extends {status: string}>(
     session: string,
     operation: (client: Client) => Promise<T>,
     scope: RequestScope = {},
     replacement?: () => boolean
-  ): Promise<T | typeof obsolete | typeof unavailable | typeof busy> {
-    if (!isCurrentSession(session) || !client || state.recoveryRequired) {
-      return unavailable;
-    }
+  ) {
+    return Effect.gen(function* () {
+      if (!isCurrentSession(session) || !client || state.recoveryRequired) {
+        return unavailable;
+      }
 
-    if (
-      state.pendingFile ||
-      state.pendingTransition ||
-      state.reconciling ||
-      protectionRequest ||
-      (protection.getState().frozen && !replacement?.())
-    ) {
-      return busy;
-    }
+      if (
+        state.pendingFile ||
+        state.pendingTransition ||
+        state.reconciling ||
+        protectionRequest ||
+        (protection.getState().frozen && !replacement?.())
+      ) {
+        return busy;
+      }
 
-    const attempt = generation;
-    const token = {};
-    if (scope.coalesceKey) {
-      searches.set(scope.coalesceKey, token);
-    }
+      const attempt = coordinator.generation;
+      const token = {};
+      if (scope.coalesceKey) {
+        coordinator.searches.set(scope.coalesceKey, token);
+      }
 
-    function relevant() {
-      return (
-        attempt === generation &&
-        isCurrentSession(session) &&
-        !scope.signal?.aborted &&
-        (scope.isRelevant?.() ?? true) &&
-        (!replacement || replacement()) &&
-        (!scope.coalesceKey || searches.get(scope.coalesceKey) === token)
-      );
-    }
+      function relevant() {
+        return (
+          attempt === coordinator.generation &&
+          isCurrentSession(session) &&
+          !scope.signal?.aborted &&
+          (scope.isRelevant?.() ?? true) &&
+          (!replacement || replacement()) &&
+          (!scope.coalesceKey || coordinator.searches.get(scope.coalesceKey) === token)
+        );
+      }
 
-    return serialize(async () => {
-      try {
-        if (!relevant()) {
-          return obsolete;
-        }
+      return yield* serialize(
+        Effect.gen(function* () {
+          if (!relevant()) {
+            return obsolete;
+          }
 
-        if (state.recoveryRequired) {
-          return unavailable;
-        }
+          if (state.recoveryRequired) {
+            return unavailable;
+          }
 
-        if (
-          state.pendingFile ||
-          state.pendingTransition ||
-          protectionRequest ||
-          state.reconciling ||
-          (protection.getState().frozen && !replacement?.())
-        ) {
-          return busy;
-        }
-
-        const result = await operation(client!);
-        if (!relevant()) {
-          return obsolete;
-        }
-
-        if (result.status === 'error' && 'error' in result) {
-          const error = result.error;
           if (
-            typeof error === 'object' &&
-            error !== null &&
-            'code' in error &&
-            (error.code === 'STALE_SESSION' || error.code === 'DATABASE_UNAVAILABLE')
+            state.pendingFile ||
+            state.pendingTransition ||
+            protectionRequest ||
+            state.reconciling ||
+            (protection.getState().frozen && !replacement?.())
           ) {
-            await reconcile();
-            if (!relevant()) {
-              return obsolete;
+            return busy;
+          }
+
+          const result = yield* nativePromise(() => operation(client!));
+          if (!relevant()) {
+            return obsolete;
+          }
+
+          if (result.status === 'error' && 'error' in result) {
+            const error = result.error;
+            if (
+              typeof error === 'object' &&
+              error !== null &&
+              'code' in error &&
+              (error.code === 'STALE_SESSION' || error.code === 'DATABASE_UNAVAILABLE')
+            ) {
+              yield* reconcile();
+              if (!relevant()) {
+                return obsolete;
+              }
             }
           }
-        }
 
-        return result;
-      } finally {
-        if (scope.coalesceKey && searches.get(scope.coalesceKey) === token) {
-          searches.delete(scope.coalesceKey);
-        }
-      }
+          return result;
+        }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (
+                scope.coalesceKey &&
+                coordinator.searches.get(scope.coalesceKey) === token
+              ) {
+                coordinator.searches.delete(scope.coalesceKey);
+              }
+            })
+          )
+        )
+      );
     });
   }
 
@@ -303,368 +330,423 @@ export function createApplication(
     operation: (client: Client) => Promise<T>,
     scope: RequestScope = {}
   ) {
-    return coordinatedRequest(session, operation, scope);
+    return runRenderer(coordinatedRequest(session, operation, scope));
   }
 
-  async function reloadCustomer(
+  function reloadCustomer(
     target: CustomerTarget,
     commit: (record: CustomerRecord) => void
   ) {
-    if (!isCurrentSession(target.session) || !client || state.recoveryRequired) {
-      throw new CustomerRequestError(unavailable.error);
-    }
-
-    if (state.pendingTransition || state.reconciling || protectionRequest) {
-      throw new CustomerRequestError(busy.error);
-    }
-
-    const attempt = generation;
-    return protection.replaceDraft(
-      async replacement => {
-        const result = await coordinatedRequest(
-          target.session,
-          client => client.customers.get({session: target.session, id: target.id}),
-          {isRelevant: replacement},
-          replacement
-        );
-        if (result.status === 'error') {
-          throw new CustomerRequestError(result.error);
-        }
-
-        if (result.status !== 'success') {
-          throw new CancelledError({silent: true});
-        }
-
-        return result.value;
-      },
-      record => {
-        if (attempt !== generation || !isCurrentSession(target.session)) {
-          throw new CancelledError({silent: true});
-        }
-
-        commit(record);
-        queryClient.removeQueries({queryKey: ['customers', target.session, 'list']});
-      }
-    );
-  }
-
-  async function refreshCustomers() {
-    const session = state.database?.session;
-    const draft = protection.getState();
-    if (
-      !session ||
-      !isCurrentSession(session) ||
-      state.recoveryRequired ||
-      state.pendingFile ||
-      state.pendingTransition ||
-      state.reconciling ||
-      state.refreshingCustomers ||
-      draft.frozen ||
-      draft.saving ||
-      protection.isDirty()
-    ) {
-      return;
-    }
-
-    const captured = {generation, session};
-    function current() {
-      return captured.generation === generation && isCurrentSession(captured.session);
-    }
-
-    publish({...state, refreshingCustomers: true, refreshError: null});
-    notifications.close('customer-refresh');
-    try {
-      const filter = {queryKey: customerKeys.session(session)};
-      await queryClient.cancelQueries(filter);
-      await queryClient.invalidateQueries({...filter, refetchType: 'none'});
-      let failure: unknown;
-      // List searches share a request coalescing key. Refresh visible queries in order.
-      for (const query of queryClient
-        .getQueryCache()
-        .findAll({...filter, type: 'active'})) {
-        if (!current()) {
-          return;
-        }
-
-        try {
-          await queryClient.refetchQueries(
-            {queryKey: query.queryKey, exact: true, type: 'active'},
-            {throwOnError: true}
-          );
-        } catch (error) {
-          failure ??= error;
-        }
+    return Effect.gen(function* () {
+      if (!isCurrentSession(target.session) || !client || state.recoveryRequired) {
+        throw new CustomerRequestError(unavailable.error);
       }
 
-      if (!current()) {
-        return;
+      if (state.pendingTransition || state.reconciling || protectionRequest) {
+        throw new CustomerRequestError(busy.error);
       }
 
-      for (const listener of refreshListeners) {
-        if (!current()) {
-          return;
-        }
+      const attempt = coordinator.generation;
+      return yield* protection.effects.replaceDraft(
+        replacement =>
+          Effect.gen(function* () {
+            const result = yield* coordinatedRequest(
+              target.session,
+              client => client.customers.get({session: target.session, id: target.id}),
+              {isRelevant: replacement},
+              replacement
+            );
+            if (result.status === 'error') {
+              throw new CustomerRequestError(result.error);
+            }
 
-        try {
-          await listener();
-        } catch (error) {
-          failure ??= error;
-        }
-      }
+            if (result.status !== 'success') {
+              throw new CancelledError({silent: true});
+            }
 
-      if (failure) {
-        throw failure;
-      }
-    } catch (failure) {
-      if (current()) {
-        const message =
-          failure instanceof Error
-            ? failure.message
-            : 'Could not refresh customers. Try again.';
-        publish({...state, refreshError: message});
-        toasts.error({
-          id: 'customer-refresh',
-          title: 'Could not refresh customers',
-          description: message,
-        });
-      }
-    } finally {
-      if (captured.generation === generation) {
-        publish({...state, refreshingCustomers: false});
-      }
-    }
-  }
-
-  async function transition(action: 'create' | 'open' | 'restore' | 'retry') {
-    if (!client || state.phase !== 'ready') {
-      return unavailable;
-    }
-
-    if (
-      state.pendingTransition ||
-      state.refreshingCustomers ||
-      state.reconciling ||
-      protectionRequest ||
-      protection.getState().frozen
-    ) {
-      return busy;
-    }
-
-    const attempt = generation;
-    publish({...state, pendingTransition: true, error: null});
-    try {
-      return await serialize(async () => {
-        if (attempt !== generation) {
-          return obsolete;
-        }
-
-        const result = await client!.database[action]();
-        if (attempt !== generation) {
-          return obsolete;
-        }
-
-        if (result.status === 'success') {
-          acceptDatabase(result.value);
-          publish({...state, recoveryRequired: false, error: null});
-        }
-
-        return result;
-      });
-    } finally {
-      if (attempt === generation) {
-        publish({...state, pendingTransition: false});
-        flushSessionChange();
-      }
-    }
-  }
-
-  async function fileAction(
-    action: 'create' | 'open' | 'retry' | 'restore' | 'backup' | 'export'
-  ) {
-    if (
-      state.pendingFile ||
-      state.refreshingCustomers ||
-      state.pendingTransition ||
-      state.phase !== 'ready' ||
-      protection.getState().frozen ||
-      protection.getState().saving ||
-      state.reconciling
-    ) {
-      return;
-    }
-
-    const attempt = generation;
-    notifications.close('database-feedback');
-
-    publish({...state, pendingFile: action});
-    try {
-      const session = state.database?.session;
-      const result =
-        action === 'backup' || action === 'export'
-          ? await serialize(async () => {
-              if (
-                !session ||
-                !client ||
-                !isCurrentSession(session) ||
-                state.recoveryRequired
-              ) {
-                return unavailable;
-              }
-
-              const result =
-                action === 'backup'
-                  ? await client.database.backup({session})
-                  : await client.exports.csv({session});
-              if (attempt !== generation || !isCurrentSession(session)) {
-                return obsolete;
-              }
-
-              if (
-                result.status === 'error' &&
-                (result.error.code === 'STALE_SESSION' ||
-                  result.error.code === 'DATABASE_UNAVAILABLE')
-              ) {
-                await reconcile();
-                if (attempt !== generation || !isCurrentSession(session)) {
-                  return obsolete;
-                }
-              }
-
-              return result;
-            })
-          : await transition(action);
-      if (attempt !== generation) {
-        return;
-      }
-
-      if (result.status === 'error') {
-        toasts.error({
-          id: 'database-feedback',
-          title:
-            result.error.code === 'BUSY'
-              ? 'Another operation is in progress. Try again when it finishes.'
-              : result.error.message,
-        });
-      } else if (result.status === 'success') {
-        const destination = 'path' in result.value ? ` ${result.value.path}` : '';
-        toasts.success({
-          id: 'database-feedback',
-          title: `${action === 'create' ? 'Database created.' : action === 'open' || action === 'retry' ? 'Database opened.' : action === 'restore' ? 'Database restored.' : action === 'backup' ? 'Backup saved.' : 'Customers exported.'}${destination}`,
-        });
-      }
-    } catch {
-      if (attempt === generation) {
-        toasts.error({
-          id: 'database-feedback',
-          title:
-            'The operation could not finish. Check the file and folder permissions, then try again.',
-        });
-      }
-    } finally {
-      if (attempt === generation) {
-        publish({...state, pendingFile: null});
-        flushSessionChange();
-      }
-    }
-  }
-
-  function dispose() {
-    generation++;
-    notifications.close('database-feedback');
-    notifications.close('customer-refresh');
-
-    stopState?.();
-    stopProtection?.();
-    stopState = stopProtection = null;
-    protectionRequest = null;
-    protection.dispose();
-    pendingSessionChange = null;
-    reconcilePromise = null;
-    searches.clear();
-    publish({
-      ...state,
-      phase: 'loading',
-      pendingFile: null,
-      refreshingCustomers: false,
-      refreshError: null,
-      pendingTransition: false,
-      reconciling: false,
-    });
-  }
-
-  async function start() {
-    dispose();
-    const attempt = generation;
-    if (mode === 'unavailable') {
-      publish({...state, phase: 'error'});
-      return;
-    }
-
-    publish({
-      ...state,
-      phase: 'loading',
-      error: null,
-      pendingTransition: false,
-      reconciling: false,
-    });
-    try {
-      client ??=
-        mode === 'live'
-          ? getClient()
-          : createPreviewClient(protection.confirmPreviewDiscard);
-      stopState = client.database.onStateChanged(database => {
-        if (attempt === generation) {
-          acceptDatabase(database);
-        }
-      });
-      stopProtection = client.drafts.registerProtection({
-        prepare: async request => {
-          if (protectionRequest) {
-            throw new Error('Another preparation is active.');
+            return result.value;
+          }),
+        record => {
+          if (attempt !== coordinator.generation || !isCurrentSession(target.session)) {
+            throw new CancelledError({silent: true});
           }
 
-          protectionRequest = request;
-          return protection.prepare(request);
-        },
-        resolve: resolution => {
-          if (
-            protectionRequest?.requestId !== resolution.requestId ||
-            protectionRequest.documentId !== resolution.documentId
-          ) {
+          commit(record);
+          queryClient.removeQueries({queryKey: ['customers', target.session, 'list']});
+        }
+      );
+    });
+  }
+
+  function refreshCustomers() {
+    return Effect.gen(function* () {
+      const session = state.database?.session;
+      const draft = protection.getState();
+      if (
+        !session ||
+        !isCurrentSession(session) ||
+        state.recoveryRequired ||
+        state.pendingFile ||
+        state.pendingTransition ||
+        state.reconciling ||
+        state.refreshingCustomers ||
+        draft.frozen ||
+        draft.saving ||
+        protection.isDirty()
+      ) {
+        return;
+      }
+
+      const captured = {generation: coordinator.generation, session};
+      function current() {
+        return (
+          captured.generation === coordinator.generation &&
+          isCurrentSession(captured.session)
+        );
+      }
+
+      publish({...state, refreshingCustomers: true, refreshError: null});
+      notifications.close('customer-refresh');
+      return yield* Effect.gen(function* () {
+        const filter = {queryKey: customerKeys.session(session)};
+        yield* nativePromise(() => queryClient.cancelQueries(filter));
+        yield* nativePromise(() =>
+          queryClient.invalidateQueries({...filter, refetchType: 'none'})
+        );
+        let failure: unknown;
+        for (const query of queryClient
+          .getQueryCache()
+          .findAll({...filter, type: 'active'})) {
+          if (!current()) {
             return;
           }
 
-          protection.resolve(resolution);
-          protectionRequest = null;
-          if (resolution.outcome === 'committed') {
-            flushSessionChange();
-          } else {
-            pendingSessionChange = null;
+          yield* nativePromise(() =>
+            queryClient.refetchQueries(
+              {queryKey: query.queryKey, exact: true, type: 'active'},
+              {throwOnError: true}
+            )
+          ).pipe(
+            Effect.catchCause(cause =>
+              Effect.sync(() => {
+                failure ??= Cause.squash(cause);
+              })
+            )
+          );
+        }
+
+        if (!current()) {
+          return;
+        }
+
+        for (const listener of refreshListeners) {
+          if (!current()) {
+            return;
           }
-        },
-      });
-      const result = await client.database.status();
-      if (attempt !== generation) {
+
+          yield* nativePromise(listener).pipe(
+            Effect.catchCause(cause =>
+              Effect.sync(() => {
+                failure ??= Cause.squash(cause);
+              })
+            )
+          );
+        }
+
+        if (failure) {
+          throw failure;
+        }
+      }).pipe(
+        Effect.catchCause(cause =>
+          Effect.sync(() => {
+            const failure = Cause.squash(cause);
+            if (current()) {
+              const message =
+                failure instanceof Error
+                  ? failure.message
+                  : 'Could not refresh customers. Try again.';
+              publish({...state, refreshError: message});
+              toasts.error({
+                id: 'customer-refresh',
+                title: 'Could not refresh customers',
+                description: message,
+              });
+            }
+          })
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (captured.generation === coordinator.generation) {
+              publish({...state, refreshingCustomers: false});
+            }
+          })
+        )
+      );
+    });
+  }
+
+  function transition(action: 'create' | 'open' | 'restore' | 'retry') {
+    return Effect.gen(function* () {
+      if (!client || state.phase !== 'ready') {
+        return unavailable;
+      }
+
+      if (
+        state.pendingTransition ||
+        state.refreshingCustomers ||
+        state.reconciling ||
+        protectionRequest ||
+        protection.getState().frozen
+      ) {
+        return busy;
+      }
+
+      const attempt = coordinator.generation;
+      publish({...state, pendingTransition: true, error: null});
+      return yield* serialize(
+        Effect.gen(function* () {
+          if (attempt !== coordinator.generation) {
+            return obsolete;
+          }
+
+          const result = yield* nativePromise(() => client!.database[action]());
+          if (attempt !== coordinator.generation) {
+            return obsolete;
+          }
+
+          if (result.status === 'success') {
+            acceptDatabase(result.value);
+            publish({...state, recoveryRequired: false, error: null});
+          }
+
+          return result;
+        })
+      ).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (attempt === coordinator.generation) {
+              publish({...state, pendingTransition: false});
+              flushSessionChange();
+            }
+          })
+        )
+      );
+    });
+  }
+
+  function fileAction(
+    action: 'create' | 'open' | 'retry' | 'restore' | 'backup' | 'export'
+  ) {
+    return Effect.gen(function* () {
+      if (
+        state.pendingFile ||
+        state.refreshingCustomers ||
+        state.pendingTransition ||
+        state.phase !== 'ready' ||
+        protection.getState().frozen ||
+        protection.getState().saving ||
+        state.reconciling
+      ) {
         return;
       }
 
-      if (result.status !== 'success') {
-        throw new Error(
-          result.status === 'error' ? result.error.message : 'Startup was cancelled.'
-        );
+      const attempt = coordinator.generation;
+      notifications.close('database-feedback');
+
+      publish({...state, pendingFile: action});
+      return yield* Effect.gen(function* () {
+        const session = state.database?.session;
+        const result =
+          action === 'backup' || action === 'export'
+            ? yield* serialize(
+                Effect.gen(function* () {
+                  if (
+                    !session ||
+                    !client ||
+                    !isCurrentSession(session) ||
+                    state.recoveryRequired
+                  ) {
+                    return unavailable;
+                  }
+
+                  const result =
+                    action === 'backup'
+                      ? yield* nativePromise(() => client!.database.backup({session}))
+                      : yield* nativePromise(() => client!.exports.csv({session}));
+                  if (attempt !== coordinator.generation || !isCurrentSession(session)) {
+                    return obsolete;
+                  }
+
+                  if (
+                    result.status === 'error' &&
+                    (result.error.code === 'STALE_SESSION' ||
+                      result.error.code === 'DATABASE_UNAVAILABLE')
+                  ) {
+                    yield* reconcile();
+                    if (
+                      attempt !== coordinator.generation ||
+                      !isCurrentSession(session)
+                    ) {
+                      return obsolete;
+                    }
+                  }
+
+                  return result;
+                })
+              )
+            : yield* transition(action);
+        if (attempt !== coordinator.generation) {
+          return;
+        }
+
+        if (result.status === 'error') {
+          toasts.error({
+            id: 'database-feedback',
+            title:
+              result.error.code === 'BUSY'
+                ? 'Another operation is in progress. Try again when it finishes.'
+                : result.error.message,
+          });
+        } else if (result.status === 'success') {
+          const destination = 'path' in result.value ? ` ${result.value.path}` : '';
+          toasts.success({
+            id: 'database-feedback',
+            title: `${action === 'create' ? 'Database created.' : action === 'open' || action === 'retry' ? 'Database opened.' : action === 'restore' ? 'Database restored.' : action === 'backup' ? 'Backup saved.' : 'Customers exported.'}${destination}`,
+          });
+        }
+      }).pipe(
+        Effect.catchCause(() =>
+          Effect.sync(() => {
+            if (attempt === coordinator.generation) {
+              toasts.error({
+                id: 'database-feedback',
+                title:
+                  'The operation could not finish. Check the file and folder permissions, then try again.',
+              });
+            }
+          })
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (attempt === coordinator.generation) {
+              publish({...state, pendingFile: null});
+              flushSessionChange();
+            }
+          })
+        )
+      );
+    });
+  }
+
+  function dispose() {
+    return Effect.gen(function* () {
+      coordinator.generation++;
+      notifications.close('database-feedback');
+      notifications.close('customer-refresh');
+
+      yield* Scope.close(coordinator.scope, Exit.void);
+      coordinator.scope = Scope.makeUnsafe();
+      protectionRequest = null;
+      protection.dispose();
+      pendingSessionChange = null;
+      coordinator.reconciliation = null;
+      coordinator.searches.clear();
+      publish({
+        ...state,
+        phase: 'loading',
+        pendingFile: null,
+        refreshingCustomers: false,
+        refreshError: null,
+        pendingTransition: false,
+        reconciling: false,
+      });
+    });
+  }
+
+  function start() {
+    return Effect.gen(function* () {
+      yield* dispose();
+      const attempt = coordinator.generation;
+      if (mode === 'unavailable') {
+        publish({...state, phase: 'error'});
+        return;
       }
 
-      acceptDatabase(result.value);
-      publish({...state, phase: 'ready', recoveryRequired: false});
-    } catch {
-      if (attempt === generation) {
-        publish({
-          ...state,
-          phase: 'error',
-          error: 'Could not connect to the application. Try again.',
+      publish({
+        ...state,
+        phase: 'loading',
+        error: null,
+        pendingTransition: false,
+        reconciling: false,
+      });
+      return yield* Effect.gen(function* () {
+        client ??=
+          mode === 'live'
+            ? getClient()
+            : createPreviewClient(protection.confirmPreviewDiscard);
+        const stopState = client.database.onStateChanged(database => {
+          if (attempt === coordinator.generation) {
+            acceptDatabase(database);
+          }
         });
-      }
-    }
+        yield* Scope.addFinalizer(coordinator.scope, Effect.sync(stopState));
+        const stopProtection = client.drafts.registerProtection({
+          prepare: request =>
+            runRenderer(
+              Effect.suspend(() => {
+                if (protectionRequest) {
+                  throw new Error('Another preparation is active.');
+                }
+
+                protectionRequest = request;
+                return protection.effects.prepare(request);
+              })
+            ),
+          resolve: resolution => {
+            if (
+              protectionRequest?.requestId !== resolution.requestId ||
+              protectionRequest.documentId !== resolution.documentId
+            ) {
+              return;
+            }
+
+            protection.resolve(resolution);
+            protectionRequest = null;
+            if (resolution.outcome === 'committed') {
+              flushSessionChange();
+            } else {
+              pendingSessionChange = null;
+            }
+          },
+        });
+        yield* Scope.addFinalizer(coordinator.scope, Effect.sync(stopProtection));
+        const result = yield* nativePromise(() => client!.database.status());
+        if (attempt !== coordinator.generation) {
+          return;
+        }
+
+        if (result.status !== 'success') {
+          throw new Error(
+            result.status === 'error' ? result.error.message : 'Startup was cancelled.'
+          );
+        }
+
+        acceptDatabase(result.value);
+        publish({...state, phase: 'ready', recoveryRequired: false});
+      }).pipe(
+        Effect.catchCause(() =>
+          Effect.sync(() => {
+            if (attempt === coordinator.generation) {
+              publish({
+                ...state,
+                phase: 'error',
+                error: 'Could not connect to the application. Try again.',
+              });
+            }
+          })
+        )
+      );
+    });
   }
 
   return {
@@ -675,10 +757,10 @@ export function createApplication(
     getClient: () => client,
     isCurrentSession,
     captureSession(session: string) {
-      const attempt = generation;
+      const attempt = coordinator.generation;
       return {
         session,
-        isCurrent: () => attempt === generation && isCurrentSession(session),
+        isCurrent: () => attempt === coordinator.generation && isCurrentSession(session),
       };
     },
     request,
@@ -692,95 +774,120 @@ export function createApplication(
         token && protection.isNavigationReadCurrent(token)
           ? () => protection.isNavigationReadCurrent(token)
           : undefined;
-      return coordinatedRequest(session, operation, scope, admitted);
+      return runRenderer(coordinatedRequest(session, operation, scope, admitted));
     },
-    async commitImport(session: string, importId: string) {
-      if (
-        state.pendingFile ||
-        state.refreshingCustomers ||
-        state.pendingTransition ||
-        state.reconciling ||
-        protectionRequest ||
-        protection.getState().frozen ||
-        protection.getState().saving
-      ) {
-        return busy;
-      }
-
-      const attempt = generation;
-      publish({...state, pendingFile: 'importSaving'});
-      try {
-        return await serialize(async () => {
-          if (!client || !isCurrentSession(session) || state.recoveryRequired) {
-            return unavailable;
-          }
-
-          const result = await client.imports.commit({session, importId});
-          if (attempt !== generation || !isCurrentSession(session)) {
-            return obsolete;
-          }
-
+    commitImport(session: string, importId: string) {
+      return runRenderer(
+        Effect.gen(function* () {
           if (
-            result.status === 'error' &&
-            (result.error.code === 'STALE_SESSION' ||
-              result.error.code === 'DATABASE_UNAVAILABLE')
+            state.pendingFile ||
+            state.refreshingCustomers ||
+            state.pendingTransition ||
+            state.reconciling ||
+            protectionRequest ||
+            protection.getState().frozen ||
+            protection.getState().saving
           ) {
-            await reconcile();
-            if (attempt !== generation || !isCurrentSession(session)) {
-              return obsolete;
-            }
+            return busy;
           }
 
-          return result;
-        });
-      } finally {
-        if (attempt === generation) {
-          publish({...state, pendingFile: null});
-          flushSessionChange();
-        }
-      }
-    },
-    async prepareImport() {
-      const session = state.database?.session;
-      if (
-        !session ||
-        state.pendingFile ||
-        state.refreshingCustomers ||
-        protection.getState().frozen ||
-        protection.getState().saving
-      ) {
-        return busy;
-      }
+          const attempt = coordinator.generation;
+          publish({...state, pendingFile: 'importSaving'});
+          return yield* serialize(
+            Effect.gen(function* () {
+              if (!client || !isCurrentSession(session) || state.recoveryRequired) {
+                return unavailable;
+              }
 
-      const attempt = generation;
-      publish({...state, pendingFile: 'import'});
-      try {
-        return await serialize(async () => {
-          if (!client || !isCurrentSession(session)) {
-            return unavailable;
+              const result = yield* nativePromise(() =>
+                client!.imports.commit({session, importId})
+              );
+              if (attempt !== coordinator.generation || !isCurrentSession(session)) {
+                return obsolete;
+              }
+
+              if (
+                result.status === 'error' &&
+                (result.error.code === 'STALE_SESSION' ||
+                  result.error.code === 'DATABASE_UNAVAILABLE')
+              ) {
+                yield* reconcile();
+                if (attempt !== coordinator.generation || !isCurrentSession(session)) {
+                  return obsolete;
+                }
+              }
+
+              return result;
+            })
+          ).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                if (attempt === coordinator.generation) {
+                  publish({...state, pendingFile: null});
+                  flushSessionChange();
+                }
+              })
+            )
+          );
+        })
+      );
+    },
+    prepareImport() {
+      return runRenderer(
+        Effect.gen(function* () {
+          const session = state.database?.session;
+          if (
+            !session ||
+            state.pendingFile ||
+            state.refreshingCustomers ||
+            protection.getState().frozen ||
+            protection.getState().saving
+          ) {
+            return busy;
           }
 
-          const result = await client.imports.prepare({session});
-          return attempt === generation && isCurrentSession(session) ? result : obsolete;
-        });
-      } finally {
-        if (attempt === generation) {
-          publish({...state, pendingFile: null});
-          flushSessionChange();
-        }
-      }
+          const attempt = coordinator.generation;
+          publish({...state, pendingFile: 'import'});
+          return yield* serialize(
+            Effect.gen(function* () {
+              if (!client || !isCurrentSession(session)) {
+                return unavailable;
+              }
+
+              const result = yield* nativePromise(() =>
+                client!.imports.prepare({session})
+              );
+              return attempt === coordinator.generation && isCurrentSession(session)
+                ? result
+                : obsolete;
+            })
+          ).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                if (attempt === coordinator.generation) {
+                  publish({...state, pendingFile: null});
+                  flushSessionChange();
+                }
+              })
+            )
+          );
+        })
+      );
     },
-    fileAction,
-    refreshCustomers,
+    fileAction: (action: Parameters<typeof fileAction>[0]) =>
+      runRenderer(fileAction(action)),
+    refreshCustomers: () => runRenderer(refreshCustomers()),
     onCustomersRefreshed(listener: () => Promise<void>) {
       refreshListeners.add(listener);
       return () => {
         refreshListeners.delete(listener);
       };
     },
-    reloadCustomer,
-    transition,
-    reconcile,
+    reloadCustomer: (target: CustomerTarget, commit: (record: CustomerRecord) => void) =>
+      runRenderer(reloadCustomer(target, commit)),
+    transition: (action: Parameters<typeof transition>[0]) =>
+      runRenderer(transition(action)),
+    reconcile: () => runRenderer(reconcile()),
     subscribe(this: void, listener: () => void) {
       listeners.add(listener);
       return () => {
@@ -793,8 +900,8 @@ export function createApplication(
         sessionListeners.delete(listener);
       };
     },
-    start,
-    dispose,
+    start: () => runRenderer(start()),
+    dispose: () => Effect.runSync(dispose()),
   };
 }
 

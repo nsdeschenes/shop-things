@@ -583,3 +583,146 @@ test('saved-file failures cannot paint a replacement session accepted during rec
   expect(f.application.getState().pendingFile).toBeNull();
   f.application.dispose();
 });
+
+test('a rejected request preserves the original failure and releases the renderer permit', async () => {
+  const f = fixture();
+  await f.application.start();
+  const failure = new Error('Native transport failed');
+  const release = deferred<void>();
+  const started = deferred<void>();
+  let calls = 0;
+  const first = f.application.request('one', async () => {
+    calls++;
+    started.resolve();
+    await release.promise;
+    throw failure;
+  });
+  const rejected = first.catch(error => error);
+  await started.promise;
+  const second = f.application.request('one', async () => {
+    calls++;
+    return {status: 'success', value: 'next'};
+  });
+  release.resolve();
+  expect(await rejected).toBe(failure);
+  expect(await second).toEqual({status: 'success', value: 'next'});
+  expect(calls).toBe(2);
+  f.application.dispose();
+});
+
+test('disposal drains a sent write, drops queued reads and releases subscriptions before restart', async () => {
+  const f = fixture();
+  await f.application.start();
+  const started = deferred<void>();
+  const release = deferred<void>();
+  let committed = false;
+  const write = f.application.request('one', async () => {
+    started.resolve();
+    await release.promise;
+    committed = true;
+    return {status: 'success'};
+  });
+  await started.promise;
+  let queuedCalls = 0;
+  const oldRead = f.application.read('one', async () => {
+    queuedCalls++;
+    return {status: 'success'};
+  });
+  f.application.dispose();
+  expect(f.subscriptions()).toBe(0);
+  expect(f.getProtection()).toBeNull();
+  await f.application.start();
+  expect(f.subscriptions()).toBe(1);
+  const currentRead = f.application.read('one', async () => {
+    queuedCalls++;
+    return {status: 'success', value: 'current'};
+  });
+  expect(committed).toBe(false);
+  expect(queuedCalls).toBe(0);
+  release.resolve();
+  expect(await write).toEqual({status: 'obsolete'});
+  expect(committed).toBe(true);
+  expect(await oldRead).toEqual({status: 'obsolete'});
+  expect(await currentRead).toEqual({status: 'success', value: 'current'});
+  expect(queuedCalls).toBe(1);
+  expect(f.application.getState().phase).toBe('ready');
+  f.application.dispose();
+  f.application.dispose();
+  expect(f.subscriptions()).toBe(0);
+});
+
+test('reconciliation shares a failing attempt and permits a later recovery', async () => {
+  const f = fixture();
+  await f.application.start();
+  const release = deferred<void>();
+  const failure = new Error('Status transport failed');
+  let calls = 0;
+  f.client.database.status = async () => {
+    calls++;
+    await release.promise;
+    throw failure;
+  };
+
+  const first = f.application.reconcile();
+  const second = f.application.reconcile();
+  const failures = Promise.all([
+    first.catch(error => error),
+    second.catch(error => error),
+  ]);
+  expect(calls).toBe(1);
+  release.resolve();
+  expect(await failures).toEqual([failure, failure]);
+  expect(f.application.getState()).toMatchObject({
+    reconciling: false,
+    recoveryRequired: true,
+  });
+  f.client.database.status = async () => ({status: 'success', value: f.first});
+  await f.application.reconcile();
+  expect(f.application.getState().recoveryRequired).toBe(false);
+  f.application.dispose();
+});
+
+test('a startup registration failure leaves the acquired subscription owned until disposal', async () => {
+  const f = fixture();
+  f.client.drafts.registerProtection = () => {
+    throw new Error('Registration failed');
+  };
+
+  await f.application.start();
+  expect(f.application.getState()).toMatchObject({
+    phase: 'error',
+    error: 'Could not connect to the application. Try again.',
+  });
+  expect(f.subscriptions()).toBe(1);
+  f.application.dispose();
+  expect(f.subscriptions()).toBe(0);
+  f.application.dispose();
+  expect(f.subscriptions()).toBe(0);
+});
+
+test('same-turn search coalescing happens before the first native dispatch', async () => {
+  const f = fixture();
+  await f.application.start();
+  const calls: string[] = [];
+  const first = f.application.read(
+    'one',
+    async () => {
+      calls.push('first');
+      return {status: 'success'};
+    },
+    {coalesceKey: 'list'}
+  );
+  const second = f.application.read(
+    'one',
+    async () => {
+      calls.push('second');
+      return {status: 'success'};
+    },
+    {coalesceKey: 'list'}
+  );
+  expect(calls).toEqual([]);
+  expect(await first).toEqual({status: 'obsolete'});
+  expect(await second).toEqual({status: 'success'});
+  expect(calls).toEqual(['second']);
+  f.application.dispose();
+});
