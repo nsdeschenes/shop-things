@@ -690,9 +690,14 @@ export class Backend {
   }
 
   private drain(): Effect.Effect<void> {
-    return Effect.suspend(() =>
-      this.owned.admission ? Deferred.await(this.owned.admission.idle) : Effect.void
-    );
+    return Effect.suspend(() => {
+      const admission = this.owned.admission;
+      return Effect.callback<void>(resume => {
+        queueMicrotask(() =>
+          resume(admission ? Deferred.await(admission.idle) : Effect.void)
+        );
+      });
+    });
   }
 
   private lifecycle<T>(

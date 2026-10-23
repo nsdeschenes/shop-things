@@ -225,3 +225,28 @@ test('an immediately failing action retains admission through the same turn', as
     await f.cleanup();
   }
 });
+
+test.each(['close', 'reload', 'unprotected'] as const)(
+  'idle %s retains lifecycle admission through the same turn',
+  async kind => {
+    const f = await fixture();
+    f.choices.create = null;
+    try {
+      const closing = {
+        close: () => f.service.requestClose(),
+        reload: () => f.service.requestReload(() => {}),
+        unprotected: () => f.service.closeUnprotectedWhenIdle(),
+      }[kind]();
+      expect(await f.service.handlers['database.create']()).toMatchObject({
+        status: 'error',
+        error: {code: 'BUSY'},
+      });
+      await closing;
+      expect(await f.service.handlers['database.create']()).toEqual({
+        status: 'cancelled',
+      });
+    } finally {
+      await f.cleanup();
+    }
+  }
+);
