@@ -77,17 +77,16 @@ export class FileTelemetrySettings {
     const parsed = telemetryConfigurationSchema
       .extend({dsn: telemetryDsnSchemaForEnvironment(this.environment).nullable()})
       .parse(configuration);
-    const settings = this;
     return Effect.runPromise(
       this.writes.withPermit(
-        Effect.gen(function* () {
+        Effect.gen({self: this}, function* () {
           yield* Effect.tryPromise({
-            try: () => mkdir(dirname(settings.settingsPath), {recursive: true}),
+            try: () => mkdir(dirname(this.settingsPath), {recursive: true}),
             catch: error => error,
           });
-          const temporary = `${settings.settingsPath}.${randomUUID()}.tmp`;
+          const temporary = `${this.settingsPath}.${randomUUID()}.tmp`;
           const written = yield* Effect.exit(
-            Effect.gen(function* () {
+            Effect.gen({self: this}, function* () {
               yield* Effect.tryPromise({
                 try: () =>
                   writeFile(temporary, JSON.stringify(parsed), {
@@ -97,10 +96,10 @@ export class FileTelemetrySettings {
                 catch: error => error,
               });
               yield* Effect.tryPromise({
-                try: () => rename(temporary, settings.settingsPath),
+                try: () => rename(temporary, this.settingsPath),
                 catch: error => error,
               });
-              settings.saved = parsed;
+              this.saved = parsed;
             })
           );
           yield* Effect.tryPromise({
@@ -108,7 +107,7 @@ export class FileTelemetrySettings {
             catch: error => error,
           });
           yield* written;
-          return settings.status();
+          return this.status();
         }).pipe(Effect.uninterruptible)
       )
     );
