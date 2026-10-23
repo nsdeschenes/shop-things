@@ -15,12 +15,14 @@ import {
   telemetryDsnSchemaForEnvironment,
   telemetrySamplingSchema,
 } from '@shop-things/contract/schemas';
+import * as Effect from 'effect/Effect';
+import * as Semaphore from 'effect/Semaphore';
 
 export class FileTelemetrySettings {
   readonly startupDsn: string | null;
   readonly startupSampling: Readonly<TelemetrySampling>;
   private saved: TelemetryConfiguration;
-  private writes: Promise<unknown> = Promise.resolve();
+  private readonly writes = Semaphore.makeUnsafe(1);
 
   constructor(
     private readonly settingsPath: string,
@@ -75,23 +77,40 @@ export class FileTelemetrySettings {
     const parsed = telemetryConfigurationSchema
       .extend({dsn: telemetryDsnSchemaForEnvironment(this.environment).nullable()})
       .parse(configuration);
-    const write = this.writes.then(async () => {
-      await mkdir(dirname(this.settingsPath), {recursive: true});
-      const temporary = `${this.settingsPath}.${randomUUID()}.tmp`;
-      try {
-        await writeFile(temporary, JSON.stringify(parsed), {
-          flag: 'wx',
-          mode: 0o600,
-        });
-        await rename(temporary, this.settingsPath);
-        this.saved = parsed;
-      } finally {
-        await rm(temporary, {force: true});
-      }
-
-      return this.status();
-    });
-    this.writes = write.catch(() => {});
-    return write;
+    const settings = this;
+    return Effect.runPromise(
+      this.writes.withPermit(
+        Effect.gen(function* () {
+          yield* Effect.tryPromise({
+            try: () => mkdir(dirname(settings.settingsPath), {recursive: true}),
+            catch: error => error,
+          });
+          const temporary = `${settings.settingsPath}.${randomUUID()}.tmp`;
+          const written = yield* Effect.exit(
+            Effect.gen(function* () {
+              yield* Effect.tryPromise({
+                try: () =>
+                  writeFile(temporary, JSON.stringify(parsed), {
+                    flag: 'wx',
+                    mode: 0o600,
+                  }),
+                catch: error => error,
+              });
+              yield* Effect.tryPromise({
+                try: () => rename(temporary, settings.settingsPath),
+                catch: error => error,
+              });
+              settings.saved = parsed;
+            })
+          );
+          yield* Effect.tryPromise({
+            try: () => rm(temporary, {force: true}),
+            catch: error => error,
+          });
+          yield* written;
+          return settings.status();
+        }).pipe(Effect.uninterruptible)
+      )
+    );
   }
 }

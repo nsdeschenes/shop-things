@@ -270,6 +270,9 @@ importers:
 
   packages/electron:
     dependencies:
+      '@sentry/effect':
+        specifier: 11.4.0
+        version: 11.4.0(@babel/core@7.29.7(supports-color@8.1.1))(effect@4.0.6)
       '@sentry/electron':
         specifier: 8.1.0
         version: 8.1.0(@babel/core@7.29.7(supports-color@8.1.1))
@@ -1737,6 +1740,12 @@ packages:
   '@sentry/core@11.4.0':
     resolution: {integrity: sha512-kAhK8XVJuzu1IKx9uSu04OISxTU9BcIyDVOWbY/ATUCYr5Z6L7GRBtOGOlYCbxEuPtdZCw5TrbphnBsyO9fuTA==}
     engines: {node: '>=20.19.0 <22.0.0 || >=22.12.0 <23.0.0 || >=23.2.0'}
+
+  '@sentry/effect@11.4.0':
+    resolution: {integrity: sha512-XjldksXuRkSLOD0l9+OCClXnFNir224qVYj9rzLtfYmwitG2JwGtfIL5HcKdf20jVPw1GNhqqk2BIOcgMJ+PrA==}
+    engines: {node: '>=20.19.0 <22.0.0 || >=22.12.0 <23.0.0 || >=23.2.0'}
+    peerDependencies:
+      effect: ^3.0.0 || ^4.0.0
 
   '@sentry/electron@8.1.0':
     resolution: {integrity: sha512-yoqvA+7ttMXVXa9BdVLEoKLyz6Yl4XG6tMICXTNLA5WONnEFv9zUFdfn3DkJb3IBTYdVPwtBCkpo7r3VrWuQwQ==}
@@ -5587,6 +5596,18 @@ snapshots:
   '@sentry/core@11.4.0':
     dependencies:
       '@sentry/conventions': 0.25.0
+
+  '@sentry/effect@11.4.0(@babel/core@7.29.7(supports-color@8.1.1))(effect@4.0.6)':
+    dependencies:
+      '@sentry/browser': 11.4.0
+      '@sentry/conventions': 0.25.0
+      '@sentry/core': 11.4.0
+      '@sentry/node': 11.4.0(@babel/core@7.29.7(supports-color@8.1.1))
+      effect: 4.0.6
+    transitivePeerDependencies:
+      - '@babel/core'
+      - rollup
+      - webpack
 
   '@sentry/electron@8.1.0(@babel/core@7.29.7(supports-color@8.1.1))':
     dependencies:
