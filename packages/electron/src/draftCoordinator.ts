@@ -2,6 +2,9 @@ import {randomUUID} from 'node:crypto';
 
 import type {DraftRequest, DraftResolution} from '@shop-things/contract';
 import {draftReplySchema} from '@shop-things/contract/schemas';
+import {Deferred, Effect, Exit} from 'effect';
+
+import {runBoundary} from './effectBoundary.js';
 
 export interface DraftParticipant {
   documentId: string;
@@ -19,9 +22,7 @@ interface PendingPreparation {
   participant: DraftParticipant;
   request: DraftRequest;
   replied: boolean;
-  complete(hasUnsavedDraft: boolean): void;
-  fail(error: Error): void;
-  timer: ReturnType<typeof setTimeout>;
+  reply: Deferred.Deferred<boolean, Error>;
 }
 
 export class DraftCoordinator {
@@ -61,49 +62,66 @@ export class DraftCoordinator {
     }
 
     pending.replied = true;
-    clearTimeout(pending.timer);
-    pending.complete(reply.hasUnsavedDraft);
+    Deferred.doneUnsafe(pending.reply, Effect.succeed(reply.hasUnsavedDraft));
     return true;
   }
 
-  async prepare(): Promise<DraftLease> {
-    const participant = this.participant;
-    if (!participant || this.pending) {
-      throw new Error('The current editor cannot prepare a protected transition');
-    }
+  prepare(): Promise<DraftLease> {
+    return runBoundary(this.prepareEffect());
+  }
 
-    const request = {requestId: randomUUID(), documentId: participant.documentId};
-    let pending!: PendingPreparation;
-    const hasUnsavedDraft = await new Promise<boolean>((complete, fail) => {
-      pending = {
-        participant,
-        request,
-        replied: false,
-        complete,
-        fail,
-        timer: setTimeout(() => {
-          this.abort();
-        }, this.timeoutMs),
-      };
-      this.pending = pending;
-      try {
-        participant.prepare(request);
-      } catch {
-        this.abort();
-      }
-    });
-
-    return {
-      hasUnsavedDraft,
-      assertCurrent: () => {
-        if (this.pending !== pending) {
-          throw new Error('The prepared editor document changed');
+  prepareEffect(): Effect.Effect<DraftLease, Error> {
+    return Effect.uninterruptibleMask(restore =>
+      Effect.gen({self: this}, function* () {
+        const participant = this.participant;
+        if (!participant || this.pending) {
+          return yield* Effect.fail(
+            new Error('The current editor cannot prepare a protected transition')
+          );
         }
-      },
-      finish: outcome => {
-        this.finish(pending, outcome);
-      },
-    };
+
+        const pending: PendingPreparation = {
+          participant,
+          request: {requestId: randomUUID(), documentId: participant.documentId},
+          replied: false,
+          reply: Deferred.makeUnsafe<boolean, Error>(),
+        };
+        this.pending = pending;
+        try {
+          participant.prepare(pending.request);
+        } catch {
+          this.abort();
+        }
+
+        const waiting = Deferred.await(pending.reply).pipe(
+          Effect.timeoutOrElse({
+            duration: this.timeoutMs,
+            orElse: () =>
+              Effect.sync(() => {
+                this.abort();
+              }).pipe(Effect.andThen(Deferred.await(pending.reply))),
+          })
+        );
+        const hasUnsavedDraft = yield* restore(waiting).pipe(
+          Effect.onExit(exit =>
+            Effect.sync(() => {
+              if (Exit.isFailure(exit) && this.pending === pending) {
+                this.abort();
+              }
+            })
+          )
+        );
+        return {
+          hasUnsavedDraft,
+          assertCurrent: () => {
+            if (this.pending !== pending) {
+              throw new Error('The prepared editor document changed');
+            }
+          },
+          finish: outcome => this.finish(pending, outcome),
+        };
+      })
+    );
   }
 
   private abort(): void {
@@ -112,7 +130,10 @@ export class DraftCoordinator {
       return;
     }
 
-    pending.fail(new Error('The editor did not complete draft preparation'));
+    Deferred.doneUnsafe(
+      pending.reply,
+      Effect.fail(new Error('The editor did not complete draft preparation'))
+    );
     this.finish(pending, 'aborted');
   }
 
@@ -122,12 +143,8 @@ export class DraftCoordinator {
     }
 
     this.pending = null;
-    clearTimeout(pending.timer);
-
     try {
       pending.participant.resolve({...pending.request, outcome});
-    } catch {
-      /* The document may already be gone. */
-    }
+    } catch {}
   }
 }

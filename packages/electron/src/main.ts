@@ -1,9 +1,10 @@
 import {dirname, join} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 
+import * as databaseOperations from '@shop-things/db/effect';
 import {app, BrowserWindow, ipcMain, Menu, dialog} from 'electron';
 
-import {ActionService, databaseOperations} from './actionService.js';
+import {ActionService} from './actionService.js';
 import {isTrustedRendererUrl, trackAuthorizedDocument} from './document.js';
 import {DraftCoordinator} from './draftCoordinator.js';
 import {registerIpc} from './ipc.js';
@@ -183,47 +184,47 @@ void app
 
     const drafts = new DraftCoordinator();
     service = new ActionService({
-      database: {
+      effectDatabase: {
         createDatabase: (path, options) =>
-          telemetry.phase('database.createDatabase', () =>
+          telemetry.phaseEffect('database.createDatabase', () =>
             databaseOperations.createDatabase(path, {
               ...options,
               ...telemetry.databaseOptions,
             })
           ),
         openExistingDatabase: (path, options) =>
-          telemetry.phase('database.openExistingDatabase', () =>
+          telemetry.phaseEffect('database.openExistingDatabase', () =>
             databaseOperations.openExistingDatabase(path, {
               ...options,
               ...telemetry.databaseOptions,
             })
           ),
         listCustomers: (...args) =>
-          telemetry.phase('database.listCustomers', () =>
+          telemetry.phaseEffect('database.listCustomers', () =>
             databaseOperations.listCustomers(...args)
           ),
         getCustomer: (...args) =>
-          telemetry.phase('database.getCustomer', () =>
+          telemetry.phaseEffect('database.getCustomer', () =>
             databaseOperations.getCustomer(...args)
           ),
         createCustomer: (...args) =>
-          telemetry.phase('database.createCustomer', () =>
+          telemetry.phaseEffect('database.createCustomer', () =>
             databaseOperations.createCustomer(...args)
           ),
         updateCustomer: (...args) =>
-          telemetry.phase('database.updateCustomer', () =>
+          telemetry.phaseEffect('database.updateCustomer', () =>
             databaseOperations.updateCustomer(...args)
           ),
         deleteCustomer: (...args) =>
-          telemetry.phase('database.deleteCustomer', () =>
+          telemetry.phaseEffect('database.deleteCustomer', () =>
             databaseOperations.deleteCustomer(...args)
           ),
         importCustomerBatch: (...args) =>
-          telemetry.phase('database.importCustomerBatch', () =>
+          telemetry.phaseEffect('database.importCustomerBatch', () =>
             databaseOperations.importCustomerBatch(...args)
           ),
         backupDatabase: (...args) =>
-          telemetry.phase('database.backupDatabase', () =>
+          telemetry.phaseEffect('database.backupDatabase', () =>
             databaseOperations.backupDatabase(...args)
           ),
       },
@@ -233,6 +234,7 @@ void app
         : join(dirname(fileURLToPath(import.meta.url)), '../../db/migrations'),
       dialogs: createNativeDialogs(() => window),
       phase: telemetry.phase,
+      effectPhase: telemetry.phaseEffect,
       drafts,
       logError,
     });

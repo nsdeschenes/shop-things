@@ -1,18 +1,4 @@
-import {randomUUID} from 'node:crypto';
-import {constants} from 'node:fs';
-import {copyFile} from 'node:fs/promises';
-import {resolve} from 'node:path';
-
-import type {
-  ImportReview,
-  ActionHandlers,
-  ActionResults,
-  ContractError,
-  CustomerRecord,
-  DatabaseState,
-  ErrorCode,
-  UpdateCustomerInput,
-} from '@shop-things/contract';
+import type {ActionHandlers, DatabaseState} from '@shop-things/contract';
 import {
   createDatabase,
   openExistingDatabase,
@@ -22,21 +8,14 @@ import {
   importCustomerBatch,
   updateCustomer,
   deleteCustomer,
-  DatabaseError,
   backupDatabase,
 } from '@shop-things/db';
-import type {CustomerChanges, CustomerData, DatabaseHandle} from '@shop-things/db';
+import type {DatabaseFailure} from '@shop-things/db/effect';
+import {Effect} from 'effect';
 
-import {readCustomerImport} from './customerImport.js';
-import {numberCustomerImportRows} from './customerImportNumbers.js';
-import type {DraftCoordinator, DraftLease} from './draftCoordinator.js';
-import {
-  copyBackup,
-  removeDatabaseFile,
-  temporaryPath,
-  writeCustomerCsv,
-} from './files.js';
-import {matchCustomerImportRows, summarizeCustomerImport} from './importMatches.js';
+import {Backend} from './backend.js';
+import type {DraftCoordinator} from './draftCoordinator.js';
+import {native, runBoundary} from './effectBoundary.js';
 import type {DatabaseSettings} from './settings.js';
 
 export interface BackendDialogs {
@@ -64,863 +43,98 @@ export const databaseOperations = {
 
 export type DatabaseOperations = typeof databaseOperations;
 
-type Outcome<T> =
-  | {status: 'success'; value: T}
-  | Exclude<ActionResults['database.status'], {status: 'success'}>;
-
-class ActionError extends Error {
-  constructor(
-    readonly code: ErrorCode,
-    message: string
-  ) {
-    super(message);
-  }
-}
-
-function definedChanges(changes: UpdateCustomerInput): CustomerChanges {
-  return {
-    ...(changes.firstName !== undefined ? {firstName: changes.firstName} : {}),
-    ...(changes.lastName !== undefined ? {lastName: changes.lastName} : {}),
-    ...(changes.address !== undefined ? {address: changes.address} : {}),
-    ...(changes.city !== undefined ? {city: changes.city} : {}),
-    ...(changes.province !== undefined ? {province: changes.province} : {}),
-    ...(changes.postalCode !== undefined ? {postalCode: changes.postalCode} : {}),
-    ...(changes.phone !== undefined ? {phone: changes.phone} : {}),
-    ...(changes.email !== undefined ? {email: changes.email} : {}),
-    ...(changes.stock !== undefined ? {stock: changes.stock} : {}),
-    ...(changes.balance !== undefined ? {balance: changes.balance} : {}),
-    ...(changes.previousBalance !== undefined
-      ? {previousBalance: changes.previousBalance}
-      : {}),
-    ...(changes.donate !== undefined ? {donate: changes.donate} : {}),
-    ...(changes.comments !== undefined ? {comments: changes.comments} : {}),
-    ...(changes.customerNumber !== undefined
-      ? {customerNumber: changes.customerNumber}
-      : {}),
-  };
-}
+export type EffectDatabaseOperations = {
+  [K in keyof DatabaseOperations]: (
+    ...args: Parameters<DatabaseOperations[K]>
+  ) => Effect.Effect<Awaited<ReturnType<DatabaseOperations[K]>>, DatabaseFailure>;
+};
 
 export interface ActionServiceOptions {
   migrationsFolder: string;
   settings: DatabaseSettings;
   dialogs: BackendDialogs;
   database?: DatabaseOperations;
+  effectDatabase?: EffectDatabaseOperations;
   logError?: (error: unknown) => void;
   drafts?: DraftCoordinator;
   phase?: <T>(name: string, work: () => T) => T;
+  effectPhase?: <A, E, R>(
+    name: string,
+    work: () => Effect.Effect<A, E, R>
+  ) => Effect.Effect<A, E, R>;
 }
+
+type CloseOutcome = Effect.Success<ReturnType<Backend['requestClose']>>;
 
 export class ActionService {
   readonly handlers: Omit<ActionHandlers, 'telemetry.status' | 'telemetry.save'>;
-  private readonly database: DatabaseOperations;
-  private readonly imports = new Map<string, ImportReview>();
-  private active: DatabaseHandle | null = null;
-  private state: DatabaseState = {
-    available: false,
-    selectedPath: null,
-    session: null,
-    version: 0,
-  };
-  private readonly listeners = new Set<(state: DatabaseState) => void>();
-  private busy = false;
-  private activeOperation: Promise<void> | null = null;
-  private closePending = false;
+  readonly effectHandlers: Backend['handlers'];
+  private readonly backend: Backend;
+  private pendingClose: Promise<CloseOutcome> | null = null;
   private pendingUnprotectedClose: Promise<void> | null = null;
-  private pendingClose: Promise<Outcome<{closed: true}>> | null = null;
 
-  constructor(private readonly options: ActionServiceOptions) {
-    this.database = options.database ?? databaseOperations;
-    this.handlers = {
-      'imports.commit': args =>
-        this.admit(async () => {
-          const handle = this.requireSession(args.session);
-          const review = this.imports.get(args.importId);
-          if (!review || review.session !== args.session) {
-            throw new ActionError(
-              'STALE_SESSION',
-              'This import expired. Choose the file again.'
-            );
-          }
+  constructor(options: ActionServiceOptions) {
+    this.backend = new Backend(options);
+    const handlers: Record<string, (...args: unknown[]) => Promise<unknown>> = {};
+    const effects: Record<
+      string,
+      (...args: unknown[]) => Effect.Effect<unknown, unknown>
+    > = {};
+    for (const [name, handler] of Object.entries(this.backend.handlers)) {
+      const original = (...args: unknown[]) =>
+        runBoundary(Reflect.apply(handler, this.backend.handlers, args));
+      handlers[name] = original;
+      effects[name] = (...args: unknown[]) =>
+        Effect.suspend(() =>
+          handlers[name] === original
+            ? Reflect.apply(handler, this.backend.handlers, args)
+            : native(() => handlers[name]!(...args))
+        );
+    }
 
-          if (
-            review.status !== 'ready' ||
-            !review.choicesResolved ||
-            review.includedCount === 0
-          ) {
-            throw new ActionError(
-              'VALIDATION',
-              'Resolve every possible match before adding customers.'
-            );
-          }
-
-          let revised = this.recheckImport(
-            review,
-            await this.database.listCustomers(handle.db)
-          );
-          if (JSON.stringify(revised) !== JSON.stringify(review)) {
-            this.imports.set(review.importId, revised);
-            return {kind: 'changed' as const, review: structuredClone(revised)};
-          }
-
-          if ((await this.backup(args.session)) === null) {
-            return null;
-          }
-
-          this.requireSession(args.session);
-          const added = await this.database.importCustomerBatch(handle.db, saved => {
-            revised = this.recheckImport(review, saved);
-            if (JSON.stringify(revised) !== JSON.stringify(review)) {
-              return null;
-            }
-
-            return revised.rows
-              .filter(row => row.choice === 'include' || row.choice === 'add')
-              .map(row => {
-                if (row.assignedCustomerNumber === null) {
-                  throw new ActionError(
-                    'VALIDATION',
-                    'Every included customer needs a number.'
-                  );
-                }
-
-                return {...row.values, customerNumber: row.assignedCustomerNumber};
-              });
-          });
-          if (added === null) {
-            this.imports.set(review.importId, revised);
-            return {kind: 'changed' as const, review: structuredClone(revised)};
-          }
-
-          // Consume before publishing success, including when a renderer loses its reply.
-          this.imports.delete(review.importId);
-          return {
-            kind: 'committed' as const,
-            session: args.session,
-            addedCount: added.length,
-            skippedCount: review.skippedCount,
-          };
-        }),
-      'imports.prepare': args =>
-        this.admit(async () => {
-          this.requireSession(args.session);
-          const path = await this.options.dialogs.importCsv();
-          if (path === null) {
-            return null;
-          }
-
-          this.requireSession(args.session);
-          const parsed = await this.phase('import.read', () =>
-            readCustomerImport(path, args.session)
-          );
-          const saved =
-            parsed.status === 'ready'
-              ? await this.database.listCustomers(this.requireSession(args.session).db)
-              : [];
-          const review = this.finalizeImport(
-            {
-              ...parsed,
-              ...this.phase('import.match', () =>
-                matchCustomerImportRows(parsed.rows, saved)
-              ),
-            },
-            saved
-          );
-          this.imports.set(review.importId, review);
-          return structuredClone(review);
-        }),
-      'imports.review': args =>
-        this.admit(async () => {
-          this.requireSession(args.session);
-          const review = this.imports.get(args.importId);
-          if (!review || review.session !== args.session) {
-            throw new ActionError(
-              'STALE_SESSION',
-              'This import expired. Choose the file again.'
-            );
-          }
-
-          return structuredClone(review);
-        }),
-      'imports.resolve': args =>
-        this.admit(async () => {
-          this.requireSession(args.session);
-          const review = this.imports.get(args.importId);
-          if (!review || review.session !== args.session) {
-            throw new ActionError(
-              'STALE_SESSION',
-              'This import expired. Choose the file again.'
-            );
-          }
-
-          const row = review.rows.find(item => item.recordNumber === args.recordNumber);
-          if (
-            review.status !== 'ready' ||
-            !row ||
-            (!row.matches.length &&
-              !row.collisionFields?.length &&
-              row.choice === 'include')
-          ) {
-            throw new ActionError(
-              'VALIDATION',
-              'Edit contact details or choose Add anyway or Skip only for a flagged record.'
-            );
-          }
-
-          const saved = await this.database.listCustomers(
-            this.requireSession(args.session).db
-          );
-          const updated =
-            'choice' in args
-              ? this.finalizeImport(
-                  {
-                    ...review,
-                    rows: review.rows.map(item =>
-                      item === row ? {...item, choice: args.choice} : item
-                    ),
-                  },
-                  saved
-                )
-              : this.recheckImport(
-                  {
-                    ...review,
-                    rows: review.rows.map(item =>
-                      item === row
-                        ? {
-                            ...item,
-                            values: {...item.values, [args.field]: args.value},
-                            editedFields: [
-                              ...new Set([...(item.editedFields ?? []), args.field]),
-                            ],
-                          }
-                        : item
-                    ),
-                  },
-                  saved,
-                  row.recordNumber
-                );
-          this.imports.set(review.importId, updated);
-          return structuredClone(updated);
-        }),
-      'database.status': async () => ({status: 'success', value: this.status()}),
-      'database.retry': () =>
-        this.admit(() => this.transition(lease => this.retry(lease))),
-      'database.create': () =>
-        this.admit(() => this.transition(lease => this.select('create', lease))),
-      'database.open': () =>
-        this.admit(() => this.transition(lease => this.select('open', lease))),
-      'customers.list': args =>
-        this.admit(async () => {
-          const handle = this.requireSession(args.session);
-          return (await this.database.listCustomers(handle.db, args.query)).map(row =>
-            this.record(row)
-          );
-        }),
-      'customers.get': args =>
-        this.admit(async () => {
-          const row = await this.database.getCustomer(
-            this.requireSession(args.session).db,
-            args.id
-          );
-          if (!row) {
-            throw new ActionError(
-              'CUSTOMER_DELETED',
-              'This customer no longer exists. Reload the list.'
-            );
-          }
-
-          return this.record(row);
-        }),
-      'customers.create': args =>
-        this.admit(async () =>
-          this.record(
-            await this.database.createCustomer(
-              this.requireSession(args.session).db,
-              args.values
-            )
-          )
-        ),
-      'customers.update': args =>
-        this.admit(async () =>
-          this.record(
-            await this.database.updateCustomer(
-              this.requireSession(args.reference.session).db,
-              args.reference,
-              definedChanges(args.changes)
-            )
-          )
-        ),
-      'customers.delete': args =>
-        this.admit(async () => {
-          await this.database.deleteCustomer(
-            this.requireSession(args.reference.session).db,
-            args.reference
-          );
-          return {deleted: true as const};
-        }),
-      'database.backup': args => this.admit(() => this.backup(args.session)),
-      'database.restore': () =>
-        this.admit(() => this.transition(lease => this.restore(lease))),
-      'exports.csv': args => this.admit(() => this.exportCsv(args.session)),
-      'drafts.confirmDiscard': async () => {
-        try {
-          return (await this.options.dialogs.confirmDiscard())
-            ? {status: 'success', value: {approved: true}}
-            : {status: 'cancelled'};
-        } catch (error) {
-          return {status: 'error', error: this.safeError(error)};
-        }
-      },
-    };
+    this.handlers = handlers as typeof this.handlers;
+    this.effectHandlers = effects as typeof this.effectHandlers;
   }
 
   status(): DatabaseState {
-    return structuredClone(this.state);
+    return this.backend.status();
   }
-
   onStateChanged(callback: (state: DatabaseState) => void): () => void {
-    this.listeners.add(callback);
-    return () => {
-      this.listeners.delete(callback);
-    };
+    return this.backend.onStateChanged(callback);
   }
-
-  async start(): Promise<void> {
-    // Cold startup runs before any renderer/document exists. Public recovery calls
-    // always use the protected transition path once the application is running.
-    await this.admit(() => this.retry());
+  start(): Promise<void> {
+    return runBoundary(this.backend.start());
   }
-
   closeUnprotected(): void {
-    if (this.busy) {
-      throw new Error('Wait for the current database operation');
-    }
-
-    this.active?.close();
-    this.active = null;
-    this.publish({
-      available: false,
-      selectedPath: this.state.selectedPath,
-      session: null,
-    });
+    this.backend.closeUnprotected();
   }
-
-  // Placeholder application shutdown: wait for work without activating renderer draft hooks.
   closeUnprotectedWhenIdle(): Promise<void> {
     if (this.pendingUnprotectedClose) {
       return this.pendingUnprotectedClose;
     }
 
-    this.closePending = true;
-    this.pendingUnprotectedClose = (async () => {
-      await this.activeOperation;
-      this.closeUnprotected();
-    })().finally(() => {
-      this.closePending = false;
+    this.pendingUnprotectedClose = runBoundary(
+      this.backend.closeUnprotectedWhenIdle()
+    ).finally(() => {
       this.pendingUnprotectedClose = null;
     });
     return this.pendingUnprotectedClose;
   }
-
-  async requestReload(
-    scheduleReload: () => void | Promise<void>
-  ): Promise<Outcome<{reloaded: true}>> {
-    if (this.closePending) {
-      return {
-        status: 'error',
-        error: {
-          code: 'BUSY',
-          message:
-            'A protected lifecycle operation is already running. Try again when it finishes.',
-        },
-      };
-    }
-
-    this.closePending = true;
-    try {
-      await this.activeOperation;
-      const reloaded = await this.transition(async lease => {
-        lease?.assertCurrent();
-        // Schedule replacement after the correlated committed resolution is delivered.
-        const scheduled = scheduleReload();
-        lease?.finish('committed');
-        // Keep lifecycle admission closed until the scheduled replacement begins.
-        await scheduled;
-        return {reloaded: true as const};
-      }, true);
-      return reloaded === null
-        ? {status: 'cancelled'}
-        : {status: 'success', value: reloaded};
-    } catch (error) {
-      return {status: 'error', error: this.safeError(error)};
-    } finally {
-      this.closePending = false;
-    }
-  }
-
-  requestClose(): Promise<Outcome<{closed: true}>> {
+  requestClose(): Promise<CloseOutcome> {
     if (this.pendingClose) {
       return this.pendingClose;
     }
 
-    if (this.closePending) {
-      return Promise.resolve({
-        status: 'error',
-        error: {
-          code: 'BUSY',
-          message:
-            'A protected lifecycle operation is already running. Try again when it finishes.',
-        },
-      });
+    if (this.backend.lifecyclePending) {
+      return runBoundary(this.backend.requestClose());
     }
 
-    this.closePending = true;
-    this.pendingClose = this.closeProtected().finally(() => {
-      this.closePending = false;
+    this.pendingClose = runBoundary(this.backend.requestClose()).finally(() => {
       this.pendingClose = null;
     });
     return this.pendingClose;
   }
-
-  private async closeProtected(): Promise<Outcome<{closed: true}>> {
-    try {
-      await this.activeOperation;
-      const closed = await this.transition(async lease => {
-        lease?.assertCurrent();
-        this.closeUnprotected();
-        return {closed: true as const};
-      }, true);
-      return closed === null ? {status: 'cancelled'} : {status: 'success', value: closed};
-    } catch (error) {
-      return {status: 'error', error: this.safeError(error)};
-    }
-  }
-
-  private async transition<T>(
-    work: (lease?: DraftLease) => Promise<T | null>,
-    closing = false
-  ): Promise<T | null> {
-    if (!this.active && !closing && !this.options.drafts) {
-      return work();
-    }
-
-    if (!this.options.drafts) {
-      throw new ActionError(
-        'DATABASE_UNAVAILABLE',
-        'Protected draft coordination is unavailable. Keep the application open.'
-      );
-    }
-
-    const lease = await this.options.drafts.prepare();
-    let committed = false;
-    try {
-      if (lease.hasUnsavedDraft && !(await this.options.dialogs.confirmDiscard())) {
-        return null;
-      }
-
-      lease.assertCurrent();
-      const value = await work(lease);
-      committed = value !== null;
-      return value;
-    } finally {
-      lease.finish(committed ? 'committed' : 'aborted');
-    }
-  }
-
-  private async exportCsv(session: string): Promise<{path: string} | null> {
-    const handle = this.requireSession(session);
-    const selected = await this.options.dialogs.exportCsv();
-    if (selected === null) {
-      return null;
-    }
-
-    const path = resolve(selected);
-    const customers = await this.database.listCustomers(handle.db);
-    await this.phase('export.write', () => writeCustomerCsv(path, customers));
-    return {path};
-  }
-
-  private recheckImport(
-    review: ImportReview,
-    saved: CustomerData[],
-    editedRecordNumber?: number
-  ): ImportReview {
-    const matched = matchCustomerImportRows(review.rows, saved);
-    function signatures(groups: ImportReview['matchGroups']) {
-      return new Map(
-        groups.map(group => [
-          group.id,
-          JSON.stringify([
-            group.reason,
-            group.targets
-              .map(target =>
-                target.kind === 'csv'
-                  ? `csv:${target.recordNumber}`
-                  : `customer:${target.id}`
-              )
-              .sort(),
-          ]),
-        ])
-      );
-    }
-
-    const previousMatches = signatures(review.matchGroups);
-    const currentMatches = signatures(matched.matchGroups);
-    return this.finalizeImport(
-      {
-        ...review,
-        ...matched,
-        rows: matched.rows.map((row, index) => {
-          const previous = review.rows[index]!;
-          if (row.recordNumber === editedRecordNumber) {
-            return {...row, choice: 'unresolved'};
-          }
-
-          if (editedRecordNumber !== undefined && !row.matches.length) {
-            // Editing one record does not confirm the other record on the user's behalf.
-            if (previous.choice === 'unresolved' || previous.choice === 'skip') {
-              return {...row, choice: previous.choice};
-            }
-          }
-
-          const unchanged =
-            row.matches.length === previous.matches.length &&
-            row.matches.every(id => previousMatches.get(id) === currentMatches.get(id));
-          return unchanged ? {...row, choice: previous.choice} : row;
-        }),
-      },
-      saved
-    );
-  }
-
-  private finalizeImport(review: ImportReview, saved: CustomerData[]): ImportReview {
-    const updated = summarizeCustomerImport(review);
-    const savedNumbers = saved.map(customer => customer.customerNumber);
-    const planned = numberCustomerImportRows(
-      updated.rows,
-      savedNumbers,
-      new Set(
-        updated.rows
-          .filter(row => row.choice === 'include' || row.choice === 'add')
-          .map(row => row.recordNumber)
-      )
-    );
-    const proposed = updated.rows.some(
-      row => row.choice === 'unresolved' && !row.matches.length
-    )
-      ? numberCustomerImportRows(
-          updated.rows,
-          savedNumbers,
-          new Set(
-            updated.rows.filter(row => row.choice !== 'skip').map(row => row.recordNumber)
-          )
-        )
-      : null;
-    return {
-      ...updated,
-      numberChangeCount: planned.numberChangeCount,
-      rows: planned.rows.map((row, index) => ({
-        ...row,
-        proposedCustomerNumber:
-          row.choice === 'unresolved' && !row.matches.length
-            ? (proposed?.rows[index]?.assignedCustomerNumber ?? undefined)
-            : undefined,
-      })),
-    };
-  }
-
-  private async backup(session: string): Promise<{path: string} | null> {
-    const handle = this.requireSession(session);
-    const selected = await this.options.dialogs.backupDatabase(this.state.selectedPath!);
-    if (selected === null) {
-      return null;
-    }
-
-    const path = resolve(selected);
-    const temporary = temporaryPath(path);
-    try {
-      await this.database.backupDatabase(handle.db, temporary);
-      await copyFile(temporary, path, constants.COPYFILE_EXCL);
-    } finally {
-      await removeDatabaseFile(temporary);
-    }
-
-    return {path};
-  }
-
-  private async restore(lease?: DraftLease): Promise<DatabaseState | null> {
-    const source = await this.options.dialogs.restoreSource();
-    if (source === null) {
-      return null;
-    }
-
-    const destination = await this.options.dialogs.restoreDestination();
-    if (destination === null) {
-      return null;
-    }
-
-    const path = resolve(destination);
-    await this.phase('restore.copy', () => copyBackup(resolve(source), path));
-    try {
-      await this.prepareCandidate(path, false, lease);
-    } catch (error) {
-      await removeDatabaseFile(path);
-      throw error;
-    }
-
-    return this.status();
-  }
-
-  private record(row: CustomerData): CustomerRecord {
-    const {revision, ...customer} = row;
-    if (!this.state.session) {
-      throw new ActionError('DATABASE_UNAVAILABLE', 'Choose a database first.');
-    }
-
-    return {customer, reference: {session: this.state.session, id: row.id, revision}};
-  }
-
-  private requireSession(session: string): DatabaseHandle {
-    if (!this.active) {
-      throw new ActionError(
-        'DATABASE_UNAVAILABLE',
-        'Create or open a customer database first.'
-      );
-    }
-
-    if (this.state.session !== session) {
-      throw new ActionError(
-        'STALE_SESSION',
-        'The selected database changed. Reload the customer list.'
-      );
-    }
-
-    return this.active;
-  }
-
-  private publish(next: Omit<DatabaseState, 'version'>): void {
-    this.state = {...next, version: this.state.version + 1};
-    for (const listener of this.listeners) {
-      try {
-        listener(this.status());
-      } catch (error) {
-        this.options.logError?.(error);
-      }
-    }
-  }
-
-  private safeError(error: unknown): ContractError {
-    if (error instanceof ActionError) {
-      return {code: error.code, message: error.message};
-    }
-
-    if (error instanceof DatabaseError) {
-      switch (error.code) {
-        case 'NOT_FOUND':
-          return {
-            code: 'CUSTOMER_DELETED',
-            message: 'This customer no longer exists. Reload the list.',
-          };
-        case 'STALE_CUSTOMER':
-          return {
-            code: 'STALE_REVISION',
-            message: 'This customer changed. Reload before editing.',
-          };
-        case 'VALIDATION':
-        case 'CUSTOMER_NUMBER_CONFLICT':
-        case 'MONEY_PRECISION':
-          return {code: 'VALIDATION', message: error.message};
-        case 'READ_ONLY':
-          return {
-            code: 'DATABASE_UNAVAILABLE',
-            message: 'The database is read-only. Choose a writable copy.',
-          };
-        case 'UNSUPPORTED_DATABASE':
-          return {
-            code: 'DATABASE_UNAVAILABLE',
-            message:
-              'Choose a supported Shop Things database. Legacy or unrelated files cannot be opened.',
-          };
-      }
-    }
-
-    if (error instanceof Error && 'code' in error) {
-      if (error.code === 'EEXIST') {
-        return {
-          code: 'DATABASE_UNAVAILABLE',
-          message:
-            'A file already exists at this destination. Choose another name or location.',
-        };
-      }
-
-      if (error.code === 'EACCES' || error.code === 'EROFS' || error.code === 'ENOENT') {
-        return {
-          code: 'DATABASE_UNAVAILABLE',
-          message:
-            'The file could not be saved. Choose a writable folder and a new filename, then try again.',
-        };
-      }
-    }
-
-    this.options.logError?.(error);
-    return {
-      code: 'INTERNAL',
-      message:
-        'The operation failed. Check the file and folder permissions, then try again.',
-    };
-  }
-
-  private phase<T>(name: string, work: () => T): T {
-    return this.options.phase ? this.options.phase(name, work) : work();
-  }
-
-  private async admit<T>(work: () => Promise<T | null>): Promise<Outcome<T>> {
-    if (this.busy || this.closePending) {
-      return {
-        status: 'error',
-        error: {
-          code: 'BUSY',
-          message: 'Another operation is running. Please try again when it finishes.',
-        },
-      };
-    }
-
-    this.busy = true;
-    let release!: () => void;
-    this.activeOperation = new Promise<void>(done => {
-      release = done;
-    });
-
-    try {
-      const value = await work();
-      return value === null ? {status: 'cancelled'} : {status: 'success', value};
-    } catch (error) {
-      return {status: 'error', error: this.safeError(error)};
-    } finally {
-      this.busy = false;
-      this.activeOperation = null;
-      release();
-    }
-  }
-  private async retry(lease?: DraftLease): Promise<DatabaseState> {
-    try {
-      const path = await this.options.settings.read();
-      if (!path) {
-        return this.status();
-      }
-
-      if (!this.active) {
-        this.state = {...this.state, selectedPath: path};
-      }
-
-      await this.prepareCandidate(path, false, lease);
-      return this.status();
-    } catch (error) {
-      const safe = this.safeError(error);
-      const recoveryError =
-        safe.code === 'INTERNAL'
-          ? {
-              code: 'DATABASE_UNAVAILABLE' as const,
-              message:
-                'The remembered database could not be opened. Retry or choose Create/Open.',
-            }
-          : safe;
-      if (!this.active) {
-        this.publish({
-          available: false,
-          selectedPath: this.state.selectedPath,
-          session: null,
-          recoveryError,
-        });
-      }
-
-      throw new ActionError(recoveryError.code, recoveryError.message);
-    }
-  }
-
-  private async select(
-    kind: 'create' | 'open',
-    lease?: DraftLease
-  ): Promise<DatabaseState | null> {
-    const path = await (kind === 'create'
-      ? this.options.dialogs.createDatabase()
-      : this.options.dialogs.openDatabase());
-    if (path === null) {
-      return null;
-    }
-
-    try {
-      await this.prepareCandidate(resolve(path), kind === 'create', lease);
-      return this.status();
-    } catch (error) {
-      if (!this.active) {
-        this.publish({
-          available: false,
-          selectedPath: this.state.selectedPath,
-          session: null,
-          recoveryError: this.safeError(error),
-        });
-      }
-
-      throw error;
-    }
-  }
-
-  private async prepareCandidate(
-    path: string,
-    creation: boolean,
-    lease?: DraftLease
-  ): Promise<void> {
-    let candidate: DatabaseHandle | null = null;
-    try {
-      const open = creation
-        ? this.database.createDatabase
-        : this.database.openExistingDatabase;
-      candidate = await open(path, {migrationsFolder: this.options.migrationsFolder});
-      lease?.assertCurrent();
-      await this.options.settings.write(path);
-      try {
-        lease?.assertCurrent();
-      } catch (error) {
-        if (this.state.selectedPath) {
-          await this.options.settings.write(this.state.selectedPath);
-        }
-
-        throw error;
-      }
-    } catch (error) {
-      candidate?.close();
-      if (error instanceof DatabaseError) {
-        throw error;
-      }
-
-      if (
-        creation &&
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        error.code === 'EEXIST'
-      ) {
-        throw new ActionError(
-          'DATABASE_UNAVAILABLE',
-          'A file already exists at this destination. Choose another name or location.'
-        );
-      }
-
-      this.options.logError?.(error);
-      throw new ActionError(
-        'DATABASE_UNAVAILABLE',
-        'The database could not be selected. Check the file and folder permissions, then retry.'
-      );
-    }
-
-    const superseded = this.active;
-    this.active = candidate;
-    this.imports.clear();
-    this.publish({available: true, selectedPath: path, session: randomUUID()});
-    try {
-      superseded?.close();
-    } catch (error) {
-      this.options.logError?.(error);
-    }
+  requestReload(scheduleReload: () => void | Promise<void>) {
+    return runBoundary(this.backend.requestReload(scheduleReload));
   }
 }
