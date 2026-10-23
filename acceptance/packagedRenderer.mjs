@@ -36,6 +36,7 @@ const report = {
   status: 'running',
   startedAt: new Date().toISOString(),
   target,
+  sandboxDisabled: process.env.SHOP_THINGS_ACCEPTANCE_NO_SANDBOX === 'true',
   command: process.argv,
   evidence: supporting
     ? 'unsigned macOS arm64 packaged renderer supporting automation'
@@ -100,7 +101,12 @@ async function launch(readyButton = 'Database settings') {
   delete env.VITE_DEV_SERVER_URL;
   application = await _electron.launch({
     executablePath,
-    args: [`--user-data-dir=${userData}`],
+    args: [
+      `--user-data-dir=${userData}`,
+      ...(process.env.SHOP_THINGS_ACCEPTANCE_NO_SANDBOX === 'true'
+        ? ['--no-sandbox']
+        : []),
+    ],
     env,
     timeout: 30_000,
   });
@@ -340,7 +346,13 @@ try {
   );
   const isolation = spawnSync(
     localElectron,
-    [join(root, 'acceptance/packagedIsolation.cjs'), `--user-data-dir=${userData}`],
+    [
+      join(root, 'acceptance/packagedIsolation.cjs'),
+      `--user-data-dir=${userData}`,
+      ...(process.env.SHOP_THINGS_ACCEPTANCE_NO_SANDBOX === 'true'
+        ? ['--no-sandbox']
+        : []),
+    ],
     {
       encoding: 'utf8',
       timeout: 15_000,

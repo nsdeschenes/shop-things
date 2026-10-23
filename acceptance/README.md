@@ -39,6 +39,11 @@ node --experimental-strip-types scripts/acceptance.ts --supporting-macos
 Set `ACCEPTANCE_REPORT_DIR` to an absolute report directory outside the checkout
 when retaining evidence independently. Run source tests, builds, renderer tests,
 packaging and watcher checks sequentially: they replace shared emitted outputs.
+On Linux hosts without a configured Electron sandbox helper or available user
+namespaces, set `SHOP_THINGS_ACCEPTANCE_NO_SANDBOX=true`. This explicit test option
+applies to renderer, packaged renderer, and watcher launches. The full acceptance,
+packaged renderer, and watcher reports record the override. These runs do not
+establish OS sandbox behavior.
 The runner refuses dirty sources, binds all reports to one commit, rejects skipped
 source/renderer checks, and verifies source restoration after watcher probes.
 Package smoke checks consume the existing build without rebuilding after packaging.

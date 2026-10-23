@@ -11,6 +11,9 @@ childProcess.spawn = (command, args, options) => {
       process.env.WATCHER_ENTRY,
       '--user-data-dir=' + process.env.WATCHER_DATA,
       '--remote-debugging-port=' + process.env.WATCHER_DEBUG_PORT,
+      ...(process.env.SHOP_THINGS_ACCEPTANCE_NO_SANDBOX === 'true'
+        ? ['--no-sandbox']
+        : []),
     ];
   }
 

@@ -42,6 +42,7 @@ const report = {
     arch: process.arch,
     os: release(),
     node: process.version,
+    sandboxDisabled: process.env.SHOP_THINGS_ACCEPTANCE_NO_SANDBOX === 'true',
     electron: createRequire(root + '/packages/electron/package.json')(
       'electron/package.json'
     ).version,
@@ -54,7 +55,11 @@ const control = join(directory, 'control.json');
 await writeFile(control, JSON.stringify({discard: false}));
 const isolation = spawnSync(
   electron,
-  [join(root, 'acceptance/watcherIsolation.cjs'), '--user-data-dir=' + directory],
+  [
+    join(root, 'acceptance/watcherIsolation.cjs'),
+    '--user-data-dir=' + directory,
+    ...(process.env.SHOP_THINGS_ACCEPTANCE_NO_SANDBOX === 'true' ? ['--no-sandbox'] : []),
+  ],
   {
     env: {...process.env, ELECTRON_RUN_AS_NODE: '', SHOP_THINGS_EXPECTED_DATA: directory},
     encoding: 'utf8',

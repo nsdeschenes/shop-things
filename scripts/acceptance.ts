@@ -30,6 +30,7 @@ const report: Record<string, unknown> = {
     os: release(),
     node: process.version,
     glibc: glibc ?? null,
+    sandboxDisabled: process.env.SHOP_THINGS_ACCEPTANCE_NO_SANDBOX === 'true',
     target: supporting
       ? 'darwin-arm64-supporting-unsigned'
       : `linux-${process.arch}-glibc`,
