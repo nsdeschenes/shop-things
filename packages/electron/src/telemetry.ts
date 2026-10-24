@@ -1,12 +1,8 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
 
-import {SentryEffectTracer} from '@sentry/effect/server';
+import {init as initializeTelemetry, SentryEffectTracer} from '@sentry/effect/server';
 import * as Sentry from '@sentry/electron/main';
-import {
-  init as initializeTelemetry,
-  dedupeIntegration,
-  linkedErrorsIntegration,
-} from '@sentry/node';
+import {dedupeIntegration, linkedErrorsIntegration} from '@sentry/node';
 import type {ActionName} from '@shop-things/contract';
 import {
   dataCollection,
