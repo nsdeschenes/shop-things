@@ -20,7 +20,8 @@
     "@sentry/electron": "8.1.0",
     "@sentry/node": "11.4.0",
     "@shop-things/contract": "workspace:*",
-    "@shop-things/db": "workspace:*"
+    "@shop-things/db": "workspace:*",
+    "effect": "4.0.6"
   },
   "devDependencies": {
     "@types/electron": "^1.6.12",

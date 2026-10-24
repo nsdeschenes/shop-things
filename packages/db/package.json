@@ -21,7 +21,8 @@
   },
   "dependencies": {
     "@tursodatabase/database": "0.7.2",
-    "drizzle-orm": "1.0.0-rc.4"
+    "drizzle-orm": "1.0.0-rc.4",
+    "effect": "4.0.6"
   },
   "devDependencies": {
     "@types/node": "^26",
