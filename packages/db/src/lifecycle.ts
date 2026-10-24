@@ -16,11 +16,13 @@ const initialMigration = '20260929093112_wealthy_hemingway';
 const integrityMigration = '20260929120000_customer_integrity';
 const phoneMigration = '20261001005150_rename_home_phone';
 const numberMigration = '20261006232551_required_customer_numbers';
+const searchMigration = '20261024000000_customer_search_index';
 const supportedMigrations = [
   initialMigration,
   integrityMigration,
   phoneMigration,
   numberMigration,
+  searchMigration,
 ];
 const expectedColumns = [
   'id',
@@ -158,9 +160,19 @@ export function recognizeDatabase(db: AppDatabase): Effect.Effect<void, Database
       )
     );
 
-    if (
-      tables.some(table => !['customers', '__drizzle_migrations'].includes(table.name))
-    ) {
+    const allowedTables = ['customers', '__drizzle_migrations'];
+    if (names.includes(searchMigration)) {
+      allowedTables.push(
+        'customers_search',
+        'customers_search_data',
+        'customers_search_idx',
+        'customers_search_content',
+        'customers_search_docsize',
+        'customers_search_config'
+      );
+    }
+
+    if (tables.some(table => !allowedTables.includes(table.name))) {
       throw new Error('Unrelated tables');
     }
   }).pipe(

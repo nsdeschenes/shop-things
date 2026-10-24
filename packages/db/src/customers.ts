@@ -65,7 +65,6 @@ export interface CustomerRevision {
 const decimalMoneyPattern = /^-?\d+(?:\.\d{1,2})?$/;
 const minusPattern = /^-/;
 const customerNumberPattern = /^\d+$/;
-const regexMetacharacters = /[.*+?^${}()|[\]\\]/g;
 
 function moneyCents(value: unknown): bigint {
   if (typeof value !== 'string' || !decimalMoneyPattern.test(value)) {
@@ -199,8 +198,8 @@ export function listCustomers(
 ): Effect.Effect<CustomerData[], DatabaseFailure> {
   return Effect.gen(function* () {
     const needle = query.trim();
-    // Turso REGEXP uses Unicode case folding; escape literal input before binding it.
-    const pattern = '(?i)' + needle.replace(regexMetacharacters, '\\$&');
+    // Quote the search term as an FTS5 phrase so special characters are treated literally.
+    const ftsPattern = '"' + needle.replace(/"/g, '""') + '"';
     const number =
       customerNumberPattern.test(needle) && Number.isSafeInteger(Number(needle))
         ? Number(needle)
@@ -211,7 +210,7 @@ export function listCustomers(
         .from(customers)
         .where(
           needle
-            ? sql`coalesce(${customers.firstName}, '') regexp ${pattern} or coalesce(${customers.lastName}, '') regexp ${pattern} or ${customers.customerNumber} = ${number}`
+            ? sql`${customers.id} in (select rowid from customers_search where customers_search match ${ftsPattern}) or ${customers.customerNumber} = ${number}`
             : undefined
         )
         .orderBy(customers.customerNumber, customers.id)

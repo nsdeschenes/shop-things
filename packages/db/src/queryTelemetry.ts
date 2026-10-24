@@ -103,6 +103,7 @@ const keywords = new Set([
   'LIKE',
   'GLOB',
   'REGEXP',
+  'MATCH',
   'BETWEEN',
   'DISTINCT',
   'DEFERRED',
@@ -407,6 +408,7 @@ class QueryShape {
           'LIKE',
           'GLOB',
           'REGEXP',
+          'MATCH',
         ].includes(next)
       ) {
         this.position += 1;
