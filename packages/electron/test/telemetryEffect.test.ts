@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
 import * as Sentry from '@sentry/electron/main';
-import {Cause, Effect, Exit} from 'effect';
+import {Cause, Effect, Exit, Metric} from 'effect';
 import {afterEach, assert, beforeEach, describe, expect, test, vi} from 'vitest';
 
 import {createMainTelemetry} from '../src/telemetry.js';
@@ -18,6 +18,7 @@ const privateErrorPattern =
 const collector = vi.hoisted(() => ({
   envelopes: new Array<Envelope>(),
   failTransport: false,
+  failMetric: false,
 }));
 
 vi.mock('electron', () => ({
@@ -25,22 +26,35 @@ vi.mock('electron', () => ({
   dialog: {showErrorBox: vi.fn()},
 }));
 
-vi.mock('@sentry/electron/main', async importOriginal => ({
-  ...(await importOriginal<typeof Sentry>()),
-  makeElectronTransport: () => {
-    if (collector.failTransport) {
-      throw new Error('transport initialization failed');
-    }
+vi.mock('@sentry/electron/main', async importOriginal => {
+  const original = await importOriginal<typeof Sentry>();
+  return {
+    ...original,
+    metrics: {
+      ...original.metrics,
+      count: (...args: Parameters<typeof Sentry.metrics.count>) => {
+        if (collector.failMetric) {
+          throw new Error('private-effect-export-error');
+        }
 
-    return {
-      send: async (envelope: Envelope) => {
-        collector.envelopes.push(structuredClone(envelope));
-        return {statusCode: 200};
+        return original.metrics.count(...args);
       },
-      flush: async () => true,
-    };
-  },
-}));
+    },
+    makeElectronTransport: () => {
+      if (collector.failTransport) {
+        throw new Error('transport initialization failed');
+      }
+
+      return {
+        send: async (envelope: Envelope) => {
+          collector.envelopes.push(structuredClone(envelope));
+          return {statusCode: 200};
+        },
+        flush: async () => true,
+      };
+    },
+  };
+});
 
 describe('main Effect telemetry', {concurrent: false}, () => {
   let directory: string;
@@ -49,6 +63,7 @@ describe('main Effect telemetry', {concurrent: false}, () => {
     await Sentry.close();
     collector.envelopes.length = 0;
     collector.failTransport = false;
+    collector.failMetric = false;
     directory = await mkdtemp(join(tmpdir(), 'shop-things-effect-telemetry-'));
     vi.stubEnv('SENTRY_USE_ENVIRONMENT', 'false');
   });
@@ -59,11 +74,14 @@ describe('main Effect telemetry', {concurrent: false}, () => {
     vi.unstubAllEnvs();
   });
 
-  async function telemetry(enabled = true) {
+  async function telemetry(
+    enabled = true,
+    sampling = {errors: 100, traces: 100, logs: 100, metrics: 100}
+  ) {
     const path = join(directory, 'telemetry.json');
     await writeFile(
       path,
-      JSON.stringify({dsn: enabled ? 'https://public@example.com/1' : null})
+      JSON.stringify({dsn: enabled ? 'https://public@example.com/1' : null, sampling})
     );
     return createMainTelemetry(
       new FileTelemetrySettings(path, undefined, 'production'),
@@ -78,6 +96,283 @@ describe('main Effect telemetry', {concurrent: false}, () => {
       )
     );
   }
+
+  interface Signal {
+    name?: string;
+    body?: string;
+    value?: number;
+    trace_id?: string;
+    span_id?: string;
+    attributes?: Record<string, {value: unknown}>;
+  }
+
+  function signals(type: 'log' | 'trace_metric') {
+    return collector.envelopes.flatMap(([, items]) =>
+      items.flatMap(([header, payload]) =>
+        header.type === type ? (payload as {items: Signal[]}).items : []
+      )
+    );
+  }
+
+  test('forwards approved Effect logs with severity and safe annotations without serializing private messages', async () => {
+    const main = await telemetry();
+    let serialized = false;
+    const privateMessage = {
+      toJSON() {
+        serialized = true;
+        throw new Error('private-effect-object');
+      },
+    };
+    await Effect.runPromise(
+      main.phaseEffect('database.listCustomers', () =>
+        Effect.gen(function* () {
+          yield* Effect.logWarning('Application lifecycle completed').pipe(
+            Effect.annotateLogs({
+              outcome: 'success',
+              firstName: 'private-effect-annotation',
+              stock: '91',
+            })
+          );
+          yield* Effect.logInfo('private-effect-message');
+          yield* Effect.logInfo(privateMessage);
+        })
+      )
+    );
+    await main.flush();
+
+    expect(serialized).toBe(false);
+    expect(signals('log')).toHaveLength(1);
+    expect(signals('log')[0]).toMatchObject({
+      body: 'Application lifecycle completed',
+      level: 'warn',
+      attributes: {
+        outcome: {value: 'success'},
+        'sentry.origin': {value: 'auto.log.effect'},
+      },
+    });
+    const payload = JSON.stringify(collector.envelopes);
+    expect(payload).not.toContain('private-effect-');
+    expect(signals('log')[0]?.attributes?.stock).toBeUndefined();
+  });
+
+  test('exports isolated Effect metrics once when a phase succeeds, fails or is interrupted', async () => {
+    const main = await telemetry();
+    const count = Metric.counter('application.action.count');
+    const duration = Metric.histogram('application.action.duration', {boundaries: []});
+    await Effect.runPromise(Metric.update(count, 999));
+    for (const outcome of ['success', 'failure', 'interrupt'] as const) {
+      const exit = await Effect.runPromiseExit(
+        main.phaseEffect('database.listCustomers', () =>
+          Effect.gen(function* () {
+            yield* Metric.update(count, 2);
+            yield* Metric.update(duration, 12.5);
+            yield* Metric.update(Metric.counter('private-effect-metric'), 1);
+            if (outcome === 'failure') {
+              return yield* Effect.fail('private-effect-failure');
+            }
+
+            if (outcome === 'interrupt') {
+              return yield* Effect.interrupt;
+            }
+          }).pipe(
+            Effect.provideService(Metric.CurrentMetricAttributes, {
+              action: 'customers.list',
+              outcome: 'success',
+              firstName: 'private-effect-metric-attribute',
+              stock: '91',
+            })
+          )
+        )
+      );
+      expect(Exit.isSuccess(exit)).toBe(outcome === 'success');
+    }
+
+    await main.flush();
+
+    const metrics = signals('trace_metric');
+    expect(
+      metrics.filter(item => item.name === count.id).map(item => item.value)
+    ).toEqual([2, 2, 2]);
+    expect(
+      metrics.filter(item => item.name === duration.id).map(item => item.value)
+    ).toEqual([12.5, 12.5, 12.5]);
+    expect(metrics.every(item => item.attributes?.stock === undefined)).toBe(true);
+    expect(
+      metrics.every(
+        item =>
+          traceIdPattern.test(item.trace_id ?? '') &&
+          spanIdPattern.test(item.span_id ?? '')
+      )
+    ).toBe(true);
+    expect(events()).toEqual([]);
+    expect(JSON.stringify(collector.envelopes)).not.toContain('private-effect-');
+  });
+
+  test('keeps nested phase registries separate and exports each once', async () => {
+    const main = await telemetry();
+    const count = Metric.counter('application.action.count');
+    await Effect.runPromise(
+      main.phaseEffect('database.listCustomers', () =>
+        Effect.gen(function* () {
+          yield* Metric.update(count, 2);
+          yield* main.phaseEffect('database.getCustomer', () => Metric.update(count, 3));
+          expect((yield* Metric.value(count)).count).toBe(2);
+        })
+      )
+    );
+    await main.flush();
+
+    expect(signals('trace_metric').map(item => item.value)).toEqual([3, 2]);
+  });
+
+  test('records concurrent action completions once with their own attributes and original errors', async () => {
+    const main = await telemetry();
+    let release!: () => void;
+    const held = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const success = {status: 'success', value: 42};
+    const expected = {status: 'error', error: {code: 'BUSY'}};
+    const failure = new Error('private-effect-action-error');
+    let executions = 0;
+    const first = main.observeAction(
+      'customers.update',
+      async () => {
+        executions++;
+        await held;
+        return success;
+      },
+      {stock: 7, balance: '1.20'}
+    );
+    expect(
+      await main.observeAction('customers.list', async () => {
+        executions++;
+        return expected;
+      })
+    ).toBe(expected);
+    release();
+    expect(await first).toBe(success);
+    await expect(
+      main.observeAction('customers.delete', async () => {
+        executions++;
+        throw failure;
+      })
+    ).rejects.toBe(failure);
+    await main.flush();
+
+    expect(executions).toBe(3);
+    const logs = signals('log');
+    expect(logs).toHaveLength(3);
+    expect(
+      logs.find(item => item.attributes?.action?.value === 'customers.update')
+    ).toMatchObject({
+      attributes: {
+        stock: {value: 7},
+        balance: {value: '1.20'},
+        outcome: {value: 'success'},
+        'sentry.message.template': {value: 'Application action %s completed'},
+        'sentry.message.parameter.0': {value: 'customers.update'},
+      },
+    });
+    expect(
+      logs
+        .filter(item => item.attributes?.action?.value !== 'customers.update')
+        .every(
+          item =>
+            item.attributes?.stock === undefined && item.attributes?.balance === undefined
+        )
+    ).toBe(true);
+    expect(
+      logs.find(item => item.attributes?.action?.value === 'customers.list')
+    ).toMatchObject({attributes: {outcome: {value: 'error'}, code: {value: 'BUSY'}}});
+    const metrics = signals('trace_metric');
+    expect(
+      metrics
+        .filter(item => item.name === 'application.action.count')
+        .map(item => item.value)
+    ).toEqual([1, 1, 1]);
+    expect(
+      metrics.filter(item => item.name === 'application.action.duration')
+    ).toHaveLength(3);
+    expect(
+      metrics
+        .filter(item => item.name === 'application.action.duration')
+        .every(item => Number.isFinite(item.value) && item.value! >= 0)
+    ).toBe(true);
+    expect(events()).toHaveLength(1);
+    expect(JSON.stringify(collector.envelopes)).not.toContain(
+      'private-effect-action-error'
+    );
+  });
+
+  test.each([
+    {logs: 0, metrics: 100},
+    {logs: 100, metrics: 0},
+  ])('samples Effect logs and metrics independently: %j', async sampling => {
+    const main = await telemetry(true, {errors: 100, traces: 100, ...sampling});
+    const result = {status: 'success'};
+    expect(await main.observeAction('customers.list', async () => result)).toBe(result);
+    await main.flush();
+    expect(signals('log')).toHaveLength(sampling.logs === 0 ? 0 : 1);
+    expect(signals('trace_metric')).toHaveLength(sampling.metrics === 0 ? 0 : 2);
+  });
+
+  test('keeps application results and errors when an SDK metric export throws', async () => {
+    const main = await telemetry();
+    collector.failMetric = true;
+    const result = {status: 'success', value: 42};
+    const failure = new Error('private-effect-operation-error');
+    let executions = 0;
+    expect(
+      await main.observeAction('customers.list', async () => {
+        executions++;
+        return result;
+      })
+    ).toBe(result);
+    await expect(
+      main.observeAction('customers.delete', async () => {
+        executions++;
+        throw failure;
+      })
+    ).rejects.toBe(failure);
+    await main.flush();
+
+    expect(executions).toBe(2);
+    expect(signals('log')).toHaveLength(2);
+    expect(signals('trace_metric').map(item => item.name)).toEqual([
+      'application.action.duration',
+      'application.action.duration',
+    ]);
+    expect(events()).toHaveLength(1);
+    expect(JSON.stringify(collector.envelopes)).not.toContain('private-effect-');
+  });
+
+  test.each(['disabled', 'initialization fails'])(
+    'keeps action execution and error identity when monitoring is %s',
+    async mode => {
+      collector.failTransport = mode === 'initialization fails';
+      const main = await telemetry(mode !== 'disabled');
+      const result = {status: 'success'};
+      const failure = new Error('private-effect-disabled-error');
+      let executions = 0;
+      expect(
+        await main.observeAction('customers.list', async () => {
+          executions++;
+          return result;
+        })
+      ).toBe(result);
+      await expect(
+        main.observeAction('customers.delete', async () => {
+          executions++;
+          throw failure;
+        })
+      ).rejects.toBe(failure);
+      await main.flush();
+
+      expect(executions).toBe(2);
+      expect(collector.envelopes).toEqual([]);
+    }
+  );
 
   test('delivers Effect SDK metadata through the existing exception boundary', async () => {
     const main = await telemetry();
