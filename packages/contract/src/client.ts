@@ -1,3 +1,5 @@
+import * as Effect from 'effect/Effect';
+import * as Result from 'effect/Result';
 import type {z} from 'zod';
 
 import type {
@@ -44,48 +46,66 @@ function validatedCall<
   action: ActionName,
   observer?: ClientObserver
 ) {
-  return async (args: A): Promise<z.output<R>> => {
-    const started = performance.now();
-    let fault: ClientObservation['fault'];
-    let attributes: ClientObservation['attributes'] = {};
-    async function invoke() {
-      const parsed = definition.arguments.safeParse(args);
-      if (!parsed.success) {
-        return definition.result.parse({
-          status: 'error',
-          error: {code: 'VALIDATION', message: 'Invalid request arguments.'},
-        });
-      }
-
-      attributes = Object.freeze(customerArgumentAttributes(action, parsed.data));
-      try {
-        const result = definition.result.safeParse(await call(parsed.data));
-        if (result.success) {
-          return result.data;
+  return (args: A): Promise<z.output<R>> =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const started = performance.now();
+        const parsed = definition.arguments.safeParse(args);
+        let attributes: ClientObservation['attributes'] = {};
+        let fault: ClientObservation['fault'];
+        let result: z.output<R>;
+        if (!parsed.success) {
+          result = definition.result.parse({
+            status: 'error',
+            error: {code: 'VALIDATION', message: 'Invalid request arguments.'},
+          });
+        } else {
+          attributes = Object.freeze(customerArgumentAttributes(action, parsed.data));
+          const response = yield* Effect.result(
+            Effect.tryPromise({
+              try: () => call(parsed.data),
+              catch: (error): NonNullable<ClientObservation['fault']> => ({
+                kind: 'transport',
+                error,
+              }),
+            }).pipe(
+              Effect.flatMap(payload =>
+                Effect.try({
+                  try: () => definition.result.safeParse(payload),
+                  catch: (error): NonNullable<ClientObservation['fault']> => ({
+                    kind: 'transport',
+                    error,
+                  }),
+                })
+              ),
+              Effect.flatMap(decoded =>
+                decoded.success
+                  ? Effect.succeed(decoded.data)
+                  : Effect.fail({kind: 'invalid-result'} as const)
+              )
+            )
+          );
+          if (Result.isFailure(response)) {
+            fault = response.failure;
+            result = definition.result.parse(internalError);
+          } else {
+            result = response.success;
+          }
         }
 
-        fault = {kind: 'invalid-result'};
-      } catch (error) {
-        fault = {kind: 'transport', error};
-      }
-
-      return definition.result.parse(internalError);
-    }
-
-    const result = await invoke();
-    try {
-      observer?.({
-        action,
-        durationMs: performance.now() - started,
-        outcome: result.status,
-        attributes,
-        ...(result.error ? {errorCode: result.error.code} : {}),
-        ...(fault ? {fault} : {}),
-      });
-    } catch {}
-
-    return result;
-  };
+        yield* Effect.try(() =>
+          observer?.({
+            action,
+            durationMs: performance.now() - started,
+            outcome: result.status,
+            attributes,
+            ...(result.error ? {errorCode: result.error.code} : {}),
+            ...(fault ? {fault} : {}),
+          })
+        ).pipe(Effect.ignore);
+        return result;
+      })
+    );
 }
 
 export function createClient(

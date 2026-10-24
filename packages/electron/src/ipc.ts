@@ -6,9 +6,11 @@ import {
   draftRequestSchema,
   draftResolutionSchema,
 } from '@shop-things/contract/schemas';
+import {Effect} from 'effect';
 
 import type {ActionService} from './actionService.js';
 import type {DraftCoordinator, DraftParticipant} from './draftCoordinator.js';
+import {native, originalCause, runBoundary} from './effectBoundary.js';
 import type {Validator} from './ipcWire.js';
 import {controls, isRecord, isToken} from './ipcWire.js';
 import type {FileTelemetrySettings} from './telemetrySettings.js';
@@ -47,7 +49,8 @@ export interface ApprovedDocument {
 
 export interface IpcOptions {
   ipc: MainIpc;
-  service: Pick<ActionService, 'handlers' | 'onStateChanged'>;
+  service: Pick<ActionService, 'handlers' | 'onStateChanged'> &
+    Partial<Pick<ActionService, 'effectHandlers'>>;
   drafts: DraftCoordinator;
   currentDocument(): ApprovedDocument | null;
   onDocumentChanged(callback: () => void): () => void;
@@ -133,63 +136,80 @@ export function registerIpc(options: IpcOptions): () => void {
   function registerAction<A, R>(
     name: ActionName,
     definition: {arguments: Validator<A>; result: Validator<R>},
-    handler: (args: A) => Promise<unknown>
+    handler: (args: A) => Promise<unknown>,
+    effectHandler?: (args: A) => Effect.Effect<unknown, unknown>
   ) {
-    handle(`shop-things:${name}`, async (event, ...payloads) => {
-      const document = authorized(event);
-      const payload = payloads[0];
-      if (
-        !document ||
-        !isRecord(payload, ['documentId', 'arguments']) ||
-        payload.documentId !== document.documentId
-      ) {
-        return denied;
-      }
-
-      if (payloads.length !== 1) {
-        return invalid;
-      }
-
-      const args = definition.arguments.safeParse(payload.arguments);
-      if (!args.success) {
-        return invalid;
-      }
-
-      try {
-        if (!name.startsWith('telemetry.')) {
-          await options.ready?.();
-        }
-
-        if (!current(document)) {
-          return denied;
-        }
-
-        const argumentsValue = args.data;
-        async function operation() {
-          const result = definition.result.safeParse(await handler(argumentsValue));
-          if (!result.success) {
-            throw result.error;
+    handle(`shop-things:${name}`, (event, ...payloads) =>
+      runBoundary(
+        Effect.gen(function* () {
+          const document = authorized(event);
+          const payload = payloads[0];
+          if (
+            !document ||
+            !isRecord(payload, ['documentId', 'arguments']) ||
+            payload.documentId !== document.documentId
+          ) {
+            return denied;
           }
 
-          return result.data;
-        }
+          if (payloads.length !== 1) {
+            return invalid;
+          }
 
-        return options.observeAction
-          ? await options.observeAction(
-              name,
-              operation,
-              customerArgumentAttributes(name, argumentsValue)
+          const args = definition.arguments.safeParse(payload.arguments);
+          if (!args.success) {
+            return invalid;
+          }
+
+          const request = Effect.gen(function* () {
+            if (!name.startsWith('telemetry.')) {
+              yield* native(() => Promise.resolve(options.ready?.()));
+            }
+
+            if (!current(document)) {
+              return denied;
+            }
+
+            const argumentsValue = args.data;
+            const operation = Effect.gen(function* () {
+              const value = yield* effectHandler
+                ? effectHandler(argumentsValue)
+                : native(() => handler(argumentsValue));
+              const result = definition.result.safeParse(value);
+              if (!result.success) {
+                return yield* Effect.fail(result.error);
+              }
+
+              return result.data;
+            });
+            return yield* options.observeAction
+              ? native(() =>
+                  options.observeAction!(
+                    name,
+                    () => runBoundary(operation),
+                    customerArgumentAttributes(name, argumentsValue)
+                  )
+                )
+              : operation;
+          });
+          return yield* request.pipe(
+            Effect.catchCause(cause =>
+              Effect.sync(() => {
+                try {
+                  options.logError?.(originalCause(cause));
+                } catch {}
+
+                return failed;
+              })
             )
-          : await operation();
-      } catch (error) {
-        options.logError?.(error);
-        return failed;
-      }
-    });
+          );
+        })
+      )
+    );
   }
 
-  // Explicit wrappers preserve each schema's argument/result pairing without transport assertions.
   const handlers = service.handlers;
+  const effectHandlers = service.effectHandlers;
   const registrations: {[K in ActionName]: () => void} = {
     'telemetry.status': () =>
       registerAction('telemetry.status', actions['telemetry.status'], async () =>
@@ -204,72 +224,123 @@ export function registerIpc(options: IpcOptions): () => void {
           : failed
       ),
     'imports.commit': () =>
-      registerAction('imports.commit', actions['imports.commit'], args =>
-        handlers['imports.commit'](args)
+      registerAction(
+        'imports.commit',
+        actions['imports.commit'],
+        args => handlers['imports.commit'](args),
+        effectHandlers?.['imports.commit']
       ),
     'imports.prepare': () =>
-      registerAction('imports.prepare', actions['imports.prepare'], args =>
-        handlers['imports.prepare'](args)
+      registerAction(
+        'imports.prepare',
+        actions['imports.prepare'],
+        args => handlers['imports.prepare'](args),
+        effectHandlers?.['imports.prepare']
       ),
     'imports.resolve': () =>
-      registerAction('imports.resolve', actions['imports.resolve'], args =>
-        handlers['imports.resolve'](args)
+      registerAction(
+        'imports.resolve',
+        actions['imports.resolve'],
+        args => handlers['imports.resolve'](args),
+        effectHandlers?.['imports.resolve']
       ),
     'imports.review': () =>
-      registerAction('imports.review', actions['imports.review'], args =>
-        handlers['imports.review'](args)
+      registerAction(
+        'imports.review',
+        actions['imports.review'],
+        args => handlers['imports.review'](args),
+        effectHandlers?.['imports.review']
       ),
     'customers.list': () =>
-      registerAction('customers.list', actions['customers.list'], args =>
-        handlers['customers.list'](args)
+      registerAction(
+        'customers.list',
+        actions['customers.list'],
+        args => handlers['customers.list'](args),
+        effectHandlers?.['customers.list']
       ),
     'customers.get': () =>
-      registerAction('customers.get', actions['customers.get'], args =>
-        handlers['customers.get'](args)
+      registerAction(
+        'customers.get',
+        actions['customers.get'],
+        args => handlers['customers.get'](args),
+        effectHandlers?.['customers.get']
       ),
     'customers.create': () =>
-      registerAction('customers.create', actions['customers.create'], args =>
-        handlers['customers.create'](args)
+      registerAction(
+        'customers.create',
+        actions['customers.create'],
+        args => handlers['customers.create'](args),
+        effectHandlers?.['customers.create']
       ),
     'customers.update': () =>
-      registerAction('customers.update', actions['customers.update'], args =>
-        handlers['customers.update'](args)
+      registerAction(
+        'customers.update',
+        actions['customers.update'],
+        args => handlers['customers.update'](args),
+        effectHandlers?.['customers.update']
       ),
     'customers.delete': () =>
-      registerAction('customers.delete', actions['customers.delete'], args =>
-        handlers['customers.delete'](args)
+      registerAction(
+        'customers.delete',
+        actions['customers.delete'],
+        args => handlers['customers.delete'](args),
+        effectHandlers?.['customers.delete']
       ),
     'database.status': () =>
-      registerAction('database.status', actions['database.status'], () =>
-        handlers['database.status']()
+      registerAction(
+        'database.status',
+        actions['database.status'],
+        () => handlers['database.status'](),
+        effectHandlers?.['database.status']
       ),
     'database.retry': () =>
-      registerAction('database.retry', actions['database.retry'], () =>
-        handlers['database.retry']()
+      registerAction(
+        'database.retry',
+        actions['database.retry'],
+        () => handlers['database.retry'](),
+        effectHandlers?.['database.retry']
       ),
     'database.create': () =>
-      registerAction('database.create', actions['database.create'], () =>
-        handlers['database.create']()
+      registerAction(
+        'database.create',
+        actions['database.create'],
+        () => handlers['database.create'](),
+        effectHandlers?.['database.create']
       ),
     'database.open': () =>
-      registerAction('database.open', actions['database.open'], () =>
-        handlers['database.open']()
+      registerAction(
+        'database.open',
+        actions['database.open'],
+        () => handlers['database.open'](),
+        effectHandlers?.['database.open']
       ),
     'database.backup': () =>
-      registerAction('database.backup', actions['database.backup'], args =>
-        handlers['database.backup'](args)
+      registerAction(
+        'database.backup',
+        actions['database.backup'],
+        args => handlers['database.backup'](args),
+        effectHandlers?.['database.backup']
       ),
     'database.restore': () =>
-      registerAction('database.restore', actions['database.restore'], () =>
-        handlers['database.restore']()
+      registerAction(
+        'database.restore',
+        actions['database.restore'],
+        () => handlers['database.restore'](),
+        effectHandlers?.['database.restore']
       ),
     'exports.csv': () =>
-      registerAction('exports.csv', actions['exports.csv'], args =>
-        handlers['exports.csv'](args)
+      registerAction(
+        'exports.csv',
+        actions['exports.csv'],
+        args => handlers['exports.csv'](args),
+        effectHandlers?.['exports.csv']
       ),
     'drafts.confirmDiscard': () =>
-      registerAction('drafts.confirmDiscard', actions['drafts.confirmDiscard'], () =>
-        handlers['drafts.confirmDiscard']()
+      registerAction(
+        'drafts.confirmDiscard',
+        actions['drafts.confirmDiscard'],
+        () => handlers['drafts.confirmDiscard'](),
+        effectHandlers?.['drafts.confirmDiscard']
       ),
   };
   for (const register of Object.values(registrations)) {

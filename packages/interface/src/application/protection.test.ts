@@ -267,3 +267,49 @@ test('approved route handoff accepts the next editor after cleanup while freezin
   expect(nextResets).toBe(0);
   releaseNext();
 });
+
+test('failed save completes draft preparation with retained values and the original failure', async () => {
+  const f = fixture();
+  f.edit({balance: '-'});
+  let reject!: (error: Error) => void;
+  const failure = new Error('Save transport failed');
+  const saving = f.owner.save(
+    () =>
+      new Promise<void>((_resolve, fail) => {
+        reject = fail;
+      })
+  );
+  const rejected = saving.catch(error => error);
+  await Promise.resolve();
+  const preparing = f.owner.prepare(request);
+  expect(f.owner.getState()).toMatchObject({saving: true, frozen: true});
+  reject(failure);
+  expect(await rejected).toBe(failure);
+  expect(await preparing).toEqual({...request, hasUnsavedDraft: true});
+  expect(f.owner.getState()).toMatchObject({saving: false, frozen: true});
+  f.owner.resolve({...request, outcome: 'aborted'});
+  expect(f.values().balance).toBe('-');
+});
+
+test('disposal settles the preview prompt and releases the next confirmation', async () => {
+  const f = fixture();
+  const first = f.owner.confirmPreviewDiscard();
+  expect(f.owner.getState().confirmingDiscard).toBe(true);
+  expect(await f.owner.confirmPreviewDiscard()).toBe(false);
+  f.owner.dispose();
+  expect(await first).toBe(false);
+  expect(f.owner.getState().confirmingDiscard).toBe(false);
+  const next = f.owner.confirmPreviewDiscard();
+  f.owner.answerDiscard(true);
+  expect(await next).toBe(true);
+  expect(f.owner.getState().confirmingDiscard).toBe(false);
+});
+
+test('immediate lifecycle abort revokes a preparation even without a pending save', async () => {
+  const f = fixture();
+  const preparing = f.owner.prepare(request);
+  f.owner.resolve({...request, outcome: 'aborted'});
+  await expect(preparing).rejects.toThrow('Draft preparation was aborted.');
+  expect(f.resets()).toBe(0);
+  expect(f.owner.getState().frozen).toBe(false);
+});

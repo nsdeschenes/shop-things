@@ -33,6 +33,7 @@
     "test:conformance": "pnpm --filter electron exec tsc -p tsconfig.contract.json && pnpm --filter @shop-things/interface exec tsc -p tsconfig.contract.json"
   },
   "dependencies": {
+    "effect": "4.0.6",
     "zod": "4.6.5"
   },
   "devDependencies": {

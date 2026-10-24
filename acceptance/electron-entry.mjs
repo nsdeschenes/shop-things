@@ -1,4 +1,5 @@
 import {writeFile} from 'node:fs/promises';
+import {createRequire} from 'node:module';
 import {join} from 'node:path';
 
 import {app, dialog, ipcMain, net, utilityProcess} from 'electron';
@@ -194,9 +195,13 @@ if (process.env.SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS) {
 
 if (
   process.env.SHOP_THINGS_ACCEPTANCE_RECOVERY ||
-  process.env.SHOP_THINGS_ACCEPTANCE_DELAY_STARTUP
+  process.env.SHOP_THINGS_ACCEPTANCE_DELAY_STARTUP ||
+  process.env.SHOP_THINGS_ACCEPTANCE_MONITORING
 ) {
   globalThis.acceptanceDatabase = await import('../packages/db/dist/index.js');
+  globalThis.acceptanceNative = (
+    await import('../packages/electron/dist/effectBoundary.js')
+  ).native;
   const {ActionService} = await import('../packages/electron/dist/actionService.js');
   // Snapshot the original implementation before installing the startup wrapper.
   const start = Object.getOwnPropertyDescriptor(ActionService.prototype, 'start')?.value;
@@ -206,6 +211,7 @@ if (
 
   ActionService.prototype.start = async function (...args) {
     globalThis.acceptanceService = this;
+    globalThis.acceptanceBackend = Reflect.get(this, 'backend');
     if (process.env.SHOP_THINGS_ACCEPTANCE_DELAY_STARTUP) {
       await new Promise(resolve => {
         globalThis.acceptanceReleaseStartup = resolve;
@@ -217,97 +223,122 @@ if (
 }
 
 if (process.env.SHOP_THINGS_ACCEPTANCE_MONITORING) {
-  const {databaseOperations} = await import('../packages/electron/dist/actionService.js');
+  await installMonitoringProbes();
+}
+
+async function installMonitoringProbes() {
+  const requireElectron = createRequire(
+    new URL('../packages/electron/package.json', import.meta.url)
+  );
+  const {Effect} = await import(requireElectron.resolve('effect'));
+  const {native} = await import('../packages/electron/dist/effectBoundary.js');
+  const {effectDatabaseOperations} = await import('../packages/electron/dist/backend.js');
+  const database = {...effectDatabaseOperations};
   const {getActiveSpan, spanToJSON, getClient} =
     await import('../packages/electron/node_modules/@sentry/electron/main/index.js');
-  const list = databaseOperations.listCustomers;
-  databaseOperations.listCustomers = async (...args) => {
-    const probe = globalThis.acceptanceQueryProbe;
-    if (probe) {
-      globalThis.acceptanceQueryProbe = null;
-      globalThis.acceptanceQueryProbeParent = spanToJSON(getActiveSpan());
-      const client = args[0].$client;
-      await client.all('select firstName from customers where email = ?', probe.sentinel);
-      const statement = client.prepare(
-        'select id from customers where email = :PRIVATE_SENTINEL_parameter'
-      );
-      await statement.raw(true).all({PRIVATE_SENTINEL_parameter: probe.sentinel});
-      await statement.raw(false).get({PRIVATE_SENTINEL_parameter: probe.sentinel});
-      statement.close();
-      await client.run('update customers set stock = stock where id = ?', -1);
-      try {
-        await client.run(
-          'insert into customers (id, customerNumber, firstName) select id, customerNumber, firstName from customers limit 1'
-        );
-      } catch {
-        globalThis.acceptanceQueryConstraintFailed = true;
+  function listCustomers(...args) {
+    return Effect.gen(function* () {
+      const probe = globalThis.acceptanceQueryProbe;
+      if (probe) {
+        globalThis.acceptanceQueryProbe = null;
+        yield* native(async () => {
+          globalThis.acceptanceQueryProbeParent = spanToJSON(getActiveSpan());
+          const client = args[0].$client;
+          await client.all(
+            'select firstName from customers where email = ?',
+            probe.sentinel
+          );
+          const statement = client.prepare(
+            'select id from customers where email = :PRIVATE_SENTINEL_parameter'
+          );
+          await statement.raw(true).all({PRIVATE_SENTINEL_parameter: probe.sentinel});
+          await statement.raw(false).get({PRIVATE_SENTINEL_parameter: probe.sentinel});
+          statement.close();
+          await client.run('update customers set stock = stock where id = ?', -1);
+          try {
+            await client.run(
+              'insert into customers (id, customerNumber, firstName) select id, customerNumber, firstName from customers limit 1'
+            );
+          } catch {
+            globalThis.acceptanceQueryConstraintFailed = true;
+          }
+
+          const removeStatusFault = getClient().on('spanStart', span => {
+            if (spanToJSON(span).name === 'database.query') {
+              span.setStatus = () => {
+                globalThis.acceptanceQueryStatusFailed = true;
+                throw new Error('PRIVATE_SENTINEL_sdk_status');
+              };
+            }
+          });
+          try {
+            await client.all('select PRIVATE_SENTINEL_column from customers');
+          } catch {
+            globalThis.acceptanceQueryUnknownFailed = true;
+          } finally {
+            removeStatusFault();
+          }
+        });
+        yield* database.backupDatabase(args[0], probe.backupPath);
       }
 
-      const removeStatusFault = getClient().on('spanStart', span => {
-        if (spanToJSON(span).name === 'database.query') {
-          span.setStatus = () => {
-            globalThis.acceptanceQueryStatusFailed = true;
-            throw new Error('PRIVATE_SENTINEL_sdk_status');
-          };
+      yield* native(async () => {
+        if (globalThis.acceptanceNativeMonitoringFault) {
+          const message = globalThis.acceptanceNativeMonitoringFault;
+          globalThis.acceptanceNativeMonitoringFault = null;
+          throw new TypeError(message);
         }
       });
-      try {
-        await client.all('select PRIVATE_SENTINEL_column from customers');
-      } catch {
-        globalThis.acceptanceQueryUnknownFailed = true;
-      } finally {
-        removeStatusFault();
-      }
+      return yield* database.listCustomers(...args);
+    });
+  }
 
-      await databaseOperations.backupDatabase(args[0], probe.backupPath);
-    }
+  function updateCustomer(...args) {
+    return Effect.gen(function* () {
+      yield* native(async () => {
+        if (globalThis.acceptanceObservePreparedQuery) {
+          const statement = (globalThis.acceptancePreparedQuery ??=
+            args[0].$client.prepare('select id from customers where id = ?'));
+          await statement.get(args[1].id);
+        }
 
-    if (globalThis.acceptanceNativeMonitoringFault) {
-      const message = globalThis.acceptanceNativeMonitoringFault;
-      globalThis.acceptanceNativeMonitoringFault = null;
-      throw new TypeError(message);
-    }
+        const concurrent = globalThis.acceptanceConcurrentCustomerMonitoring;
+        const stock = args[2]?.stock;
+        if (concurrent && (stock === 41 || stock === 42)) {
+          await new Promise(resolve => {
+            concurrent[stock] = resolve;
+          });
+          throw new TypeError('PRIVATE_SENTINEL_concurrent_update');
+        }
 
-    return list(...args);
-  };
-
-  const update = databaseOperations.updateCustomer;
-  databaseOperations.updateCustomer = async (...args) => {
-    if (globalThis.acceptanceObservePreparedQuery) {
-      const statement = (globalThis.acceptancePreparedQuery ??= args[0].$client.prepare(
-        'select id from customers where id = ?'
-      ));
-      await statement.get(args[1].id);
-    }
-
-    const concurrent = globalThis.acceptanceConcurrentCustomerMonitoring;
-    const stock = args[2]?.stock;
-    if (concurrent && (stock === 41 || stock === 42)) {
-      await new Promise(resolve => {
-        concurrent[stock] = resolve;
+        if (globalThis.acceptanceNativeCustomerMonitoringFault) {
+          const message = globalThis.acceptanceNativeCustomerMonitoringFault;
+          globalThis.acceptanceNativeCustomerMonitoringFault = null;
+          throw new SyntaxError(message);
+        }
       });
-      throw new TypeError('PRIVATE_SENTINEL_concurrent_update');
-    }
+      return yield* database.updateCustomer(...args);
+    });
+  }
 
-    if (globalThis.acceptanceNativeCustomerMonitoringFault) {
-      const message = globalThis.acceptanceNativeCustomerMonitoringFault;
-      globalThis.acceptanceNativeCustomerMonitoringFault = null;
-      throw new SyntaxError(message);
-    }
+  function createCustomer(...args) {
+    return Effect.gen(function* () {
+      yield* native(async () => {
+        if (globalThis.acceptanceNativeCustomerMonitoringFault) {
+          const message = globalThis.acceptanceNativeCustomerMonitoringFault;
+          globalThis.acceptanceNativeCustomerMonitoringFault = null;
+          throw new SyntaxError(message);
+        }
+      });
+      return yield* database.createCustomer(...args);
+    });
+  }
 
-    return update(...args);
-  };
-
-  const create = databaseOperations.createCustomer;
-  databaseOperations.createCustomer = (...args) => {
-    if (globalThis.acceptanceNativeCustomerMonitoringFault) {
-      const message = globalThis.acceptanceNativeCustomerMonitoringFault;
-      globalThis.acceptanceNativeCustomerMonitoringFault = null;
-      throw new SyntaxError(message);
-    }
-
-    return create(...args);
-  };
+  Object.assign(effectDatabaseOperations, {
+    listCustomers,
+    updateCustomer,
+    createCustomer,
+  });
 }
 
 await import('../packages/electron/dist/main.js');

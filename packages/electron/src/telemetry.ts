@@ -1,5 +1,6 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
 
+import {SentryEffectTracer} from '@sentry/effect/server';
 import * as Sentry from '@sentry/electron/main';
 import {
   init as initializeTelemetry,
@@ -17,6 +18,7 @@ import {
   shouldSampleTelemetry,
   sanitizeLogMetricPayload,
 } from '@shop-things/contract/monitoring';
+import * as Effect from 'effect/Effect';
 
 import {createQuerySpans} from './querySpans.js';
 import {FileTelemetrySettings} from './telemetrySettings.js';
@@ -174,6 +176,20 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
     }
   }
 
+  function phaseEffect<A, E, R>(
+    name: string,
+    work: () => Effect.Effect<A, E, R>
+  ): Effect.Effect<A, E, R> {
+    return Effect.suspend(() =>
+      enabled
+        ? Effect.suspend(work).pipe(
+            Effect.withSpan(name, {attributes: {'sentry.op': 'application.phase'}}),
+            Effect.withTracer(SentryEffectTracer)
+          )
+        : work()
+    );
+  }
+
   async function observeAction<T>(
     name: ActionName,
     work: () => Promise<T>,
@@ -247,5 +263,5 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
   }
 
   const databaseOptions = enabled ? {queryObserver: querySpans.observer} : {};
-  return {captureException, observeAction, phase, flush, databaseOptions};
+  return {captureException, observeAction, phase, phaseEffect, flush, databaseOptions};
 }
