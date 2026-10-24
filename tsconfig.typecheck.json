@@ -10,5 +10,5 @@
       "@shop-things/db": ["./packages/db/src/index.ts"]
     }
   },
-  "exclude": ["**/dist/**", "**/node_modules/**"]
+  "exclude": ["repos/**", "**/dist/**", "**/node_modules/**"]
 }
