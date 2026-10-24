@@ -66,6 +66,11 @@ const decimalMoneyPattern = /^-?\d+(?:\.\d{1,2})?$/;
 const minusPattern = /^-/;
 const customerNumberPattern = /^\d+$/;
 const regexMetacharacters = /[.*+?^${}()|[\]\\]/g;
+const indexedNameToken = /[a-z0-9]{2}/i;
+
+function nameSearchGram(needle: string): string | undefined {
+  return indexedNameToken.exec(needle)?.[0].toLowerCase();
+}
 
 function moneyCents(value: unknown): bigint {
   if (typeof value !== 'string' || !decimalMoneyPattern.test(value)) {
@@ -205,13 +210,20 @@ export function listCustomers(
       customerNumberPattern.test(needle) && Number.isSafeInteger(Number(needle))
         ? Number(needle)
         : -1;
+    const candidates = nameSearchGram(needle);
+    const matches = sql`coalesce(${customers.firstName}, '') regexp ${pattern} or coalesce(${customers.lastName}, '') regexp ${pattern} or ${customers.customerNumber} = ${number}`;
     const rows = yield* native(() =>
       db
         .select()
         .from(customers)
         .where(
           needle
-            ? sql`coalesce(${customers.firstName}, '') regexp ${pattern} or coalesce(${customers.lastName}, '') regexp ${pattern} or ${customers.customerNumber} = ${number}`
+            ? and(
+                candidates
+                  ? sql`${customers.id} in (select customerId from customer_name_grams where gram in (${candidates}, '') union all select id from customers where customerNumber = ${number})`
+                  : undefined,
+                matches
+              )
             : undefined
         )
         .orderBy(customers.customerNumber, customers.id)

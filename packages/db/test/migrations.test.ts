@@ -84,6 +84,7 @@ test.each([1, 2])(
             ...legacyMigrations.map(name => ({name})),
             {name: '20261001005150_rename_home_phone'},
             {name: '20261006232551_required_customer_numbers'},
+            {name: '20261024195124_customer_name_search'},
           ]);
         } finally {
           migrated.close();
@@ -213,7 +214,46 @@ const legacyNames = [
   '20260929093112_wealthy_hemingway',
   '20260929120000_customer_integrity',
   '20261001005150_rename_home_phone',
+  '20261006232551_required_customer_numbers',
 ];
+
+test.each(['wal', 'mvcc'])(
+  'opening the previous %s schema indexes existing names without rewriting customers',
+  async mode => {
+    await withLegacyDatabase(4, async path => {
+      const legacy = openDatabase(path);
+      let before: unknown;
+      try {
+        await legacy.db.run(`pragma journal_mode = '${mode}'`);
+        await legacy.db.run(
+          "insert into customers (customerNumber,firstName,lastName,revision) values (42,'ÉMILIE','Smith',7),(3,NULL,'Orphan',9)"
+        );
+        before = await legacy.db.all('select * from customers order by id');
+      } finally {
+        legacy.close();
+      }
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const migrated = await openExistingDatabase(path, {
+          migrationsFolder: checkedInFolder,
+        });
+        try {
+          expect(await migrated.db.all('select * from customers order by id')).toEqual(
+            before
+          );
+          expect(
+            (await listCustomers(migrated.db, 'émi')).map(row => row.customerNumber)
+          ).toEqual([42]);
+          expect(
+            (await listCustomers(migrated.db, 'phan')).map(row => row.customerNumber)
+          ).toEqual([3]);
+        } finally {
+          migrated.close();
+        }
+      }
+    });
+  }
+);
 
 async function withLegacyDatabase(
   migrationCount: number,

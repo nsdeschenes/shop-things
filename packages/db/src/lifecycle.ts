@@ -16,11 +16,13 @@ const initialMigration = '20260929093112_wealthy_hemingway';
 const integrityMigration = '20260929120000_customer_integrity';
 const phoneMigration = '20261001005150_rename_home_phone';
 const numberMigration = '20261006232551_required_customer_numbers';
+const nameSearchMigration = '20261024195124_customer_name_search';
 const supportedMigrations = [
   initialMigration,
   integrityMigration,
   phoneMigration,
   numberMigration,
+  nameSearchMigration,
 ];
 const expectedColumns = [
   'id',
@@ -152,6 +154,50 @@ export function recognizeDatabase(db: AppDatabase): Effect.Effect<void, Database
       }
     }
 
+    if (names.includes(nameSearchMigration)) {
+      const columns = yield* native(() =>
+        db.all<{name: string; pk: number; notnull: number}>(
+          'pragma table_info(customer_name_grams)'
+        )
+      );
+      const triggers = yield* native(() =>
+        db.all<{name: string; sql: string}>(
+          "select name,sql from sqlite_master where type = 'trigger' and name in ('customer_name_insert', 'customer_name_update', 'customer_name_delete')"
+        )
+      );
+      const [positions] = yield* native(() =>
+        db.all<{count: number; first: number; last: number}>(
+          'select count(*) as count, min(position) as first, max(position) as last from customer_name_positions'
+        )
+      );
+      const positionColumns = yield* native(() =>
+        db.all<{name: string; type: string; pk: number}>(
+          'pragma table_info(customer_name_positions)'
+        )
+      );
+
+      if (
+        columns.length !== 2 ||
+        !columns.some(
+          column => column.name === 'gram' && column.pk === 1 && column.notnull === 1
+        ) ||
+        !columns.some(
+          column =>
+            column.name === 'customerId' && column.pk === 1 && column.notnull === 1
+        ) ||
+        triggers.length !== 3 ||
+        positions?.count !== 256 ||
+        positions.first !== 1 ||
+        positions.last !== 256 ||
+        positionColumns.length !== 1 ||
+        positionColumns[0]?.name !== 'position' ||
+        positionColumns[0]?.type.toLowerCase() !== 'integer' ||
+        positionColumns[0]?.pk !== 1
+      ) {
+        throw new Error('Missing customer name search index');
+      }
+    }
+
     const tables = yield* native(() =>
       db.all<{name: string}>(
         "select name from sqlite_master where type = 'table' and name not glob 'sqlite_*' and name not glob '__turso_internal_*'"
@@ -159,7 +205,16 @@ export function recognizeDatabase(db: AppDatabase): Effect.Effect<void, Database
     );
 
     if (
-      tables.some(table => !['customers', '__drizzle_migrations'].includes(table.name))
+      tables.some(
+        table =>
+          ![
+            'customers',
+            '__drizzle_migrations',
+            ...(names.includes(nameSearchMigration)
+              ? ['customer_name_grams', 'customer_name_positions']
+              : []),
+          ].includes(table.name)
+      )
     ) {
       throw new Error('Unrelated tables');
     }

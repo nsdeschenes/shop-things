@@ -34,6 +34,7 @@ export type QueryObserver = (
 
 const tableNames = [
   'customers',
+  'customer_name_grams',
   '__drizzle_migrations',
   'sqlite_master',
   'sqlite_sequence',
@@ -46,6 +47,8 @@ const identifiers = new Map(
   [
     ...tables,
     'id',
+    'customerId',
+    'gram',
     'customerNumber',
     'revision',
     'firstName',
@@ -321,7 +324,9 @@ class QueryShape {
       throw new Error();
     }
 
-    this.collections.add(name as QueryTable);
+    this.collections.add(
+      name === 'customer_name_grams' ? 'customers' : (name as QueryTable)
+    );
   }
   private list(work: () => void) {
     work();

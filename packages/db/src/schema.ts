@@ -6,6 +6,8 @@ import {
   integer,
   uniqueIndex,
   check,
+  primaryKey,
+  index,
 } from 'drizzle-orm/sqlite-core';
 
 export const customers = sqliteTable(
@@ -36,3 +38,19 @@ export const customers = sqliteTable(
     ),
   ]
 );
+
+export const customerNameGrams = sqliteTable(
+  'customer_name_grams',
+  {
+    gram: text().notNull(),
+    customerId: integer().notNull(),
+  },
+  table => [
+    primaryKey({columns: [table.gram, table.customerId]}),
+    index('customer_name_grams_customer_id').on(table.customerId),
+  ]
+);
+
+export const customerNamePositions = sqliteTable('customer_name_positions', {
+  position: integer().primaryKey(),
+});

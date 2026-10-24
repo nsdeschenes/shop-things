@@ -163,7 +163,13 @@ test('pending migration restore migrates only the separate writable copy of a re
     try {
       expect(
         await migrated.db.all('select name from __drizzle_migrations order by id')
-      ).toHaveLength(4);
+      ).toEqual([
+        {name: '20260929093112_wealthy_hemingway'},
+        {name: '20260929120000_customer_integrity'},
+        {name: '20261001005150_rename_home_phone'},
+        {name: '20261006232551_required_customer_numbers'},
+        {name: '20261024195124_customer_name_search'},
+      ]);
     } finally {
       migrated.close();
     }

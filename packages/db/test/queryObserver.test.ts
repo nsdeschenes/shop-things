@@ -11,6 +11,7 @@ import {
   createCustomer,
   updateCustomer,
   listCustomers,
+  safeQueryAttributes,
 } from '@shop-things/db';
 import type {QueryCompletion, QueryObserver, SafeQueryDetails} from '@shop-things/db';
 import {Database} from '@tursodatabase/database';
@@ -29,6 +30,41 @@ function collector() {
 
   return {queries, observer};
 }
+
+test('indexed customer search retains sanitized query text and its customer collection', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-query-search-'));
+  const {queries, observer} = collector();
+  const handle = await createDatabase(join(directory, 'app.sqlite'), {
+    migrationsFolder,
+    queryObserver: observer,
+  });
+  try {
+    const customer = await createCustomer(handle.db, {firstName: 'PRIVATE_SENTINEL'});
+    queries.length = 0;
+    expect(
+      (await listCustomers(handle.db, 'PRIVATE_SENTINEL')).map(row => row.id)
+    ).toEqual([customer.id]);
+    expect(queries).toHaveLength(1);
+    const query = queries[0]!;
+    expect(query).toMatchObject({
+      method: 'all',
+      operation: 'SELECT',
+      table: 'customers',
+      outcome: 'success',
+    });
+    expect(query.text).toContain('"customer_name_grams"');
+    expect(query.text).toContain('"gram" IN ( ? , ? )');
+    expect(query.text).toContain('UNION ALL SELECT');
+    expect(safeQueryAttributes(query)).toMatchObject({
+      'db.collection.name': 'customers',
+      'db.query.text': query.text,
+    });
+    expect(JSON.stringify(queries)).not.toContain('PRIVATE_SENTINEL');
+  } finally {
+    handle.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
 
 test('direct native calls and reusable fluent statements observe each execution once', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-query-'));
