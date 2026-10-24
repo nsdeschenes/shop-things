@@ -1,5 +1,9 @@
 ## Agent skills
 
+### Effect and reference repositories
+
+For Effect work, read `docs/agents/effect.md`. Upstream sources in `repos/` are read-only references. Import runtime dependencies from their installed packages.
+
 ### Issue tracker
 
 Issues and specs live in GitHub Issues; use the `gh` CLI. See `docs/agents/issueTracker.md`.

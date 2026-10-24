@@ -24,6 +24,6 @@
   "useTabs": false,
   "arrowParens": "avoid",
   "sortPackageJson": true,
-  "ignorePatterns": ["node_modules", "CHANGELOG.md"],
+  "ignorePatterns": ["node_modules", "repos", "CHANGELOG.md"],
   "objectWrap": "preserve"
 }

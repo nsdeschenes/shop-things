@@ -16,5 +16,6 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "noEmit": true
-  }
+  },
+  "exclude": ["repos/**", "**/node_modules/**", "**/dist/**"]
 }

@@ -106,6 +106,9 @@ test('capture includes current dirty bytes, deletions, renames, modes and eligib
     await chmod(join(source, 'renamed.ts'), 0o755);
     await writeFile(join(source, 'addition.ts'), 'eligible addition\n');
     await writeFile(join(source, 'ignored'), 'do not copy\n');
+    await mkdir(join(source, 'repos/reference'), {recursive: true});
+    await writeFile(join(source, 'repos/reference/.envrc'), 'vendored example\n');
+    await execute('git', ['add', 'repos/reference/.envrc'], {cwd: source});
     await symlink('dirty.ts', join(source, 'internal.ts'));
     await symlink(join(source, 'dirty.ts'), join(source, 'absolute-internal.ts'));
     let savedPath: (() => string) | undefined;
@@ -128,6 +131,9 @@ test('capture includes current dirty bytes, deletions, renames, modes and eligib
           code: 'ENOENT',
         });
         await expect(readFile(fixture.path('ignored'))).rejects.toMatchObject({
+          code: 'ENOENT',
+        });
+        await expect(lstat(fixture.path('repos'))).rejects.toMatchObject({
           code: 'ENOENT',
         });
         expect(await realpath(fixture.path('internal.ts'))).toBe(

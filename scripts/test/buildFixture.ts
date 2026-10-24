@@ -483,7 +483,16 @@ export async function withBuildFixture<T>(
   try {
     const selected = await command(
       'git',
-      ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+      [
+        'ls-files',
+        '--cached',
+        '--others',
+        '--exclude-standard',
+        '-z',
+        '--',
+        '.',
+        ':!:repos',
+      ],
       caller
     );
     const names = [...new Set(selected.stdout.split('\0').filter(Boolean))].sort();
@@ -512,7 +521,16 @@ export async function withBuildFixture<T>(
     const currentNames = (
       await command(
         'git',
-        ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+        [
+          'ls-files',
+          '--cached',
+          '--others',
+          '--exclude-standard',
+          '-z',
+          '--',
+          '.',
+          ':!:repos',
+        ],
         caller
       )
     ).stdout

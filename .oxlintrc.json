@@ -19,6 +19,17 @@
     "curly": "error",
     "func-style": ["error", "declaration"],
     "typescript/no-misused-spread": "error",
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["repos/**", "**/repos/**"],
+            "message": "Import installed packages. repos/ contains read-only upstream references."
+          }
+        ]
+      }
+    ],
     "@stylistic/padding-line-between-statements": [
       "error",
       {
@@ -70,7 +81,7 @@
   "env": {
     "builtin": true
   },
-  "ignorePatterns": ["node_modules", "packages/interface/src/routeTree.gen.ts"],
+  "ignorePatterns": ["node_modules", "repos", "packages/interface/src/routeTree.gen.ts"],
   "overrides": [
     {
       "files": ["**/*.test.{ts,tsx,js,jsx,mjs}"],
