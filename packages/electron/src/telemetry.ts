@@ -1,12 +1,12 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
 
-import {SentryEffectTracer} from '@sentry/effect/server';
-import * as Sentry from '@sentry/electron/main';
 import {
   init as initializeTelemetry,
-  dedupeIntegration,
-  linkedErrorsIntegration,
-} from '@sentry/node';
+  SentryEffectLogger,
+  SentryEffectTracer,
+} from '@sentry/effect/server';
+import * as Sentry from '@sentry/electron/main';
+import {dedupeIntegration, linkedErrorsIntegration} from '@sentry/node';
 import type {ActionName} from '@shop-things/contract';
 import {
   dataCollection,
@@ -18,8 +18,20 @@ import {
   shouldSampleTelemetry,
   sanitizeLogMetricPayload,
 } from '@shop-things/contract/monitoring';
-import * as Effect from 'effect/Effect';
+import {
+  Cause,
+  Clock,
+  Context,
+  Effect,
+  Exit,
+  Layer,
+  Logger,
+  Metric,
+  References,
+  Tracer,
+} from 'effect';
 
+import {native, originalCause, runBoundary} from './effectBoundary.js';
 import {createQuerySpans} from './querySpans.js';
 import {FileTelemetrySettings} from './telemetrySettings.js';
 
@@ -30,6 +42,41 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
   >();
   const querySpans = createQuerySpans(settings.environment, () =>
     actionContext.getStore()
+  );
+  const logger = Logger.make(options => {
+    const messages = Array.isArray(options.message) ? options.message : [options.message];
+    if (
+      messages.length !== 1 ||
+      typeof messages[0] !== 'string' ||
+      !logMessages.has(messages[0])
+    ) {
+      return;
+    }
+
+    // The SDK logger omits Effect annotations. Carry only approved fields into its send hook.
+    const annotations = safeAttributes(
+      options.fiber.getRef(References.CurrentLogAnnotations)
+    );
+    try {
+      actionContext.run(
+        {...annotations, ...safeSignalAttributes(actionContext.getStore())},
+        () => SentryEffectLogger.log(options)
+      );
+    } catch {}
+  });
+  const tracerLayer = Layer.succeed(Tracer.Tracer, SentryEffectTracer);
+  const signalLayer = Layer.mergeAll(
+    Logger.layer([logger]),
+    Layer.effect(
+      Metric.MetricRegistry,
+      Effect.acquireRelease(
+        Effect.sync((): Metric.MetricRegistry => new Map()),
+        registry =>
+          Effect.sync(() => exportMetrics(registry)).pipe(
+            Effect.catchCause(() => Effect.void)
+          )
+      )
+    )
   );
   if (enabled) {
     try {
@@ -68,6 +115,7 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
         },
         beforeSendSpan: querySpans.project,
         beforeSendLog(log) {
+          const action = actionContext.getStore()?.action;
           return logMessages.has(String(log.message)) &&
             shouldSampleTelemetry(settings.startupSampling.logs)
             ? {
@@ -79,6 +127,13 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
                     ...log.attributes,
                   }),
                   process: 'main',
+                  ...(typeof action === 'string' &&
+                  log.message === `Application action ${action} completed`
+                    ? {
+                        'sentry.message.template': 'Application action %s completed',
+                        'sentry.message.parameter.0': action,
+                      }
+                    : {}),
                 },
               }
             : null;
@@ -183,8 +238,9 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
     return Effect.suspend(() =>
       enabled
         ? Effect.suspend(work).pipe(
+            Effect.provide(Layer.fresh(signalLayer)),
             Effect.withSpan(name, {attributes: {'sentry.op': 'application.phase'}}),
-            Effect.withTracer(SentryEffectTracer)
+            Effect.provide(tracerLayer)
           )
         : work()
     );
@@ -195,61 +251,128 @@ export function createMainTelemetry(settings: FileTelemetrySettings, release: st
     work: () => Promise<T>,
     customerAttributes: Readonly<Record<string, string | number | boolean>> = {}
   ): Promise<T> {
+    if (!enabled) {
+      return work();
+    }
+
     const actionAttributes = safeAttributes({...customerAttributes, action: name});
     return actionContext.run(actionAttributes, () =>
-      phase(name, async () => {
-        const start = performance.now();
-        if (enabled) {
-          try {
-            Sentry.getActiveSpan()?.setAttributes(actionAttributes);
-          } catch {}
-        }
-
-        let outcome = 'error';
-        let code: unknown;
-        try {
-          const result = await work();
-          if (typeof result === 'object' && result !== null && 'status' in result) {
-            outcome = String(result.status);
-            if (
-              'error' in result &&
-              typeof result.error === 'object' &&
-              result.error !== null &&
-              'code' in result.error
-            ) {
-              code = result.error.code;
-            }
-          }
-
-          return result;
-        } catch (error) {
-          captureException(error, actionAttributes);
-          throw error;
-        } finally {
-          if (enabled) {
-            try {
-              const attributes = safeAttributes({
-                ...actionAttributes,
-                outcome,
-                code,
-                process: 'main',
-              });
-              Sentry.getActiveSpan()?.setStatus({code: outcome === 'error' ? 2 : 1});
-              Sentry.logger.info(
-                Sentry.logger.fmt`Application action ${name} completed`,
-                attributes
-              );
-              Sentry.metrics.count('application.action.count', 1, {attributes});
-              Sentry.metrics.distribution(
-                'application.action.duration',
-                performance.now() - start,
-                {unit: 'millisecond', attributes}
-              );
-            } catch {}
-          }
-        }
-      })
+      phase(name, () =>
+        runBoundary(
+          Effect.gen(function* () {
+            const start = yield* Clock.monotonicTimeNanos;
+            yield* Effect.sync(() => {
+              try {
+                Sentry.getActiveSpan()?.setAttributes(actionAttributes);
+              } catch {}
+            });
+            return yield* native(work).pipe(
+              Effect.onExit(exit =>
+                recordCompletion(name, actionAttributes, start, exit).pipe(
+                  Effect.catchCause(() => Effect.void)
+                )
+              )
+            );
+          }).pipe(Effect.provide(Layer.mergeAll(tracerLayer, signalLayer)))
+        )
+      )
     );
+  }
+
+  function recordCompletion(
+    name: ActionName,
+    actionAttributes: Record<string, string | number | boolean>,
+    start: bigint,
+    exit: Exit.Exit<unknown, unknown>
+  ) {
+    return Effect.gen(function* () {
+      const elapsed = Number((yield* Clock.monotonicTimeNanos) - start) / 1_000_000;
+      let outcome = 'error';
+      let code: unknown;
+      if (Exit.isSuccess(exit)) {
+        const result = exit.value;
+        if (typeof result === 'object' && result !== null && 'status' in result) {
+          outcome = String(result.status);
+          if (
+            'error' in result &&
+            typeof result.error === 'object' &&
+            result.error !== null &&
+            'code' in result.error
+          ) {
+            code = result.error.code;
+          }
+        }
+      } else if (!Cause.hasInterruptsOnly(exit.cause)) {
+        captureException(originalCause(exit.cause), actionAttributes);
+      }
+
+      const attributes = safeAttributes({
+        ...actionAttributes,
+        outcome,
+        code,
+        process: 'main',
+      });
+      yield* Effect.sync(() =>
+        Sentry.getActiveSpan()?.setStatus({code: outcome === 'error' ? 2 : 1})
+      );
+      yield* Effect.logInfo(`Application action ${name} completed`).pipe(
+        Effect.annotateLogs(attributes)
+      );
+      yield* recordActionMetrics(elapsed, attributes);
+    });
+  }
+
+  function recordActionMetrics(
+    duration: number,
+    attributes: Record<string, string | number | boolean>
+  ) {
+    const count = Metric.counter('application.action.count');
+    const elapsed = Metric.histogram('application.action.duration', {boundaries: []});
+    return Effect.gen(function* () {
+      yield* Metric.update(count, 1);
+      yield* Metric.update(elapsed, duration);
+    }).pipe(
+      Effect.provideService(
+        Metric.CurrentMetricAttributes,
+        Object.fromEntries(
+          Object.entries(attributes)
+            .filter(([key]) => ['action', 'outcome', 'code', 'process'].includes(key))
+            .map(([key, value]) => [key, String(value)])
+        )
+      )
+    );
+  }
+
+  function exportMetrics(registry: Metric.MetricRegistry) {
+    if (!enabled) {
+      return;
+    }
+
+    // Scoped registries export once before their span ends, including failures and shutdown.
+    // The SDK's periodic global exporter loses individual durations and has no final export.
+    for (const metric of Metric.snapshotUnsafe(
+      Context.make(Metric.MetricRegistry, registry)
+    )) {
+      const attributes = safeAttributes({
+        ...metric.attributes,
+        ...safeSignalAttributes(actionContext.getStore()),
+      });
+      try {
+        if (metric.id === 'application.action.count' && metric.type === 'Counter') {
+          Sentry.metrics.count(metric.id, Number(metric.state.count), {attributes});
+        } else if (
+          metric.id === 'application.action.duration' &&
+          metric.type === 'Histogram' &&
+          metric.state.count === 1
+        ) {
+          // Each action records exactly one duration in its private registry.
+          Sentry.metrics.distribution(metric.id, metric.state.sum, {
+            unit: 'millisecond',
+            attributes,
+          });
+        }
+      } catch {}
+    }
   }
 
   async function flush(timeoutMs = 1500) {
