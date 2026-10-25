@@ -7,6 +7,7 @@ import {RouterProvider, createRouter} from '@tanstack/react-router';
 import {StrictMode} from 'react';
 import ReactDOM from 'react-dom/client';
 
+import {AppearanceProvider, initializeAppearance} from './application/appearance';
 import {createApplication} from './application/controller';
 import createApplicationHistory from './application/history';
 import {initializeRendererTelemetry} from './application/telemetry';
@@ -24,6 +25,8 @@ const styles = stylex.create({
     fontSize: typography.fontSizeBody,
   },
 });
+
+const initialAppearance = initializeAppearance();
 
 document.body.classList.add(...(stylex.props(styles.body).className?.split(' ') ?? []));
 
@@ -100,7 +103,6 @@ declare module '@tanstack/react-router' {
   }
 }
 
-// Render the app
 const rootElement = document.getElementById('root')!;
 if (!rootElement.innerHTML) {
   const root = ReactDOM.createRoot(rootElement, {
@@ -110,12 +112,14 @@ if (!rootElement.innerHTML) {
   });
   root.render(
     <StrictMode>
-      <Toast.Provider toastManager={toastManager}>
-        <QueryClientProvider client={queryClient}>
-          <RouterProvider router={router} />
-        </QueryClientProvider>
-        <Toasts />
-      </Toast.Provider>
+      <AppearanceProvider initialPreference={initialAppearance}>
+        <Toast.Provider toastManager={toastManager}>
+          <QueryClientProvider client={queryClient}>
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+          <Toasts />
+        </Toast.Provider>
+      </AppearanceProvider>
     </StrictMode>
   );
 }

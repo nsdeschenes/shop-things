@@ -18,7 +18,7 @@ import Button from '../button/button';
 const styles = stylex.create({
   backdrop: {
     inset: 0,
-    backgroundColor: 'rgba(100, 106, 104, 0.45)',
+    backgroundColor: colors.backdrop,
     position: 'fixed',
     zIndex: 30,
   },
@@ -124,7 +124,6 @@ export default function DeleteCustomer({
       ) {
         onMissing?.();
       }
-      // TanStack owns failure feedback. Obsolete completions never navigate or update caches.
     }
   }
 

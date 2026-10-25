@@ -48,7 +48,7 @@ const styles = stylex.create({
     paddingInline: {default: spacing.space24, [breakpoints.compact]: spacing.space16},
     alignItems: 'center',
     backgroundColor: colors.headerBackground,
-    color: colors.onPrimary,
+    color: colors.onHeader,
     display: 'flex',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
@@ -145,7 +145,6 @@ export default function ApplicationShell({application, children}: ApplicationShe
         return blocked;
       }
 
-      // Resolve route code/loader failure before committing history or unmounting the draft.
       const matches = await router
         .preloadRoute({
           to: next.pathname,

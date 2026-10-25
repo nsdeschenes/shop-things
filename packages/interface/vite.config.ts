@@ -11,10 +11,7 @@ export default defineConfig({
       target: 'react',
       autoCodeSplitting: true,
       // Keep generated routes type-checked; the default header includes @ts-nocheck.
-      routeTreeFileHeader: [
-        '/* oxlint-disable */',
-        '// noinspection JSUnusedGlobalSymbols',
-      ],
+      routeTreeFileHeader: ['// noinspection JSUnusedGlobalSymbols'],
     }),
     stylex.vite({
       useCSSLayers: {
