@@ -1,10 +1,12 @@
 import {chmod, readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
+import type {DraftRequest, DraftResolution} from '@shop-things/contract';
 import {createDatabase, openDatabase} from '@shop-things/db';
 import {expect, test} from 'vitest';
 
 import {ActionService, databaseOperations} from '../src/actionService.js';
+import {DraftCoordinator} from '../src/draftCoordinator.js';
 import {fixture, migrationsFolder, success, values} from './backendFixture.js';
 
 test('remembered missing file recovery never creates a replacement and Retry recovers', async () => {
@@ -198,3 +200,143 @@ test('placeholder shutdown waits admitted work and closes once without renderer 
     await f.cleanup();
   }
 });
+
+test.each([
+  {kind: 'close', held: 'preparation'},
+  {kind: 'close', held: 'confirmation'},
+  {kind: 'reload', held: 'preparation'},
+  {kind: 'reload', held: 'confirmation'},
+] as const)(
+  'unprotected close refuses protected $kind during $held and Stay preserves the database and draft',
+  async ({kind, held}) => {
+    const drafts = new DraftCoordinator();
+    const preparation = Promise.withResolvers<DraftRequest>();
+    const confirmation = Promise.withResolvers<void>();
+    const stay = Promise.withResolvers<boolean>();
+    const resolutions: DraftResolution[] = [];
+    let holdPreparation = false;
+    let dirty = false;
+    let draft = '';
+    let frozen = false;
+    let closed = 0;
+    let reloads = 0;
+    const participant = {
+      documentId: 'document',
+      prepare(request: DraftRequest) {
+        frozen = true;
+        if (holdPreparation) {
+          preparation.resolve(request);
+        } else {
+          drafts.reply(participant, {...request, hasUnsavedDraft: dirty});
+        }
+      },
+      resolve(resolution: DraftResolution) {
+        resolutions.push(resolution);
+        frozen = false;
+        if (resolution.outcome === 'committed') {
+          draft = '';
+        }
+      },
+    };
+    const unregister = drafts.register(participant);
+    const f = await fixture();
+    const service = new ActionService({
+      ...f.options,
+      drafts,
+      dialogs: {
+        ...f.options.dialogs,
+        confirmDiscard: async () => {
+          confirmation.resolve();
+          return stay.promise;
+        },
+      },
+      database: {
+        ...databaseOperations,
+        createDatabase: async (...args) => {
+          const handle = await databaseOperations.createDatabase(...args);
+          return {
+            ...handle,
+            close() {
+              closed++;
+              handle.close();
+            },
+          };
+        },
+      },
+    });
+    let protectedRequest: Promise<unknown> | undefined;
+    let request: DraftRequest | undefined;
+    try {
+      const state = success(await service.handlers['database.create']());
+      resolutions.length = 0;
+      dirty = true;
+      draft = 'unsaved';
+      holdPreparation = held === 'preparation';
+      protectedRequest =
+        kind === 'close'
+          ? service.requestClose()
+          : service.requestReload(() => {
+              reloads++;
+            });
+      if (held === 'preparation') {
+        request = await preparation.promise;
+      } else {
+        await confirmation.promise;
+      }
+
+      await expect(service.closeUnprotectedWhenIdle()).rejects.toMatchObject({
+        code: 'BUSY',
+      });
+      expect(closed).toBe(0);
+      expect(service.status()).toEqual(state);
+      expect({draft, frozen, resolutions}).toEqual({
+        draft: 'unsaved',
+        frozen: true,
+        resolutions: [],
+      });
+      expect(
+        await service.handlers['customers.create']({session: state.session!, values})
+      ).toMatchObject({status: 'error', error: {code: 'BUSY'}});
+
+      holdPreparation = false;
+      if (request) {
+        drafts.reply(participant, {...request, hasUnsavedDraft: true});
+      }
+
+      stay.resolve(false);
+      expect(await protectedRequest).toEqual({status: 'cancelled'});
+      expect({draft, frozen, closed, reloads}).toEqual({
+        draft: 'unsaved',
+        frozen: false,
+        closed: 0,
+        reloads: 0,
+      });
+      expect(resolutions).toEqual([
+        {requestId: expect.any(String), documentId: 'document', outcome: 'aborted'},
+      ]);
+      expect(service.status()).toEqual(state);
+      expect(
+        success(
+          await service.handlers['customers.create']({session: state.session!, values})
+        ).customer.firstName
+      ).toBe('Anne');
+      expect(await service.requestReload(() => {})).toEqual({status: 'cancelled'});
+      expect(resolutions.map(resolution => resolution.outcome)).toEqual([
+        'aborted',
+        'aborted',
+      ]);
+      expect(draft).toBe('unsaved');
+    } finally {
+      holdPreparation = false;
+      if (request) {
+        drafts.reply(participant, {...request, hasUnsavedDraft: true});
+      }
+
+      stay.resolve(false);
+      await protectedRequest;
+      service.closeUnprotected();
+      unregister();
+      await f.cleanup();
+    }
+  }
+);
