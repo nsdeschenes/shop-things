@@ -255,6 +255,13 @@ void app
     starting = telemetry
       .phase('application.startup', () => service!.start())
       .catch(logError);
+    if (!app.isPackaged && process.env.SHOP_THINGS_REACT_DEVTOOLS === 'true') {
+      await import('./developmentTools.js');
+      if (shuttingDown) {
+        return;
+      }
+    }
+
     createWindow();
     Menu.setApplicationMenu(
       Menu.buildFromTemplate([

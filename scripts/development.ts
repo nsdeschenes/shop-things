@@ -69,7 +69,11 @@ export async function develop() {
         cwd: join(root, 'packages/electron'),
         detached: true,
         stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
-        env: {...process.env, VITE_DEV_SERVER_URL: url},
+        env: {
+          ...process.env,
+          VITE_DEV_SERVER_URL: url,
+          SHOP_THINGS_REACT_DEVTOOLS: 'true',
+        },
       });
       electron.on('error', console.error);
     },

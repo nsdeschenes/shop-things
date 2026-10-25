@@ -43,6 +43,13 @@ test('packaged application omits the developer tools menu command', async () => 
           .submenu!.items.some(item => item.role?.toLowerCase() === 'toggledevtools')
       )
     ).toBe(false);
+    expect(
+      await application.evaluate(({session}) =>
+        session.defaultSession.extensions
+          .getAllExtensions()
+          .some(extension => extension.name === 'React Developer Tools')
+      )
+    ).toBe(false);
   } finally {
     await application.close();
     await rm(directory, {recursive: true, force: true});
@@ -160,7 +167,12 @@ async function verifyDevelopmentBoot(warm: boolean) {
         VITE_DEV_SERVER_URL: url,
       },
     });
-    const page = await application.firstWindow();
+    await expect
+      .poll(() => application!.windows().some(page => page.url().startsWith(url)), {
+        timeout: 15000,
+      })
+      .toBe(true);
+    const page = application.windows().find(page => page.url().startsWith(url))!;
     await page.setViewportSize({width: 1440, height: 1100});
     page.on('console', message =>
       diagnostics.push(`console ${message.type()}: ${message.text()}`)
@@ -172,6 +184,25 @@ async function verifyDevelopmentBoot(warm: boolean) {
     await expect(page.getByRole('link', {name: 'Alpha One'})).toBeVisible({
       timeout: 15000,
     });
+    if (process.env.SHOP_THINGS_REACT_DEVTOOLS === 'true') {
+      expect(
+        await application.evaluate(
+          ({session}) =>
+            session.defaultSession.extensions
+              .getAllExtensions()
+              .find(extension => extension.name === 'React Developer Tools')?.name
+        )
+      ).toBe('React Developer Tools');
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              Reflect.get(window, '__REACT_DEVTOOLS_GLOBAL_HOOK__')?.renderers?.size > 0
+          )
+        )
+        .toBe(true);
+    }
+
     if (!warm) {
       for (const opened of [true, false]) {
         await application.evaluate(({BrowserWindow, Menu}) => {
@@ -192,6 +223,29 @@ async function verifyDevelopmentBoot(warm: boolean) {
             )
           )
           .toBe(opened);
+        if (opened && process.env.SHOP_THINGS_REACT_DEVTOOLS === 'true') {
+          await expect
+            .poll(() =>
+              application!.evaluate(async ({BrowserWindow}) => {
+                const devtools =
+                  BrowserWindow.getAllWindows()[0]!.webContents.devToolsWebContents;
+                if (!devtools || devtools.isLoading()) {
+                  return [];
+                }
+
+                return devtools.executeJavaScript(`(async () => {
+                  const {ViewManager} = await import('devtools://devtools/bundled/ui/legacy/legacy.js');
+                  return [...ViewManager.ViewManager.instance().views.values()].map(view => view.title());
+                })()`);
+              })
+            )
+            .toEqual(
+              expect.arrayContaining([
+                expect.stringContaining('Components'),
+                expect.stringContaining('Profiler'),
+              ])
+            );
+        }
       }
     }
 
