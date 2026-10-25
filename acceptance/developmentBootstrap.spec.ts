@@ -7,6 +7,8 @@ import {fileURLToPath} from 'node:url';
 
 import {_electron, expect, test} from '@playwright/test';
 
+import launchElectron from './launchElectron.js';
+
 const root = fileURLToPath(new URL('..', import.meta.url));
 const requireInterface = createRequire(
   new URL('../packages/interface/package.json', import.meta.url)
@@ -24,6 +26,28 @@ test('cold real Vite development boots the live renderer and retains invalid edi
 
 test('warm Vite cache from before Settings tabs loads both tabs without React hook errors', () =>
   verifyDevelopmentBoot(true));
+
+test('packaged application omits the developer tools menu command', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-packaged-devtools-'));
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_PACKAGED: 'true',
+    SHOP_THINGS_ACCEPTANCE_RESOURCES: join(root, 'packages/db'),
+  });
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByRole('heading', {name: 'Set Up Your Database'})).toBeVisible();
+    expect(
+      await application.evaluate(({Menu}) =>
+        Menu.getApplicationMenu()!
+          .items.find(item => item.label === 'View')!
+          .submenu!.items.some(item => item.role?.toLowerCase() === 'toggledevtools')
+      )
+    ).toBe(false);
+  } finally {
+    await application.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
 
 async function verifyDevelopmentBoot(warm: boolean) {
   const testInfo = test.info();
@@ -148,6 +172,29 @@ async function verifyDevelopmentBoot(warm: boolean) {
     await expect(page.getByRole('link', {name: 'Alpha One'})).toBeVisible({
       timeout: 15000,
     });
+    if (!warm) {
+      for (const opened of [true, false]) {
+        await application.evaluate(({BrowserWindow, Menu}) => {
+          const window = BrowserWindow.getAllWindows()[0]!;
+          const command = Menu.getApplicationMenu()!
+            .items.find(item => item.label === 'View')!
+            .submenu!.items.find(item => item.role?.toLowerCase() === 'toggledevtools');
+          if (!command) {
+            throw new Error('The development View menu is missing Developer Tools');
+          }
+
+          command.click({}, window, window.webContents);
+        });
+        await expect
+          .poll(() =>
+            application!.evaluate(({BrowserWindow}) =>
+              BrowserWindow.getAllWindows()[0]!.webContents.isDevToolsOpened()
+            )
+          )
+          .toBe(opened);
+      }
+    }
+
     await expect(page.getByText('Live mode', {exact: false})).toHaveCount(0);
     expect(page.url()).toBe(url + '#/customers');
     await expect(page.locator('main')).toHaveCSS('padding-left', '24px');

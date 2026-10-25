@@ -264,6 +264,7 @@ void app
         {
           label: 'View',
           submenu: [
+            ...(app.isPackaged ? [] : [{role: 'toggleDevTools' as const}]),
             {
               label: 'Reload',
               accelerator: 'CmdOrCtrl+R',
