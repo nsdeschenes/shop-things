@@ -1,14 +1,35 @@
-import {mkdtemp, readFile, writeFile, mkdir, rm, stat, readdir} from 'node:fs/promises';
+import {
+  mkdtemp,
+  readFile,
+  writeFile,
+  mkdir,
+  rename,
+  rm,
+  stat,
+  readdir,
+} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {setImmediate} from 'node:timers/promises';
 
 import {defaultTelemetrySampling} from '@shop-things/contract/schemas';
-import {expect, test} from 'vitest';
+import {expect, test, vi} from 'vitest';
 
 import {FileTelemetrySettings} from '../src/telemetrySettings.js';
 
+vi.mock('node:fs/promises', async importOriginal => {
+  const filesystem = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...filesystem,
+    writeFile: vi.fn(filesystem.writeFile),
+    rename: vi.fn(filesystem.rename),
+    rm: vi.fn(filesystem.rm),
+  };
+});
+
 const first = 'https://public@ingest.example.com/42';
 const second = 'http://local@localhost:9000/sentry/43';
+const temporarySettingsPath = /telemetry\.json\.[\w-]+\.tmp$/;
 
 test('production saves and restarts retain HTTPS and only normalized loopback HTTP destinations', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'telemetry-transport-'));
@@ -264,3 +285,102 @@ test('legacy files keep full sampling and sampling-only saves apply on restart w
     await rm(directory, {recursive: true, force: true});
   }
 });
+
+test.each(['write', 'rename', 'successful rename'] as const)(
+  'cleanup failure preserves the %s result and allows an already queued save',
+  async failure => {
+    const filesystem =
+      await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    const directory = await mkdtemp(join(tmpdir(), 'telemetry-cleanup-'));
+    const path = join(directory, 'telemetry.json');
+    const initial = {dsn: first, sampling: {...defaultTelemetrySampling}};
+    const requested = {
+      dsn: second,
+      sampling: {errors: 25, traces: 0, logs: 50, metrics: 75},
+    };
+    const queued = {
+      dsn: null,
+      sampling: {errors: 10, traces: 20, logs: 30, metrics: 40},
+    };
+    const persistenceError = new Error(`${failure} failed`);
+    const cleanupError = new Error('temporary cleanup failed');
+    const cleanupEntered = Promise.withResolvers<void>();
+    const releaseCleanup = Promise.withResolvers<void>();
+    const pending: Promise<unknown>[] = [];
+    try {
+      await filesystem.writeFile(path, JSON.stringify(initial));
+      const settings = new FileTelemetrySettings(path);
+      const startupSampling = settings.startupSampling;
+      vi.mocked(writeFile).mockClear();
+      vi.mocked(rename).mockClear();
+      vi.mocked(rm).mockClear();
+
+      if (failure === 'write') {
+        vi.mocked(writeFile).mockRejectedValueOnce(persistenceError);
+      } else if (failure === 'rename') {
+        vi.mocked(rename).mockRejectedValueOnce(persistenceError);
+      }
+
+      vi.mocked(rm).mockImplementationOnce(async () => {
+        cleanupEntered.resolve();
+        await releaseCleanup.promise;
+        throw cleanupError;
+      });
+
+      const saved = Promise.allSettled([settings.save(requested)]);
+      pending.push(saved);
+      await cleanupEntered.promise;
+      const next = settings.save(queued);
+      pending.push(next);
+      await setImmediate();
+      expect(writeFile).toHaveBeenCalledTimes(1);
+      const persisted = failure === 'successful rename' ? requested : initial;
+      const status = {
+        environment: 'development',
+        savedDsn: persisted.dsn,
+        activeDsn: first,
+        savedSampling: persisted.sampling,
+        activeSampling: initial.sampling,
+        activeEnabled: true,
+        restartRequired: failure === 'successful rename',
+      };
+      expect(await readFile(path, 'utf8')).toBe(JSON.stringify(persisted));
+      expect(settings.status()).toEqual(status);
+      expect(rm).toHaveBeenCalledWith(expect.stringMatching(temporarySettingsPath), {
+        force: true,
+      });
+
+      releaseCleanup.resolve();
+      const [result] = await saved;
+      expect(await next).toEqual({
+        ...status,
+        savedDsn: null,
+        savedSampling: queued.sampling,
+        restartRequired: true,
+      });
+      expect(await readFile(path, 'utf8')).toBe(JSON.stringify(queued));
+      expect(settings.status().savedDsn).toBeNull();
+      expect(settings.status().savedSampling).toEqual(queued.sampling);
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+      expect(settings.startupDsn).toBe(first);
+      expect(settings.startupSampling).toBe(startupSampling);
+      expect(settings.startupSampling).toEqual(initial.sampling);
+      expect(Object.isFrozen(settings.startupSampling)).toBe(true);
+      expect(result).toEqual(
+        failure === 'successful rename'
+          ? {status: 'fulfilled', value: status}
+          : {status: 'rejected', reason: persistenceError}
+      );
+      expect(result?.status === 'rejected' ? result.reason : undefined).toBe(
+        failure === 'successful rename' ? undefined : persistenceError
+      );
+    } finally {
+      releaseCleanup.resolve();
+      await Promise.allSettled(pending);
+      vi.mocked(writeFile).mockImplementation(filesystem.writeFile);
+      vi.mocked(rename).mockImplementation(filesystem.rename);
+      vi.mocked(rm).mockImplementation(filesystem.rm);
+      await filesystem.rm(directory, {recursive: true, force: true});
+    }
+  }
+);
