@@ -250,3 +250,117 @@ test.each(['close', 'reload', 'unprotected'] as const)(
     }
   }
 );
+
+test('failed unprotected close releases lifecycle admission and can be retried', async () => {
+  const f = await fixture();
+  const closeError = new Error('native close failed');
+  let failClose = true;
+  let closed = 0;
+  const backend = new Backend({
+    ...f.options,
+    database: {
+      ...databaseOperations,
+      createDatabase: async (...args) => {
+        const handle = await databaseOperations.createDatabase(...args);
+        return {
+          ...handle,
+          close() {
+            if (failClose) {
+              throw closeError;
+            }
+
+            closed++;
+            handle.close();
+          },
+        };
+      },
+    },
+  });
+  try {
+    const state = success(await Effect.runPromise(backend.handlers['database.create']()));
+    await expect(runBoundary(backend.closeUnprotectedWhenIdle())).rejects.toBe(
+      closeError
+    );
+    expect(backend.lifecyclePending).toBe(false);
+    expect(backend.status()).toEqual(state);
+    expect(
+      success(
+        await Effect.runPromise(
+          backend.handlers['customers.create']({session: state.session!, values})
+        )
+      ).customer.firstName
+    ).toBe('Anne');
+    failClose = false;
+    await Effect.runPromise(backend.closeUnprotectedWhenIdle());
+    expect(closed).toBe(1);
+    expect(backend.status()).toMatchObject({available: false, session: null});
+  } finally {
+    failClose = false;
+    backend.closeUnprotected();
+    await f.cleanup();
+  }
+});
+
+test('interrupting unprotected drain releases its lifecycle while the admitted native query finishes', async () => {
+  const f = await fixture();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let closed = 0;
+  const backend = new Backend({
+    ...f.options,
+    database: {
+      ...databaseOperations,
+      createDatabase: async (...args) => {
+        const handle = await databaseOperations.createDatabase(...args);
+        return {
+          ...handle,
+          close() {
+            closed++;
+            handle.close();
+          },
+        };
+      },
+      listCustomers: async (...args) => {
+        entered.resolve();
+        await release.promise;
+        return databaseOperations.listCustomers(...args);
+      },
+    },
+  });
+  let read: Promise<unknown> | undefined;
+  try {
+    const state = success(await Effect.runPromise(backend.handlers['database.create']()));
+    read = Effect.runPromise(
+      backend.handlers['customers.list']({session: state.session!, query: ''})
+    );
+    await entered.promise;
+    const closing = Effect.runFork(backend.closeUnprotectedWhenIdle());
+    expect(backend.lifecyclePending).toBe(true);
+    await Effect.runPromise(Fiber.interrupt(closing));
+    expect(backend.lifecyclePending).toBe(false);
+    expect(closed).toBe(0);
+    expect(backend.status()).toEqual(state);
+    expect(
+      await Effect.runPromise(
+        backend.handlers['customers.create']({session: state.session!, values})
+      )
+    ).toMatchObject({status: 'error', error: {code: 'BUSY'}});
+    release.resolve();
+    expect(await read).toEqual({status: 'success', value: []});
+    expect(
+      success(
+        await Effect.runPromise(
+          backend.handlers['customers.create']({session: state.session!, values})
+        )
+      ).customer.firstName
+    ).toBe('Anne');
+    await Effect.runPromise(backend.closeUnprotectedWhenIdle());
+    expect(closed).toBe(1);
+    expect(backend.status()).toMatchObject({available: false, session: null});
+  } finally {
+    release.resolve();
+    await read;
+    backend.closeUnprotected();
+    await f.cleanup();
+  }
+});
