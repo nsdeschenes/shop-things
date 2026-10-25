@@ -105,7 +105,7 @@ export class FileTelemetrySettings {
           yield* Effect.tryPromise({
             try: () => rm(temporary, {force: true}),
             catch: error => error,
-          });
+          }).pipe(Effect.ignore);
           yield* written;
           return this.status();
         }).pipe(Effect.uninterruptible)
