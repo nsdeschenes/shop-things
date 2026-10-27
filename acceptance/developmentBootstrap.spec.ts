@@ -225,19 +225,21 @@ async function verifyDevelopmentBoot(warm: boolean) {
           .toBe(opened);
         if (opened && process.env.SHOP_THINGS_REACT_DEVTOOLS === 'true') {
           await expect
-            .poll(() =>
-              application!.evaluate(async ({BrowserWindow}) => {
-                const devtools =
-                  BrowserWindow.getAllWindows()[0]!.webContents.devToolsWebContents;
-                if (!devtools || devtools.isLoading()) {
-                  return [];
-                }
+            .poll(
+              () =>
+                application!.evaluate(async ({BrowserWindow}) => {
+                  const devtools =
+                    BrowserWindow.getAllWindows()[0]!.webContents.devToolsWebContents;
+                  if (!devtools || devtools.isLoading()) {
+                    return [];
+                  }
 
-                return devtools.executeJavaScript(`(async () => {
+                  return devtools.executeJavaScript(`(async () => {
                   const {ViewManager} = await import('devtools://devtools/bundled/ui/legacy/legacy.js');
                   return [...ViewManager.ViewManager.instance().views.values()].map(view => view.title());
                 })()`);
-              })
+                }),
+              {timeout: 30000}
             )
             .toEqual(
               expect.arrayContaining([

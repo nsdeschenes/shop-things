@@ -1,6 +1,7 @@
 import {spawn, spawnSync} from 'node:child_process';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
+import {writeFileSync} from 'node:fs';
 import {mkdir} from 'node:fs/promises';
 import {mkdtemp, readFile, writeFile, realpath} from 'node:fs/promises';
 import {createRequire} from 'node:module';
@@ -108,6 +109,29 @@ async function hash() {
 }
 
 const ownedGroups = new Set();
+for (const [signal, exitCode] of [
+  ['SIGINT', 130],
+  ['SIGTERM', 143],
+]) {
+  process.once(signal, () => {
+    try {
+      writeFileSync(source, original);
+    } finally {
+      for (const pid of ownedGroups) {
+        try {
+          process.kill(-pid, 'SIGKILL');
+        } catch (error) {
+          if (error.code !== 'ESRCH') {
+            console.error('CLEANUP_FAILURE ' + error.message);
+          }
+        }
+      }
+
+      process.exit(exitCode);
+    }
+  });
+}
+
 let launcher,
   browser,
   output = '',
@@ -206,7 +230,7 @@ try {
   await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
   await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
   const before = await hash();
-  await writeFile(source, original + '\n// watcher supporting probe\n');
+  writeFileSync(source, original + '\n// watcher supporting probe\n');
   await until(() => output.includes('Restart was not approved'), 'Stay denial', 20000);
   expect(pids).toEqual([first]);
   expect(await hash()).toBe(before);
@@ -228,7 +252,7 @@ try {
     '-'
   );
   output = '';
-  await writeFile(source, original + '\n// watcher resumed polling probe\n');
+  writeFileSync(source, original + '\n// watcher resumed polling probe\n');
   await until(
     () => output.includes('Restart was not approved'),
     'resumed source polling',
@@ -253,7 +277,7 @@ try {
   await browser.close();
   browser = null;
   output = '';
-  await writeFile(source, original + '\nthis is invalid syntax !\n');
+  writeFileSync(source, original + '\nthis is invalid syntax !\n');
   await until(
     () => output.includes('Fix any build errors'),
     'failed prerequisite',
@@ -267,7 +291,7 @@ try {
   });
   record('BUILD_FAILURE_NO_REPLACEMENT');
   output = '';
-  await writeFile(source, original);
+  writeFileSync(source, original);
   launcher.stdin.write('r\n');
   await until(() => pids.length === 3, 'fixed build replacement');
   page = await attach();
@@ -299,7 +323,7 @@ try {
   record('FAILURE ' + error.stack);
   report.error = error.stack;
 } finally {
-  await writeFile(source, original);
+  writeFileSync(source, original);
   await writeFile(control, JSON.stringify({discard: true}));
   if (browser) {
     await browser.close();
