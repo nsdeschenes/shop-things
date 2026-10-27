@@ -18,6 +18,10 @@ childProcess.spawn = (command, args, options) => {
   }
 
   const child = spawn(command, args, options);
+  if (options?.detached && child.pid) {
+    console.log('WATCHER_PROCESS_GROUP ' + JSON.stringify({pid: child.pid}));
+  }
+
   if (command === executable) {
     console.log(
       'WATCHER_SPAWN ' +

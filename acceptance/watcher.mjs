@@ -107,6 +107,7 @@ async function hash() {
     .digest('hex');
 }
 
+const ownedGroups = new Set();
 let launcher,
   browser,
   output = '',
@@ -133,7 +134,19 @@ async function attach() {
   await until(() => output.includes('DevTools listening'), 'debugger');
   browser = await chromium.connectOverCDP('http://127.0.0.1:' + port, {timeout: 10000});
   report.chromium = browser.version();
-  const page = browser.contexts()[0].pages()[0];
+  let page;
+  await expect
+    .poll(
+      () => {
+        page = browser
+          .contexts()
+          .flatMap(context => context.pages())
+          .find(candidate => candidate.url().startsWith('http://127.0.0.1:5173/'));
+        return Boolean(page);
+      },
+      {timeout: 15000}
+    )
+    .toBe(true);
   page.on('pageerror', e => record('PAGEERROR ' + e.message));
   await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible({
     timeout: 15000,
@@ -144,6 +157,7 @@ async function attach() {
 try {
   launcher = spawn(process.execPath, [join(root, 'acceptance/watcherLauncher.mjs')], {
     cwd: root,
+    detached: true,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: {
       ...process.env,
@@ -156,6 +170,7 @@ try {
       WATCHER_DEBUG_PORT: String(port),
     },
   });
+  ownedGroups.add(launcher.pid);
   for (const stream of [launcher.stdout, launcher.stderr]) {
     stream.on('data', chunk => {
       const text = String(chunk);
@@ -166,6 +181,10 @@ try {
       const lines = eventLines.split('\n');
       eventLines = lines.pop();
       for (const line of lines) {
+        if (line.startsWith('WATCHER_PROCESS_GROUP ')) {
+          ownedGroups.add(JSON.parse(line.slice(22)).pid);
+        }
+
         if (line.startsWith('WATCHER_SPAWN ')) {
           const data = JSON.parse(line.slice(14));
           pids.push(data.pid);
@@ -297,7 +316,24 @@ try {
       report.cleanup = true;
     } catch {
       report.cleanup = false;
-      record('CLEANUP_LIMITATION parent alive; owned PIDs ' + pids.join(','));
+      record('FORCED_TEST_CLEANUP owned process groups ' + [...ownedGroups].join(','));
+      report.cleanup = true;
+      for (const pid of ownedGroups) {
+        try {
+          process.kill(-pid, 'SIGKILL');
+        } catch (error) {
+          if (error.code !== 'ESRCH') {
+            report.cleanup = false;
+            record('CLEANUP_FAILURE ' + error.message);
+          }
+        }
+      }
+
+      await until(
+        () => launcher.exitCode !== null || launcher.signalCode !== null,
+        'forced cleanup',
+        5000
+      );
     }
   }
 
