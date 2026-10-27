@@ -1,6 +1,7 @@
 import {spawn, spawnSync} from 'node:child_process';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
+import {writeFileSync} from 'node:fs';
 import {mkdir} from 'node:fs/promises';
 import {mkdtemp, readFile, writeFile, realpath} from 'node:fs/promises';
 import {createRequire} from 'node:module';
@@ -107,6 +108,30 @@ async function hash() {
     .digest('hex');
 }
 
+const ownedGroups = new Set();
+for (const [signal, exitCode] of [
+  ['SIGINT', 130],
+  ['SIGTERM', 143],
+]) {
+  process.once(signal, () => {
+    try {
+      writeFileSync(source, original);
+    } finally {
+      for (const pid of ownedGroups) {
+        try {
+          process.kill(-pid, 'SIGKILL');
+        } catch (error) {
+          if (error.code !== 'ESRCH') {
+            console.error('CLEANUP_FAILURE ' + error.message);
+          }
+        }
+      }
+
+      process.exit(exitCode);
+    }
+  });
+}
+
 let launcher,
   browser,
   output = '',
@@ -133,7 +158,19 @@ async function attach() {
   await until(() => output.includes('DevTools listening'), 'debugger');
   browser = await chromium.connectOverCDP('http://127.0.0.1:' + port, {timeout: 10000});
   report.chromium = browser.version();
-  const page = browser.contexts()[0].pages()[0];
+  let page;
+  await expect
+    .poll(
+      () => {
+        page = browser
+          .contexts()
+          .flatMap(context => context.pages())
+          .find(candidate => candidate.url().startsWith('http://127.0.0.1:5173/'));
+        return Boolean(page);
+      },
+      {timeout: 15000}
+    )
+    .toBe(true);
   page.on('pageerror', e => record('PAGEERROR ' + e.message));
   await expect(page.getByRole('heading', {name: 'Customers', exact: true})).toBeVisible({
     timeout: 15000,
@@ -144,6 +181,7 @@ async function attach() {
 try {
   launcher = spawn(process.execPath, [join(root, 'acceptance/watcherLauncher.mjs')], {
     cwd: root,
+    detached: true,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: {
       ...process.env,
@@ -156,6 +194,7 @@ try {
       WATCHER_DEBUG_PORT: String(port),
     },
   });
+  ownedGroups.add(launcher.pid);
   for (const stream of [launcher.stdout, launcher.stderr]) {
     stream.on('data', chunk => {
       const text = String(chunk);
@@ -166,6 +205,10 @@ try {
       const lines = eventLines.split('\n');
       eventLines = lines.pop();
       for (const line of lines) {
+        if (line.startsWith('WATCHER_PROCESS_GROUP ')) {
+          ownedGroups.add(JSON.parse(line.slice(22)).pid);
+        }
+
         if (line.startsWith('WATCHER_SPAWN ')) {
           const data = JSON.parse(line.slice(14));
           pids.push(data.pid);
@@ -187,7 +230,7 @@ try {
   await page.getByRole('textbox', {name: 'Customer number', exact: true}).waitFor();
   await page.getByRole('textbox', {name: 'Balance ($)', exact: true}).fill('-');
   const before = await hash();
-  await writeFile(source, original + '\n// watcher supporting probe\n');
+  writeFileSync(source, original + '\n// watcher supporting probe\n');
   await until(() => output.includes('Restart was not approved'), 'Stay denial', 20000);
   expect(pids).toEqual([first]);
   expect(await hash()).toBe(before);
@@ -209,7 +252,7 @@ try {
     '-'
   );
   output = '';
-  await writeFile(source, original + '\n// watcher resumed polling probe\n');
+  writeFileSync(source, original + '\n// watcher resumed polling probe\n');
   await until(
     () => output.includes('Restart was not approved'),
     'resumed source polling',
@@ -234,7 +277,7 @@ try {
   await browser.close();
   browser = null;
   output = '';
-  await writeFile(source, original + '\nthis is invalid syntax !\n');
+  writeFileSync(source, original + '\nthis is invalid syntax !\n');
   await until(
     () => output.includes('Fix any build errors'),
     'failed prerequisite',
@@ -248,7 +291,7 @@ try {
   });
   record('BUILD_FAILURE_NO_REPLACEMENT');
   output = '';
-  await writeFile(source, original);
+  writeFileSync(source, original);
   launcher.stdin.write('r\n');
   await until(() => pids.length === 3, 'fixed build replacement');
   page = await attach();
@@ -280,7 +323,7 @@ try {
   record('FAILURE ' + error.stack);
   report.error = error.stack;
 } finally {
-  await writeFile(source, original);
+  writeFileSync(source, original);
   await writeFile(control, JSON.stringify({discard: true}));
   if (browser) {
     await browser.close();
@@ -297,7 +340,24 @@ try {
       report.cleanup = true;
     } catch {
       report.cleanup = false;
-      record('CLEANUP_LIMITATION parent alive; owned PIDs ' + pids.join(','));
+      record('FORCED_TEST_CLEANUP owned process groups ' + [...ownedGroups].join(','));
+      report.cleanup = true;
+      for (const pid of ownedGroups) {
+        try {
+          process.kill(-pid, 'SIGKILL');
+        } catch (error) {
+          if (error.code !== 'ESRCH') {
+            report.cleanup = false;
+            record('CLEANUP_FAILURE ' + error.message);
+          }
+        }
+      }
+
+      await until(
+        () => launcher.exitCode !== null || launcher.signalCode !== null,
+        'forced cleanup',
+        5000
+      );
     }
   }
 

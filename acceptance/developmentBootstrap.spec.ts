@@ -7,6 +7,8 @@ import {fileURLToPath} from 'node:url';
 
 import {_electron, expect, test} from '@playwright/test';
 
+import launchElectron from './launchElectron.js';
+
 const root = fileURLToPath(new URL('..', import.meta.url));
 const requireInterface = createRequire(
   new URL('../packages/interface/package.json', import.meta.url)
@@ -24,6 +26,35 @@ test('cold real Vite development boots the live renderer and retains invalid edi
 
 test('warm Vite cache from before Settings tabs loads both tabs without React hook errors', () =>
   verifyDevelopmentBoot(true));
+
+test('packaged application omits the developer tools menu command', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-packaged-devtools-'));
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_PACKAGED: 'true',
+    SHOP_THINGS_ACCEPTANCE_RESOURCES: join(root, 'packages/db'),
+  });
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByRole('heading', {name: 'Set Up Your Database'})).toBeVisible();
+    expect(
+      await application.evaluate(({Menu}) =>
+        Menu.getApplicationMenu()!
+          .items.find(item => item.label === 'View')!
+          .submenu!.items.some(item => item.role?.toLowerCase() === 'toggledevtools')
+      )
+    ).toBe(false);
+    expect(
+      await application.evaluate(({session}) =>
+        session.defaultSession.extensions
+          .getAllExtensions()
+          .some(extension => extension.name === 'React Developer Tools')
+      )
+    ).toBe(false);
+  } finally {
+    await application.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
 
 async function verifyDevelopmentBoot(warm: boolean) {
   const testInfo = test.info();
@@ -136,7 +167,12 @@ async function verifyDevelopmentBoot(warm: boolean) {
         VITE_DEV_SERVER_URL: url,
       },
     });
-    const page = await application.firstWindow();
+    await expect
+      .poll(() => application!.windows().some(page => page.url().startsWith(url)), {
+        timeout: 15000,
+      })
+      .toBe(true);
+    const page = application.windows().find(page => page.url().startsWith(url))!;
     await page.setViewportSize({width: 1440, height: 1100});
     page.on('console', message =>
       diagnostics.push(`console ${message.type()}: ${message.text()}`)
@@ -148,6 +184,73 @@ async function verifyDevelopmentBoot(warm: boolean) {
     await expect(page.getByRole('link', {name: 'Alpha One'})).toBeVisible({
       timeout: 15000,
     });
+    if (process.env.SHOP_THINGS_REACT_DEVTOOLS === 'true') {
+      expect(
+        await application.evaluate(
+          ({session}) =>
+            session.defaultSession.extensions
+              .getAllExtensions()
+              .find(extension => extension.name === 'React Developer Tools')?.name
+        )
+      ).toBe('React Developer Tools');
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              Reflect.get(window, '__REACT_DEVTOOLS_GLOBAL_HOOK__')?.renderers?.size > 0
+          )
+        )
+        .toBe(true);
+    }
+
+    if (!warm) {
+      for (const opened of [true, false]) {
+        await application.evaluate(({BrowserWindow, Menu}) => {
+          const window = BrowserWindow.getAllWindows()[0]!;
+          const command = Menu.getApplicationMenu()!
+            .items.find(item => item.label === 'View')!
+            .submenu!.items.find(item => item.role?.toLowerCase() === 'toggledevtools');
+          if (!command) {
+            throw new Error('The development View menu is missing Developer Tools');
+          }
+
+          command.click({}, window, window.webContents);
+        });
+        await expect
+          .poll(() =>
+            application!.evaluate(({BrowserWindow}) =>
+              BrowserWindow.getAllWindows()[0]!.webContents.isDevToolsOpened()
+            )
+          )
+          .toBe(opened);
+        if (opened && process.env.SHOP_THINGS_REACT_DEVTOOLS === 'true') {
+          await expect
+            .poll(
+              () =>
+                application!.evaluate(async ({BrowserWindow}) => {
+                  const devtools =
+                    BrowserWindow.getAllWindows()[0]!.webContents.devToolsWebContents;
+                  if (!devtools || devtools.isLoading()) {
+                    return [];
+                  }
+
+                  return devtools.executeJavaScript(`(async () => {
+                  const {ViewManager} = await import('devtools://devtools/bundled/ui/legacy/legacy.js');
+                  return [...ViewManager.ViewManager.instance().views.values()].map(view => view.title());
+                })()`);
+                }),
+              {timeout: 30000}
+            )
+            .toEqual(
+              expect.arrayContaining([
+                expect.stringContaining('Components'),
+                expect.stringContaining('Profiler'),
+              ])
+            );
+        }
+      }
+    }
+
     await expect(page.getByText('Live mode', {exact: false})).toHaveCount(0);
     expect(page.url()).toBe(url + '#/customers');
     await expect(page.locator('main')).toHaveCSS('padding-left', '24px');
