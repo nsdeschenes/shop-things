@@ -51,11 +51,13 @@ test('Settings links navigate routes and history while preserving monitoring dra
   try {
     const database = await screen.findByRole('tab', {name: 'Database'});
     const monitoring = screen.getByRole('tab', {name: 'Monitoring'});
+    const appearance = screen.getByRole('tab', {name: 'Appearance'});
     await waitFor(() =>
       expect(router.state.location.pathname).toBe('/settings/database')
     );
     expect(database).toHaveAttribute('href', '/settings/database');
     expect(monitoring).toHaveAttribute('href', '/settings/monitoring');
+    expect(appearance).toHaveAttribute('href', '/settings/appearance');
     expect(database.tagName).toBe('A');
     expect(monitoring.tagName).toBe('A');
     expect(database).toHaveAttribute('aria-selected', 'true');
@@ -77,6 +79,11 @@ test('Settings links navigate routes and history while preserving monitoring dra
     const sampling = screen.getByRole('spinbutton', {name: 'Trace sampling (%)'});
     await user.clear(sampling);
     await user.type(sampling, '25');
+    await user.click(appearance);
+    expect(router.state.location.pathname).toBe('/settings/appearance');
+    expect(appearance).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('radio', {name: 'System'})).toBeChecked();
+    expect(screen.queryByRole('textbox', {name: 'Sentry DSN'})).not.toBeInTheDocument();
     await user.click(database);
     expect(screen.queryByRole('textbox', {name: 'Sentry DSN'})).not.toBeInTheDocument();
     await user.keyboard('{ArrowRight}{Enter}');
@@ -95,6 +102,21 @@ test('Settings links navigate routes and history while preserving monitoring dra
       'https://public@host/1'
     );
     expect(saves).toBe(0);
+  } finally {
+    application.dispose();
+  }
+});
+
+test('Appearance settings are available before a database opens', async () => {
+  const application = createApplication('http://localhost', false);
+  renderRoute('/settings/appearance', application);
+  try {
+    expect(await screen.findByRole('tab', {name: 'Appearance'})).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(screen.getByRole('group', {name: 'Color theme'})).toBeVisible();
+    expect(screen.getByRole('radio', {name: 'System'})).toBeChecked();
   } finally {
     application.dispose();
   }

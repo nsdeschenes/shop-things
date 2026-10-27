@@ -1,5 +1,6 @@
 import * as stylex from '@stylexjs/stylex';
 
+import {colors} from '../../styles/colors.stylex';
 import LoadingSpinner from '../loadingSpinner/loadingSpinner';
 
 const styles = stylex.create({
@@ -7,7 +8,7 @@ const styles = stylex.create({
   overlay: {
     inset: 0,
     placeItems: 'center',
-    backgroundColor: 'rgba(100, 106, 104, 0.45)',
+    backgroundColor: colors.backdrop,
     display: 'grid',
     position: 'fixed',
     zIndex: 100,

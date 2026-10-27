@@ -13,12 +13,18 @@ import {useRef, useSyncExternalStore} from 'react';
 
 import type {Application} from '../../application/controller';
 import {colors} from '../../styles/colors.stylex';
+import AppearanceSettings from '../appearanceSettings/appearanceSettings';
 import Button from '../button/button';
 import buttonStyles from '../button/buttonStyles';
 import DatabaseActions from '../databaseActions/databaseActions';
 import TelemetrySettings from '../telemetrySettings/telemetrySettings';
 
 const pathSeparator = /[\\/]/;
+const settingsTabs: Record<string, string> = {
+  '/settings/database': 'database',
+  '/settings/monitoring': 'monitoring',
+  '/settings/appearance': 'appearance',
+};
 const styles = stylex.create({
   page: {
     marginInline: 'auto',
@@ -28,7 +34,7 @@ const styles = stylex.create({
   },
   pageIntro: {marginBottom: 28},
   tabs: {
-    gap: 16,
+    gap: {default: 16, '@media (max-width: 600px)': 0},
     display: 'flex',
     borderBottomColor: colors.border,
     borderBottomStyle: 'solid',
@@ -38,7 +44,7 @@ const styles = stylex.create({
   tab: {
     borderWidth: 0,
     paddingBlock: 12,
-    paddingInline: 16,
+    paddingInline: {default: 16, '@media (max-width: 600px)': 4},
     textDecoration: 'none',
     backgroundColor: 'transparent',
     color: {
@@ -47,7 +53,7 @@ const styles = stylex.create({
       ':hover': colors.primary,
     },
     cursor: 'pointer',
-    fontSize: 16,
+    fontSize: {default: 16, '@media (max-width: 600px)': 14},
     fontWeight: 600,
     outlineColor: colors.focusRing,
     outlineOffset: 3,
@@ -74,16 +80,16 @@ const styles = stylex.create({
   },
   active: {
     padding: {default: 32, '@media (max-width: 700px)': 22},
-    borderColor: '#c9dccf',
+    borderColor: colors.successBorder,
     borderRadius: 12,
     borderStyle: 'solid',
     borderWidth: 1,
-    backgroundColor: '#e2efe5',
+    backgroundColor: colors.successBackground,
   },
   identity: {gap: 20, alignItems: 'center', display: 'flex', minWidth: 0},
   fileSymbol: {
     padding: 16,
-    borderColor: '#c9dccf',
+    borderColor: colors.successBorder,
     borderRadius: 14,
     borderStyle: 'solid',
     borderWidth: 1,
@@ -118,7 +124,7 @@ const styles = stylex.create({
     display: 'flex',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    borderTopColor: '#c9dccf',
+    borderTopColor: colors.successBorder,
     borderTopStyle: 'solid',
     borderTopWidth: 1,
     marginTop: 26,
@@ -194,7 +200,7 @@ export default function DatabaseSettings({application}: {application: Applicatio
   );
   const navigate = useNavigate();
   const pathname = useRouterState({select: state => state.location.pathname});
-  const tab = pathname === '/settings/monitoring' ? 'monitoring' : 'database';
+  const tab = settingsTabs[pathname] ?? 'database';
   const restoreButton = useRef<HTMLButtonElement>(null);
   const database = state.database;
   const filename =
@@ -243,7 +249,7 @@ export default function DatabaseSettings({application}: {application: Applicatio
       <div {...stylex.props(styles.pageIntro)}>
         <h1 {...stylex.props(styles.heading)}>Settings</h1>
         <p {...stylex.props(styles.description)}>
-          Application monitoring, customer records, backups, and file transfers.
+          Appearance, application monitoring, customer records, and backups.
         </p>
       </div>
       <Tabs.Root value={tab}>
@@ -263,6 +269,14 @@ export default function DatabaseSettings({application}: {application: Applicatio
             {...stylex.props(styles.tab)}
           >
             Monitoring
+          </Tabs.Tab>
+          <Tabs.Tab
+            value="appearance"
+            nativeButton={false}
+            render={<Link to="/settings/appearance" />}
+            {...stylex.props(styles.tab)}
+          >
+            Appearance
           </Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="database" keepMounted>
@@ -396,6 +410,9 @@ export default function DatabaseSettings({application}: {application: Applicatio
         </Tabs.Panel>
         <Tabs.Panel value="monitoring" keepMounted>
           <TelemetrySettings application={application} />
+        </Tabs.Panel>
+        <Tabs.Panel value="appearance" keepMounted>
+          <AppearanceSettings />
         </Tabs.Panel>
       </Tabs.Root>
     </main>

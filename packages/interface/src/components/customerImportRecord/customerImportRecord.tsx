@@ -16,9 +16,15 @@ const styles = stylex.create({
   attention: {borderColor: colors.warningText, color: colors.warningText},
   reviewRow: {borderLeftWidth: 4},
   reviewSummary: {
-    backgroundColor: {default: '#fff8e6', ':hover': '#fff1cc'},
+    backgroundColor: {
+      default: colors.warningBackground,
+      ':hover': colors.warningHoverBackground,
+    },
   },
-  reviewBadge: {backgroundColor: '#fff1cc', color: colors.warningText},
+  reviewBadge: {
+    backgroundColor: colors.warningHoverBackground,
+    color: colors.warningText,
+  },
   numberNotice: {
     padding: 12,
     borderRadius: radii.panel,

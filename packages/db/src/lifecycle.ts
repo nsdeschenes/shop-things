@@ -4,7 +4,7 @@ import {dirname, isAbsolute} from 'node:path';
 
 import {sql} from 'drizzle-orm';
 import {migrate} from 'drizzle-orm/tursodatabase/migrator';
-import {Cause, Effect} from 'effect';
+import {Cause, Effect, Exit} from 'effect';
 
 import {openDatabase} from './database.js';
 import type {AppDatabase, DatabaseHandle, OpenDatabaseOptions} from './database.js';
@@ -269,21 +269,37 @@ export function createDatabase(
 
     return yield* Effect.uninterruptibleMask(restore =>
       Effect.gen(function* () {
-        yield* Effect.acquireUseRelease(
-          native(() => open(path, 'wx')),
-          () => Effect.void,
-          file => native(() => file.close())
+        const file = yield* native(() => open(path, 'wx'));
+        let candidate: DatabaseHandle | undefined;
+
+        const initialized = yield* Effect.exit(
+          Effect.gen(function* () {
+            yield* native(() => file.close());
+            candidate = yield* attempt(() => openDatabase(path, options));
+            yield* restore(runMigrations(candidate.db, options));
+            return candidate;
+          })
         );
-        const handle = yield* attempt(() => openDatabase(path, options));
-        yield* restore(runMigrations(handle.db, options)).pipe(
-          Effect.catchCause(cause =>
-            attempt(() => handle.close()).pipe(
-              Effect.flatMap(() => native(() => unlink(path))),
-              Effect.flatMap(() => Effect.failCause(cause))
-            )
-          )
+
+        if (Exit.isSuccess(initialized)) {
+          return initialized.value;
+        }
+
+        const handle = candidate;
+        const closed = yield* Effect.exit(
+          handle === undefined ? Effect.void : attempt(() => handle.close())
         );
-        return handle;
+        const removed = yield* Effect.exit(native(() => unlink(path)));
+
+        if (Exit.isFailure(closed)) {
+          return yield* Effect.failCause(closed.cause);
+        }
+
+        if (Exit.isFailure(removed)) {
+          return yield* Effect.failCause(removed.cause);
+        }
+
+        return yield* Effect.failCause(initialized.cause);
       })
     );
   });

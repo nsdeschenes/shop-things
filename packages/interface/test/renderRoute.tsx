@@ -2,6 +2,7 @@ import {QueryClientProvider} from '@tanstack/react-query';
 import {createMemoryHistory, createRouter, RouterProvider} from '@tanstack/react-router';
 import {render} from '@testing-library/react';
 
+import {AppearanceProvider} from '../src/application/appearance';
 import {createApplication} from '../src/application/controller';
 import {routeTree} from '../src/routeTree.gen';
 
@@ -20,9 +21,11 @@ export default function renderRoute(
   });
 
   render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
+    <AppearanceProvider initialPreference="system">
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </AppearanceProvider>
   );
 
   return {router, application};
