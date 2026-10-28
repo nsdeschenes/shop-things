@@ -104,19 +104,13 @@ jobs:
           fail-on-cache-miss: true
       - name: Prepare backend dependencies
         run: pnpm prepare:backend
-      - name: Run source checks in parallel
-        run: |
-          pnpm fmt:check &
-          format_pid=$!
-          pnpm lint &
-          lint_pid=$!
-          pnpm typecheck &
-          typecheck_pid=$!
-          result=0
-          wait "$format_pid" || result=1
-          wait "$lint_pid" || result=1
-          wait "$typecheck_pid" || result=1
-          exit "$result"
+      - parallel:
+          - name: Check formatting
+            run: pnpm fmt:check
+          - name: Lint
+            run: pnpm lint
+          - name: Typecheck
+            run: pnpm typecheck
 
   unit-tests:
     name: Unit tests
