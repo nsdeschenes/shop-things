@@ -417,6 +417,12 @@ test('fixture bootstrap keeps an action-managed pnpm executable without npm_exec
     npm_execpath: process.env.npm_execpath,
   };
   try {
+    const store = (await execute('pnpm', ['store', 'path'], {cwd: source})).stdout.trim();
+    const workspace = join(source, 'pnpm-workspace.yaml');
+    await writeFile(
+      workspace,
+      (await readFile(workspace, 'utf8')) + `storeDir: ${JSON.stringify(store)}\n`
+    );
     let launcher = process.env.npm_execpath;
     for (const directory of (process.env.PATH ?? '').split(delimiter)) {
       if (launcher) {
@@ -443,6 +449,9 @@ test('fixture bootstrap keeps an action-managed pnpm executable without npm_exec
     process.env.PNPM_HOME = bin;
     process.env.CI = 'true';
     delete process.env.npm_execpath;
+    expect((await execute('pnpm', ['store', 'path'], {cwd: source})).stdout.trim()).toBe(
+      store
+    );
     await withBuildFixture(
       'ci-bootstrap',
       async fixture => {
