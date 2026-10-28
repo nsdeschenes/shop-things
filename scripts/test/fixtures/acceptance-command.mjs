@@ -5,6 +5,7 @@ import {mkdir, writeFile} from 'node:fs/promises';
 import {basename, join} from 'node:path';
 
 const directory = process.env.ACCEPTANCE_REPORT_DIR;
+const debArchitecture = process.arch === 'x64' ? 'amd64' : process.arch;
 const args = process.argv.slice(2);
 const name = basename(process.argv[1]);
 async function json(path, value) {
@@ -54,7 +55,7 @@ if (reportName) {
     commit: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
     artifacts: [
       {
-        path: 'tested_1.2.0_' + process.arch + '.deb',
+        path: 'tested_1.2.0_' + debArchitecture + '.deb',
         sha256: createHash('sha256').update('tested installer').digest('hex'),
       },
     ],
@@ -63,5 +64,5 @@ if (reportName) {
 
 if (args.includes('electron-builder')) {
   await mkdir('release', {recursive: true});
-  await writeFile('release/tested_1.2.0_' + process.arch + '.deb', 'tested installer');
+  await writeFile('release/tested_1.2.0_' + debArchitecture + '.deb', 'tested installer');
 }

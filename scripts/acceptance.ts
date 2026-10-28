@@ -129,7 +129,10 @@ async function successfulReport(name: string) {
 }
 
 async function installerEvidence() {
-  const installers = (await readdir('release')).filter(name => name.endsWith('.deb'));
+  const debArchitecture = process.arch === 'x64' ? 'amd64' : process.arch;
+  const installers = (await readdir('release')).filter(name =>
+    name.endsWith(`_${debArchitecture}.deb`)
+  );
   assert.equal(installers.length, 1, 'Expected exactly one tested Debian installer');
   const filename = installers[0]!;
   return {

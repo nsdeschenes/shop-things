@@ -66,6 +66,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: script-fixture-diagnostics-${{ github.sha }}
+          overwrite: true
           path: ~/.cache/agent-work/shop-things/build-fixtures/context
           retention-days: 7
           if-no-files-found: warn

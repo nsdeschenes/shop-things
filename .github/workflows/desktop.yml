@@ -142,6 +142,7 @@ jobs:
         if: always()
         with:
           name: source-checks-${{ github.sha }}
+          overwrite: true
           path: ${{ runner.temp }}/shop-things-acceptance
           if-no-files-found: error
 
@@ -172,6 +173,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: renderer-build-${{ github.sha }}
+          overwrite: true
           path: |
             ${{ runner.temp }}/renderer-build.tar
             ${{ runner.temp }}/renderer-build.commit
@@ -228,12 +230,14 @@ jobs:
         if: always()
         with:
           name: renderer-shard-${{ github.sha }}-${{ matrix.shard }}
+          overwrite: true
           path: ${{ runner.temp }}/renderer-shard
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: renderer-artifacts-${{ github.sha }}-${{ matrix.shard }}
+          overwrite: true
           path: acceptance-reports/renderer
           if-no-files-found: warn
 
@@ -278,6 +282,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: e2e-${{ github.sha }}
+          overwrite: true
           path: ${{ runner.temp }}/shop-things-acceptance
           if-no-files-found: error
 
@@ -324,6 +329,7 @@ jobs:
         if: always()
         with:
           name: watcher-${{ github.sha }}
+          overwrite: true
           path: ${{ runner.temp }}/shop-things-acceptance
           if-no-files-found: warn
 
@@ -373,11 +379,13 @@ jobs:
         if: always()
         with:
           name: package-checks-${{ github.sha }}
+          overwrite: true
           path: ${{ runner.temp }}/shop-things-acceptance
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: tested-installer-${{ github.sha }}
+          overwrite: true
           path: release/*.deb
           compression-level: 0
           if-no-files-found: error

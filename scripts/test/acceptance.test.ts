@@ -21,6 +21,7 @@ const commands = [
   'development-watcher',
 ];
 
+const debArchitecture = process.arch === 'x64' ? 'amd64' : process.arch;
 const expectedTarget =
   process.platform === 'darwin'
     ? 'darwin-arm64-supporting-unsigned'
@@ -224,6 +225,19 @@ async function runScenario(scenario: string) {
         'altered installer'
       );
     }
+  }
+
+  if (scenario.includes('extra installer')) {
+    await mkdir(join(directory, 'release'), {recursive: true});
+    const architecture = scenario.includes('same-architecture')
+      ? debArchitecture
+      : debArchitecture === 'arm64'
+        ? 'amd64'
+        : 'arm64';
+    await writeFile(
+      join(directory, 'release', `leftover_1.1.0_${architecture}.deb`),
+      'leftover installer'
+    );
   }
 
   const result = spawnSync(
@@ -496,7 +510,7 @@ test.runIf(process.platform === 'linux')(
       'shipped-backend-node',
       'packaged-renderer',
     ]);
-    expect(report.installer.filename).toBe(`tested_1.2.0_${process.arch}.deb`);
+    expect(report.installer.filename).toBe(`tested_1.2.0_${debArchitecture}.deb`);
     await expect(readFile(join(reports, 'acceptance.json'))).rejects.toMatchObject({
       code: 'ENOENT',
     });
@@ -559,3 +573,27 @@ test.runIf(process.platform === 'linux').each([
   expect(report.steps).toEqual([]);
   expect(report.error.message).toContain(message);
 });
+
+test.runIf(process.platform === 'linux').each(['package-only', 'finalize'])(
+  '%s ignores installers for another architecture',
+  async mode => {
+    const {result, report} = await runScenario(`${mode} extra installer`);
+    expect(result.status).toBe(0);
+    expect(report.status).toBe('passed');
+    expect(report.installer.filename).toBe(`tested_1.2.0_${debArchitecture}.deb`);
+  }
+);
+
+test.runIf(process.platform === 'linux')(
+  'package-only rejects multiple installers for the tested architecture',
+  async () => {
+    const {result, report} = await runScenario(
+      'package-only extra installer same-architecture'
+    );
+    expect(result.status).toBe(1);
+    expect(report.status).toBe('failed');
+    expect(report.error.message).toContain(
+      'Expected exactly one tested Debian installer'
+    );
+  }
+);
