@@ -52,11 +52,19 @@ jobs:
           cache: pnpm
       - name: Install locked workspace
         run: pnpm install --frozen-lockfile
-      - name: Check script formatting
-        run: pnpm exec oxfmt --check scripts
-      - name: Typecheck scripts
-        run: pnpm typecheck scripts
-      - name: Lint scripts
-        run: pnpm exec oxlint scripts
-      - name: Test scripts
-        run: pnpm test:scripts
+      - name: Run script checks in parallel
+        run: |
+          pnpm exec oxfmt --check scripts &
+          format_pid=$!
+          pnpm typecheck scripts &
+          typecheck_pid=$!
+          pnpm exec oxlint scripts &
+          lint_pid=$!
+          pnpm test:scripts &
+          tests_pid=$!
+          result=0
+          wait "$format_pid" || result=1
+          wait "$typecheck_pid" || result=1
+          wait "$lint_pid" || result=1
+          wait "$tests_pid" || result=1
+          exit "$result"

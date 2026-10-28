@@ -84,8 +84,8 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm --filter electron exec node -e 'require("electron/install.js")'
 
-  format:
-    name: Format check
+  checks:
+    name: Format, lint and type checks
     needs: install
     runs-on: ubuntu-24.04-arm
     steps:
@@ -102,55 +102,21 @@ jobs:
             packages/*/node_modules
           key: ${{ needs.install.outputs.cache-key }}
           fail-on-cache-miss: true
-      - name: Format check
+      - name: Prepare backend dependencies
+        run: pnpm prepare:backend
+      - name: Run source checks in parallel
         run: |
-          pnpm fmt:check
-
-  lint:
-    name: Lint
-    needs: install
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Restore installed dependencies
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            node_modules
-            packages/*/node_modules
-          key: ${{ needs.install.outputs.cache-key }}
-          fail-on-cache-miss: true
-      - name: Lint
-        run: |
-          pnpm prepare:backend
-          pnpm lint
-
-  typecheck:
-    name: Type check
-    needs: install
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Restore installed dependencies
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            node_modules
-            packages/*/node_modules
-          key: ${{ needs.install.outputs.cache-key }}
-          fail-on-cache-miss: true
-      - name: Type check
-        run: |
-          pnpm prepare:backend
-          pnpm typecheck
+          pnpm fmt:check &
+          format_pid=$!
+          pnpm lint &
+          lint_pid=$!
+          pnpm typecheck &
+          typecheck_pid=$!
+          result=0
+          wait "$format_pid" || result=1
+          wait "$lint_pid" || result=1
+          wait "$typecheck_pid" || result=1
+          exit "$result"
 
   unit-tests:
     name: Unit tests
@@ -185,9 +151,146 @@ jobs:
           path: ${{ runner.temp }}/shop-things-acceptance
           if-no-files-found: error
 
+  build:
+    name: Build shared renderer application
+    needs: install
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Restore installed dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+          key: ${{ needs.install.outputs.cache-key }}
+          fail-on-cache-miss: true
+      - name: Build application and renderer harness
+        run: |
+          pnpm build
+          pnpm exec node acceptance/buildHarness.mjs
+          git rev-parse HEAD > "$RUNNER_TEMP/renderer-build.commit"
+          tar -cf "$RUNNER_TEMP/renderer-build.tar" packages/contract/dist packages/db/dist packages/electron/dist acceptance-reports/harness
+      - uses: actions/upload-artifact@v4
+        with:
+          name: renderer-build-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/renderer-build.tar
+            ${{ runner.temp }}/renderer-build.commit
+          compression-level: 0
+          if-no-files-found: error
+
+  renderer-shards:
+    name: Renderer E2E shard ${{ matrix.shard }}/4
+    needs: [install, build]
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Restore installed dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+          key: ${{ needs.install.outputs.cache-key }}
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: renderer-build-${{ github.sha }}
+          path: ${{ runner.temp }}
+      - name: Restore same-commit renderer build
+        run: |
+          test "$(cat "$RUNNER_TEMP/renderer-build.commit")" = "$(git rev-parse HEAD)"
+          tar -xpf "$RUNNER_TEMP/renderer-build.tar"
+      - name: Install desktop dependencies and enable the Electron sandbox
+        run: |
+          pnpm exec playwright install-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
+          # Ubuntu 24.04 blocks unprivileged user namespaces for unpacked Electron.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare --user --map-root-user true
+      - name: Install Chromium
+        run: pnpm exec playwright install chromium
+      - name: Run renderer shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: ${{ runner.temp }}/renderer-shard
+        run: |
+          xvfb-run -a pnpm exec playwright test --config acceptance/playwright.config.ts --shard="$SHARD/4" --reporter=list,blob
+          git rev-parse HEAD > "$RUNNER_TEMP/renderer-shard/renderer-checks.commit"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: renderer-shard-${{ github.sha }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/renderer-shard
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: renderer-artifacts-${{ github.sha }}-${{ matrix.shard }}
+          path: acceptance-reports/renderer
+          if-no-files-found: warn
+
   e2e:
-    name: Renderer and watcher E2E
-    needs: [install, format, lint, typecheck, unit-tests]
+    name: Merge renderer E2E evidence
+    needs: [install, renderer-shards]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Restore installed dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+          key: ${{ needs.install.outputs.cache-key }}
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: renderer-shard-${{ github.sha }}-*
+          path: ${{ runner.temp }}/renderer-shards
+      - name: Validate and merge all renderer shards
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ runner.temp }}/shop-things-acceptance/renderer-results.json
+        run: |
+          mkdir -p "$RUNNER_TEMP/renderer-blobs" "$RUNNER_TEMP/shop-things-acceptance"
+          for shard in 1 2 3 4; do
+            shard_directory="$RUNNER_TEMP/renderer-shards/renderer-shard-$SOURCE_COMMIT-$shard"
+            test "$(cat "$shard_directory/renderer-checks.commit")" = "$(git rev-parse HEAD)"
+            shopt -s nullglob
+            reports=("$shard_directory"/*.zip)
+            test "${#reports[@]}" -eq 1
+            cp "${reports[0]}" "$RUNNER_TEMP/renderer-blobs/shard-$shard.zip"
+          done
+          pnpm exec playwright merge-reports --reporter=json "$RUNNER_TEMP/renderer-blobs"
+          git rev-parse HEAD > "$RUNNER_TEMP/shop-things-acceptance/renderer-checks.commit"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ github.sha }}
+          path: ${{ runner.temp }}/shop-things-acceptance
+          if-no-files-found: error
+
+  watcher:
+    name: Development watcher acceptance
+    needs: [install, build]
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -215,42 +318,42 @@ jobs:
           # Ubuntu 24.04 blocks unprivileged user namespaces for unpacked Electron.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           unshare --user --map-root-user true
-      - name: Install Chromium
-        run: pnpm exec playwright install chromium
-      - name: Run renderer E2E
-        run: xvfb-run -a pnpm test:renderer
+      - uses: actions/download-artifact@v4
+        with:
+          name: renderer-build-${{ github.sha }}
+          path: ${{ runner.temp }}
+      - name: Restore same-commit renderer build
+        run: |
+          test "$(cat "$RUNNER_TEMP/renderer-build.commit")" = "$(git rev-parse HEAD)"
+          tar -xpf "$RUNNER_TEMP/renderer-build.tar"
       - name: Run development watcher acceptance
         run: xvfb-run -a pnpm exec node acceptance/watcher.mjs
-      - name: Retain renderer results and the checked commit
-        run: |
-          cp acceptance-reports/renderer/results.json "$ACCEPTANCE_REPORT_DIR/renderer-results.json"
-          git rev-parse HEAD > "$ACCEPTANCE_REPORT_DIR/renderer-checks.commit"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: e2e-${{ github.sha }}
+          name: watcher-${{ github.sha }}
           path: ${{ runner.temp }}/shop-things-acceptance
-          if-no-files-found: warn
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: renderer-artifacts-${{ github.sha }}
-          path: acceptance-reports/renderer
           if-no-files-found: warn
 
   linux-arm64:
     name: Linux arm64 build and acceptance
-    needs: [install, e2e]
+    needs: [install, checks, unit-tests, e2e, watcher]
     if: always()
     runs-on: ubuntu-24.04-arm
     steps:
-      - name: Require dependencies and E2E checks to pass
+      - name: Require all source and acceptance checks to pass
         env:
           INSTALL_RESULT: ${{ needs.install.result }}
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          UNIT_RESULT: ${{ needs.unit-tests.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
+          WATCHER_RESULT: ${{ needs.watcher.result }}
         run: |
           test "$INSTALL_RESULT" = success
+          test "$CHECKS_RESULT" = success
+          test "$UNIT_RESULT" = success
           test "$E2E_RESULT" = success
+          test "$WATCHER_RESULT" = success
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
@@ -286,7 +389,11 @@ jobs:
           path: ${{ runner.temp }}/shop-things-acceptance
       - uses: actions/download-artifact@v4
         with:
-          name: renderer-artifacts-${{ github.sha }}
+          name: watcher-${{ github.sha }}
+          path: ${{ runner.temp }}/shop-things-acceptance
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: renderer-artifacts-${{ github.sha }}-*
           path: ${{ runner.temp }}/shop-things-acceptance/renderer-artifacts
       - name: Build Linux arm64 and smoke test the package
         run: xvfb-run -a pnpm exec node --experimental-strip-types scripts/acceptance.ts --reuse-source-checks --reuse-renderer-checks

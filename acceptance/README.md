@@ -22,8 +22,8 @@ pnpm lint
 xvfb-run -a node --experimental-strip-types scripts/acceptance.ts
 ```
 
-The Desktop application workflow runs formatting, typecheck and lint as separate
-steps before the acceptance runner. Run these same prerequisites locally before
+The Desktop application workflow prepares backend dependencies once, then runs
+formatting, typecheck and lint in parallel. Run these prerequisites locally before
 either acceptance command. The runner handles tests, builds, renderer, packaging
 and watcher checks for the desktop packages. Root script tests run separately in
 the Script tooling workflow or with `pnpm test:scripts`.
@@ -48,11 +48,18 @@ The runner refuses dirty sources, binds all reports to one commit, rejects skipp
 source/renderer checks, and verifies source restoration after watcher probes.
 Package smoke checks consume the existing build without rebuilding after packaging.
 Preload metadata uses sorted input paths so repeated builds retain identical bytes.
-CI runs formatting, lint, TypeScript and unit tests as separate workflow steps before
-build and acceptance. Lint first builds the shared contract/database declarations.
+CI runs source checks, unit tests, renderer tests and watcher acceptance in separate
+jobs with isolated checkouts. One build job compiles the application and renderer
+harness, then shares a same-commit archive with four renderer shards and the watcher.
+Each shard keeps one worker and runs a distinct set of test files. Playwright merges
+all four blob reports after their commit markers and report files are validated.
+Unit tests and package acceptance retain independent builds. Package acceptance
+requires every job to pass.
 It passes `--reuse-source-checks` with the current commit marker
 and unit-test JSON reports in `ACCEPTANCE_REPORT_DIR`, so acceptance validates their
 revision and no-skip counts without repeating those checks or dependency installation.
+It also passes `--reuse-renderer-checks` with the renderer results, commit marker
+and watcher report from the same commit.
 A passed run covers only the recorded target and executed automated checks. It does
 not certify manual GUI behavior, signing, installation, or other platforms.
 
