@@ -1,5 +1,6 @@
 // Executable boundary fixture; the real acceptance runner validates these artifacts.
 import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {mkdir, writeFile} from 'node:fs/promises';
 import {basename, join} from 'node:path';
 
@@ -51,5 +52,16 @@ if (reportName) {
   await json(join(directory, reportName), {
     status: 'passed',
     commit: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
+    artifacts: [
+      {
+        path: 'tested_1.2.0_' + process.arch + '.deb',
+        sha256: createHash('sha256').update('tested installer').digest('hex'),
+      },
+    ],
   });
+}
+
+if (args.includes('electron-builder')) {
+  await mkdir('release', {recursive: true});
+  await writeFile('release/tested_1.2.0_' + process.arch + '.deb', 'tested installer');
 }

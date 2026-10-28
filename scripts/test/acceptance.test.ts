@@ -49,7 +49,10 @@ beforeEach(async () => {
   );
   await chmod(join(directory, 'bin/pnpm'), 0o755);
   await writeFile(join(directory, 'package.json'), '{"type":"module"}');
-  await writeFile(join(directory, '.gitignore'), 'node_modules\nacceptance-reports\n');
+  await writeFile(
+    join(directory, '.gitignore'),
+    'node_modules\nacceptance-reports\nrelease\n'
+  );
   // Chromium launch is an external boundary; no application coverage is simulated here.
   const playwright = join(directory, 'node_modules/@playwright/test');
   await mkdir(playwright, {recursive: true});
@@ -84,8 +87,12 @@ async function runScenario(scenario: string) {
     ]);
   }
 
+  const finalize = scenario.includes('finalize');
+  const packageOnly = scenario.includes('package-only');
   const reuseRendererChecks =
-    scenario.includes('renderer checks') || scenario.includes('watcher checks');
+    finalize ||
+    scenario.includes('renderer checks') ||
+    scenario.includes('watcher checks');
   const reuseSourceChecks =
     reuseRendererChecks ||
     [
@@ -151,12 +158,82 @@ async function runScenario(scenario: string) {
     }
   }
 
+  if (packageOnly || finalize) {
+    await mkdir(reports, {recursive: true});
+    if (scenario !== 'missing package-only build') {
+      await writeFile(
+        join(reports, 'shared-build.commit'),
+        scenario === 'stale package-only build'
+          ? 'another-commit'
+          : git(['rev-parse', 'HEAD'])
+      );
+    }
+  }
+
+  if (finalize) {
+    const packaged = spawnSync(
+      process.execPath,
+      ['scripts/acceptance.ts', '--package-only'],
+      {
+        cwd: directory,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          ACCEPTANCE_REPORT_DIR: reports,
+          BUILD_COMMIT_FILE: join(reports, 'shared-build.commit'),
+          FIXTURE_FAIL_COMMAND: '',
+          PATH: join(directory, 'bin') + ':' + process.env.PATH,
+        },
+      }
+    );
+    expect(packaged.status).toBe(0);
+    const filename = join(reports, 'package-acceptance.json');
+    const proof = JSON.parse(await readFile(filename, 'utf8'));
+    if (scenario === 'missing finalize package') {
+      await rm(filename);
+    } else {
+      if (scenario === 'stale finalize package') {
+        proof.commit = 'another-commit';
+      }
+
+      if (scenario === 'failed finalize package') {
+        proof.status = 'failed';
+      }
+
+      if (scenario === 'incomplete finalize package') {
+        proof.steps = [];
+      }
+
+      if (scenario === 'wrong-target finalize package') {
+        proof.environment.target = 'linux-foreign-glibc';
+      }
+
+      await writeFile(filename, JSON.stringify(proof));
+    }
+
+    if (scenario === 'altered finalize smoke') {
+      const smokeFile = join(reports, 'package-smoke.json');
+      const smoke = JSON.parse(await readFile(smokeFile, 'utf8'));
+      smoke.artifacts[0].sha256 = 'wrong-hash';
+      await writeFile(smokeFile, JSON.stringify(smoke));
+    }
+
+    if (scenario === 'altered finalize installer') {
+      await writeFile(
+        join(directory, 'release', proof.installer.filename),
+        'altered installer'
+      );
+    }
+  }
+
   const result = spawnSync(
     process.execPath,
     [
       '--experimental-strip-types',
       'scripts/acceptance.ts',
       ...(process.platform === 'darwin' ? ['--supporting-macos'] : []),
+      ...(packageOnly ? ['--package-only'] : []),
+      ...(finalize ? ['--finalize'] : []),
       ...(reuseSourceChecks ? ['--reuse-source-checks'] : []),
       ...(reuseRendererChecks ? ['--reuse-renderer-checks'] : []),
     ],
@@ -167,12 +244,18 @@ async function runScenario(scenario: string) {
       env: {
         ...process.env,
         ACCEPTANCE_REPORT_DIR: reports,
+        BUILD_COMMIT_FILE: join(reports, 'shared-build.commit'),
         PATH: join(directory, 'bin') + ':' + process.env.PATH,
         FIXTURE_FAIL_COMMAND: scenario === 'child failure' ? 'build' : '',
       },
     }
   );
-  const report = JSON.parse(await readFile(join(reports, 'acceptance.json'), 'utf8'));
+  const report = JSON.parse(
+    await readFile(
+      join(reports, packageOnly ? 'package-acceptance.json' : 'acceptance.json'),
+      'utf8'
+    )
+  );
   return {result, report};
 }
 
@@ -400,3 +483,79 @@ test
     expect(report.shippedBackend.reason).toContain('Linux release artifact');
   }
 );
+
+test.runIf(process.platform === 'linux')(
+  'package-only proof uses the shared build and cannot stage a release',
+  async () => {
+    const {result, report} = await runScenario('passed package-only');
+    expect(result.status).toBe(0);
+    expect(report.kind).toBe('package');
+    expect(report.status).toBe('passed');
+    expect(report.steps.map((step: {name: string}) => step.name)).toEqual([
+      'package',
+      'shipped-backend-node',
+      'packaged-renderer',
+    ]);
+    expect(report.installer.filename).toBe(`tested_1.2.0_${process.arch}.deb`);
+    await expect(readFile(join(reports, 'acceptance.json'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  }
+);
+
+test.runIf(process.platform === 'linux').each([
+  {scenario: 'missing package-only build', message: 'shared-build.commit'},
+  {scenario: 'stale package-only build', message: 'Shared build must use this commit'},
+])('package-only rejects $scenario before packaging', async ({scenario, message}) => {
+  const {result, report} = await runScenario(scenario);
+  expect(result.status).toBe(1);
+  expect(report.status).toBe('failed');
+  expect(report.steps).toEqual([]);
+  expect(report.error.message).toContain(message);
+});
+
+test.runIf(process.platform === 'linux')(
+  'finalization combines evidence without repeating build or package commands',
+  async () => {
+    const {result, report} = await runScenario('passed finalize');
+    expect(result.status).toBe(0);
+    expect(report.kind).toBe('acceptance');
+    expect(report.status).toBe('passed');
+    expect(report.steps).toEqual([]);
+    expect(report.sourceTests.contract).toEqual({passed: 1, total: 1, skipped: 0});
+    expect(report.renderer.stats).toEqual({
+      expected: 1,
+      unexpected: 0,
+      skipped: 0,
+      flaky: 0,
+    });
+    expect(report.shippedBackend.status).toBe('passed');
+    expect(report.packagedRenderer.status).toBe('passed');
+    expect(report.packageChecks.commit).toBe(git(['rev-parse', 'HEAD']));
+  }
+);
+
+test.runIf(process.platform === 'linux').each([
+  {scenario: 'missing finalize package', message: 'package-acceptance.json'},
+  {
+    scenario: 'stale finalize package',
+    message: 'package-acceptance.json must use this commit',
+  },
+  {scenario: 'failed finalize package', message: 'package-acceptance.json must pass'},
+  {scenario: 'incomplete finalize package', message: 'package package proof must pass'},
+  {scenario: 'wrong-target finalize package', message: 'linux-foreign-glibc'},
+  {
+    scenario: 'altered finalize smoke',
+    message: 'package-smoke.json must prove this installer',
+  },
+  {
+    scenario: 'altered finalize installer',
+    message: 'Installer must match tested package',
+  },
+])('finalization rejects $scenario', async ({scenario, message}) => {
+  const {result, report} = await runScenario(scenario);
+  expect(result.status).toBe(1);
+  expect(report.status).toBe('failed');
+  expect(report.steps).toEqual([]);
+  expect(report.error.message).toContain(message);
+});

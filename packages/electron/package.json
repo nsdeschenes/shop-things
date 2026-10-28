@@ -81,7 +81,11 @@
       ]
     },
     "deb": {
-      "packageName": "shop-things"
+      "packageName": "shop-things",
+      "compression": "xz",
+      "fpm": [
+        "--deb-compression-level=1"
+      ]
     },
     "linux": {
       "category": "Utility",

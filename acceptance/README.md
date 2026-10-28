@@ -50,11 +50,17 @@ Package smoke checks consume the existing build without rebuilding after packagi
 Preload metadata uses sorted input paths so repeated builds retain identical bytes.
 CI runs source checks, unit tests, renderer tests and watcher acceptance in separate
 jobs with isolated checkouts. One build job compiles the application and renderer
-harness, then shares a same-commit archive with four renderer shards and the watcher.
+harness, then shares a same-commit archive with four renderer shards, the watcher and
+package proof.
 Each shard keeps one worker and runs a distinct set of test files. Playwright merges
 all four blob reports after their commit markers and report files are validated.
-Unit tests and package acceptance retain independent builds. Package acceptance
-requires every job to pass.
+Unit tests retain an independent build. Package proof runs alongside renderer tests
+with `--package-only` and validates `BUILD_COMMIT_FILE` before packaging the shared
+build. Its separate report records the installer filename and SHA256 after the
+backend and packaged renderer smoke tests pass. This partial proof cannot stage a release.
+The final acceptance job requires every job to pass. It downloads the tested installer
+and uses `--finalize` to validate its exact bytes and combine all reports without
+repeating the build, packaging or smoke tests.
 It passes `--reuse-source-checks` with the current commit marker
 and unit-test JSON reports in `ACCEPTANCE_REPORT_DIR`, so acceptance validates their
 revision and no-skip counts without repeating those checks or dependency installation.

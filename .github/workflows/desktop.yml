@@ -211,8 +211,7 @@ jobs:
       - name: Install desktop dependencies and enable the Electron sandbox
         run: |
           pnpm exec playwright install-deps chromium
-          sudo apt-get update
-          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
+          sudo apt-get install -y libgtk-3-0
           # Ubuntu 24.04 blocks unprivileged user namespaces for unpacked Electron.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           unshare --user --map-root-user true
@@ -307,8 +306,7 @@ jobs:
       - name: Install desktop dependencies and enable the Electron sandbox
         run: |
           pnpm exec playwright install-deps chromium
-          sudo apt-get update
-          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
+          sudo apt-get install -y libgtk-3-0
           # Ubuntu 24.04 blocks unprivileged user namespaces for unpacked Electron.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           unshare --user --map-root-user true
@@ -329,25 +327,11 @@ jobs:
           path: ${{ runner.temp }}/shop-things-acceptance
           if-no-files-found: warn
 
-  linux-arm64:
-    name: Linux arm64 build and acceptance
-    needs: [install, checks, unit-tests, e2e, watcher]
-    if: always()
+  package-proof:
+    name: Linux arm64 package proof
+    needs: [install, build]
     runs-on: ubuntu-24.04-arm
     steps:
-      - name: Require all source and acceptance checks to pass
-        env:
-          INSTALL_RESULT: ${{ needs.install.result }}
-          CHECKS_RESULT: ${{ needs.checks.result }}
-          UNIT_RESULT: ${{ needs.unit-tests.result }}
-          E2E_RESULT: ${{ needs.e2e.result }}
-          WATCHER_RESULT: ${{ needs.watcher.result }}
-        run: |
-          test "$INSTALL_RESULT" = success
-          test "$CHECKS_RESULT" = success
-          test "$UNIT_RESULT" = success
-          test "$E2E_RESULT" = success
-          test "$WATCHER_RESULT" = success
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
@@ -368,11 +352,74 @@ jobs:
       - name: Install desktop dependencies and enable the Electron sandbox
         run: |
           pnpm exec playwright install-deps chromium
-          sudo apt-get update
-          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
+          sudo apt-get install -y libgtk-3-0
           # Ubuntu 24.04 blocks unprivileged user namespaces for unpacked Electron.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           unshare --user --map-root-user true
+      - uses: actions/download-artifact@v4
+        with:
+          name: renderer-build-${{ github.sha }}
+          path: ${{ runner.temp }}
+      - name: Restore same-commit renderer build
+        run: |
+          test "$(cat "$RUNNER_TEMP/renderer-build.commit")" = "$(git rev-parse HEAD)"
+          tar -xpf "$RUNNER_TEMP/renderer-build.tar"
+      - name: Package the shared build and run smoke tests
+        run: xvfb-run -a pnpm exec node --experimental-strip-types scripts/acceptance.ts --package-only
+        env:
+          BUILD_COMMIT_FILE: ${{ runner.temp }}/renderer-build.commit
+          SMOKE_EXECUTION_ENVIRONMENT: github-actions-ubuntu-24.04-arm-native-linux-arm64
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: package-checks-${{ github.sha }}
+          path: ${{ runner.temp }}/shop-things-acceptance
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tested-installer-${{ github.sha }}
+          path: release/*.deb
+          compression-level: 0
+          if-no-files-found: error
+
+  linux-arm64:
+    name: Linux arm64 build and acceptance
+    needs: [install, checks, unit-tests, e2e, watcher, package-proof]
+    if: always()
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Require all source and acceptance checks to pass
+        env:
+          INSTALL_RESULT: ${{ needs.install.result }}
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          UNIT_RESULT: ${{ needs.unit-tests.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+          WATCHER_RESULT: ${{ needs.watcher.result }}
+          PACKAGE_RESULT: ${{ needs.package-proof.result }}
+        run: |
+          test "$INSTALL_RESULT" = success
+          test "$CHECKS_RESULT" = success
+          test "$UNIT_RESULT" = success
+          test "$E2E_RESULT" = success
+          test "$WATCHER_RESULT" = success
+          test "$PACKAGE_RESULT" = success
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Restore installed dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+          key: ${{ needs.install.outputs.cache-key }}
+          fail-on-cache-miss: true
+      - name: Set acceptance report directory
+        run: |
+          echo "ACCEPTANCE_REPORT_DIR=$RUNNER_TEMP/shop-things-acceptance" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/shop-things-acceptance"
       - uses: actions/download-artifact@v4
         with:
           name: source-checks-${{ github.sha }}
@@ -389,11 +436,16 @@ jobs:
         with:
           pattern: renderer-artifacts-${{ github.sha }}-*
           path: ${{ runner.temp }}/shop-things-acceptance/renderer-artifacts
-      - name: Build Linux arm64 and smoke test the package
-        run: xvfb-run -a pnpm exec node --experimental-strip-types scripts/acceptance.ts --reuse-source-checks --reuse-renderer-checks
-        env:
-          ACCEPTANCE_REPORT_DIR: ${{ runner.temp }}/shop-things-acceptance
-          SMOKE_EXECUTION_ENVIRONMENT: github-actions-ubuntu-24.04-arm-native-linux-arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-checks-${{ github.sha }}
+          path: ${{ runner.temp }}/shop-things-acceptance
+      - uses: actions/download-artifact@v4
+        with:
+          name: tested-installer-${{ github.sha }}
+          path: release
+      - name: Validate complete acceptance and the tested installer
+        run: pnpm exec node --experimental-strip-types scripts/acceptance.ts --finalize --reuse-source-checks --reuse-renderer-checks
       - name: Stage the tested Linux arm64 release
         if: github.event_name == 'push'
         run: pnpm exec node --experimental-strip-types scripts/stage-release.ts
