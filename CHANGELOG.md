@@ -1,4 +1,34 @@
 # Changelog
+## 1.3.0
+
+### New Features ✨
+
+- (interface) Add dark mode and appearance settings by @nsdeschenes in [#208](https://github.com/nsdeschenes/shop-things/pull/208)
+
+### Bug Fixes 🐛
+
+#### Electron
+
+- Enable DevTools and React inspection locally by @nsdeschenes in [#207](https://github.com/nsdeschenes/shop-things/pull/207)
+- Preserve telemetry save results after cleanup by @nsdeschenes in [#206](https://github.com/nsdeschenes/shop-things/pull/206)
+- Guard unprotected close lifecycle ownership by @nsdeschenes in [#204](https://github.com/nsdeschenes/shop-things/pull/204)
+
+#### Other
+
+- (db) Remove owned files after database creation fails by @nsdeschenes in [#205](https://github.com/nsdeschenes/shop-things/pull/205)
+
+### Internal Changes 🔧
+
+#### Effect
+
+- Migrate application workflows to Effect by @nsdeschenes in [#196](https://github.com/nsdeschenes/shop-things/pull/196)
+- Vendor the pinned upstream reference by @nsdeschenes in [#197](https://github.com/nsdeschenes/shop-things/pull/197)
+
+#### Other
+
+- (electron) Route monitoring signals through Effect by @nsdeschenes in [#198](https://github.com/nsdeschenes/shop-things/pull/198)
+- Parallelize desktop acceptance and reuse builds by @nsdeschenes in [#209](https://github.com/nsdeschenes/shop-things/pull/209)
+
 ## 1.2.0
 
 ### New Features ✨
