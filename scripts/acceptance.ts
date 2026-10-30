@@ -1,7 +1,8 @@
 // Local phases remain sequential; CI can reuse checks from separate jobs.
 import assert from 'node:assert/strict';
 import {spawn, spawnSync} from 'node:child_process';
-import {cp, mkdir, readFile, writeFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {cp, mkdir, readFile, readdir, writeFile} from 'node:fs/promises';
 import {release} from 'node:os';
 import {join, resolve} from 'node:path';
 
@@ -13,15 +14,24 @@ function git(args: string[]) {
   return result.stdout.trim();
 }
 
+const mode = process.argv.includes('--package-only')
+  ? 'package'
+  : process.argv.includes('--finalize')
+    ? 'finalize'
+    : 'full';
 const supporting = process.argv.includes('--supporting-macos');
 const reuseSourceChecks = process.argv.includes('--reuse-source-checks');
 const reuseRendererChecks = process.argv.includes('--reuse-renderer-checks');
+const target = supporting
+  ? 'darwin-arm64-supporting-unsigned'
+  : `linux-${process.arch}-glibc`;
 const glibc = Reflect.get(
   Reflect.get(process.report.getReport(), 'header'),
   'glibcVersionRuntime'
 );
 const report: Record<string, unknown> = {
   schemaVersion: 3,
+  kind: mode === 'package' ? 'package' : 'acceptance',
   status: 'running',
   startedAt: new Date().toISOString(),
   environment: {
@@ -31,9 +41,7 @@ const report: Record<string, unknown> = {
     node: process.version,
     glibc: glibc ?? null,
     sandboxDisabled: process.env.SHOP_THINGS_ACCEPTANCE_NO_SANDBOX === 'true',
-    target: supporting
-      ? 'darwin-arm64-supporting-unsigned'
-      : `linux-${process.arch}-glibc`,
+    target,
   },
   steps: [],
 };
@@ -50,7 +58,7 @@ const steps: {
 report.steps = steps;
 function persist() {
   return writeFile(
-    join(directory, 'acceptance.json'),
+    join(directory, mode === 'package' ? 'package-acceptance.json' : 'acceptance.json'),
     JSON.stringify(report, null, 2) + '\n'
   );
 }
@@ -120,143 +128,38 @@ async function successfulReport(name: string) {
   return result;
 }
 
-try {
-  report.commit = git(['rev-parse', 'HEAD']);
-  assert.equal(
-    git(['status', '--porcelain', '--untracked-files=all']),
-    '',
-    'Require clean committed sources'
+async function installerEvidence() {
+  const debArchitecture = process.arch === 'x64' ? 'amd64' : process.arch;
+  const installers = (await readdir('release')).filter(name =>
+    name.endsWith(`_${debArchitecture}.deb`)
   );
-  assert.ok(
-    Number(process.versions.node.split('.')[0]) >= 26,
-    'Node 26 or later required'
-  );
-  if (supporting) {
-    assert.equal(process.platform, 'darwin');
-    assert.equal(process.arch, 'arm64');
-  } else {
-    assert.equal(process.platform, 'linux');
-    assert.ok(process.arch === 'x64' || process.arch === 'arm64');
-    assert.ok(glibc, 'glibc required');
-  }
-
-  report.cleanBefore = true;
-  if (reuseSourceChecks) {
-    const sourceCommit = (
-      await readFile(join(directory, 'source-checks.commit'), 'utf8')
-    ).trim();
-    assert.equal(sourceCommit, report.commit, 'Source checks must use this commit');
-    report.sourceChecks = {
-      origin: 'prior-workflow-steps',
-      commit: sourceCommit,
-      commands: [
-        'pnpm fmt:check',
-        'pnpm lint',
-        'pnpm typecheck',
-        'pnpm test --packages-only',
-      ],
-    };
-  }
-
-  const pnpmVersion = spawnSync('pnpm', ['--version'], {encoding: 'utf8'});
-  assert.equal(pnpmVersion.status, 0, String(pnpmVersion.error ?? pnpmVersion.stderr));
-  report.pnpm = pnpmVersion.stdout.trim();
-  report.osDistribution =
-    process.platform === 'linux'
-      ? await readFile('/etc/os-release', 'utf8')
-      : spawnSync('sw_vers', [], {encoding: 'utf8'}).stdout.trim();
-  if (!reuseSourceChecks) {
-    await command('install', 'pnpm', ['install', '--frozen-lockfile']);
-    await command('electron-runtime', 'pnpm', [
-      '--filter',
-      'electron',
-      'exec',
-      'node',
-      '-e',
-      'require("electron/install.js")',
-    ]);
-    await command('source-tests', 'pnpm', ['test', '--packages-only']);
-  }
-
-  const source: Record<string, unknown> = {};
-  for (const suite of ['contract', 'db', 'electron', 'interface']) {
-    const results = JSON.parse(
-      await readFile(join(directory, suite + '-tests.json'), 'utf8')
-    );
-    assert.equal(results.success, true);
-    assert.ok(results.numTotalTests > 0);
-    assert.equal(results.numPendingTests, 0);
-    assert.equal(results.numTodoTests ?? 0, 0);
-    assert.equal(results.numFailedTests, 0);
-    assert.equal(
-      results.numPassedTests,
-      results.numTotalTests,
-      `No skipped ${suite} checks`
-    );
-    source[suite] = {
-      passed: results.numPassedTests,
-      total: results.numTotalTests,
-      skipped: 0,
-    };
-  }
-
-  report.sourceTests = source;
-  if (reuseRendererChecks) {
-    const rendererCommit = (
-      await readFile(join(directory, 'renderer-checks.commit'), 'utf8')
-    ).trim();
-    assert.equal(rendererCommit, report.commit, 'Renderer checks must use this commit');
-    report.developmentWatcher = await successfulReport('watcher.json');
-    report.rendererChecks = {origin: 'prior-workflow-job', commit: rendererCommit};
-  } else {
-    await command('chromium-runtime', 'pnpm', [
-      'exec',
-      'playwright',
-      'install',
-      'chromium',
-    ]);
-    const {chromium} = await import('@playwright/test');
-    const browser = await chromium.launch();
-    report.chromium = browser.version();
-    await browser.close();
-  }
-
-  await command('build', 'pnpm', ['build']);
-  if (!reuseRendererChecks) {
-    try {
-      await command('renderer', 'pnpm', ['test:renderer']);
-    } finally {
-      await cp('acceptance-reports/renderer', join(directory, 'renderer-artifacts'), {
-        recursive: true,
-        force: true,
-      }).catch(error => {
-        report.rendererArtifactError = String(error);
-      });
-    }
-  }
-
-  const renderer = JSON.parse(
-    await readFile(
-      reuseRendererChecks
-        ? join(directory, 'renderer-results.json')
-        : 'acceptance-reports/renderer/results.json',
-      'utf8'
-    )
-  );
-  assert.ok(renderer.stats.expected > 0);
-  for (const field of ['unexpected', 'skipped', 'flaky']) {
-    assert.equal(renderer.stats[field], 0, `Renderer ${field} checks must be zero`);
-  }
-
-  await writeFile(
-    join(directory, 'renderer-results.json'),
-    JSON.stringify(renderer, null, 2)
-  );
-  report.renderer = {
-    kind: 'built-test-entry-Electron-and-Chromium',
-    stats: renderer.stats,
-    results: 'renderer-results.json',
+  assert.equal(installers.length, 1, 'Expected exactly one tested Debian installer');
+  const filename = installers[0]!;
+  return {
+    filename,
+    sha256: createHash('sha256')
+      .update(await readFile(join('release', filename)))
+      .digest('hex'),
   };
+}
+
+async function installerReport(
+  name: string,
+  installer: {filename: string; sha256: string}
+) {
+  const result = await successfulReport(name);
+  const artifact = result.artifacts.find(
+    (value: {path: string}) => value.path === installer.filename
+  );
+  assert.deepEqual(
+    artifact,
+    {path: installer.filename, sha256: installer.sha256},
+    `${name} must prove this installer`
+  );
+  return result;
+}
+
+async function packageApplication() {
   await command('package', 'pnpm', [
     '--filter',
     'electron',
@@ -290,19 +193,228 @@ try {
     }
   );
   report.packagedRenderer = await successfulReport('packaged-renderer.json');
-  if (!reuseRendererChecks) {
-    await command('development-watcher', process.execPath, ['acceptance/watcher.mjs']);
-    report.developmentWatcher = await successfulReport('watcher.json');
+  if (!supporting) {
+    report.installer = await installerEvidence();
   }
+}
 
+try {
+  report.commit = git(['rev-parse', 'HEAD']);
   assert.equal(
     git(['status', '--porcelain', '--untracked-files=all']),
     '',
-    'Acceptance must restore all source bytes'
+    'Require clean committed sources'
   );
-  assert.equal(git(['rev-parse', 'HEAD']), report.commit);
-  report.cleanAfter = true;
-  report.status = 'passed';
+  assert.ok(
+    Number(process.versions.node.split('.')[0]) >= 26,
+    'Node 26 or later required'
+  );
+  if (supporting) {
+    assert.equal(process.platform, 'darwin');
+    assert.equal(process.arch, 'arm64');
+  } else {
+    assert.equal(process.platform, 'linux');
+    assert.ok(process.arch === 'x64' || process.arch === 'arm64');
+    assert.ok(glibc, 'glibc required');
+  }
+
+  assert.ok(
+    !(process.argv.includes('--package-only') && process.argv.includes('--finalize')),
+    'Choose one acceptance mode'
+  );
+  assert.ok(
+    mode !== 'finalize' || (!supporting && reuseSourceChecks && reuseRendererChecks),
+    'Finalization requires Linux source and renderer evidence'
+  );
+  if (mode === 'package') {
+    assert.ok(!supporting, 'Independent package proof requires Linux');
+    const marker = process.env.BUILD_COMMIT_FILE;
+    assert.ok(marker, 'Provide BUILD_COMMIT_FILE for the shared build');
+    assert.equal(
+      (await readFile(marker, 'utf8')).trim(),
+      report.commit,
+      'Shared build must use this commit'
+    );
+    report.build = {origin: 'prior-workflow-job', commit: report.commit};
+    await packageApplication();
+    assert.equal(
+      git(['status', '--porcelain', '--untracked-files=all']),
+      '',
+      'Package proof must preserve committed sources'
+    );
+    report.cleanBefore = true;
+    report.cleanAfter = true;
+    report.status = 'passed';
+  } else {
+    report.cleanBefore = true;
+    if (reuseSourceChecks) {
+      const sourceCommit = (
+        await readFile(join(directory, 'source-checks.commit'), 'utf8')
+      ).trim();
+      assert.equal(sourceCommit, report.commit, 'Source checks must use this commit');
+      report.sourceChecks = {
+        origin: 'prior-workflow-steps',
+        commit: sourceCommit,
+        commands: [
+          'pnpm fmt:check',
+          'pnpm lint',
+          'pnpm typecheck',
+          'pnpm test --packages-only',
+        ],
+      };
+    }
+
+    const pnpmVersion = spawnSync('pnpm', ['--version'], {encoding: 'utf8'});
+    assert.equal(pnpmVersion.status, 0, String(pnpmVersion.error ?? pnpmVersion.stderr));
+    report.pnpm = pnpmVersion.stdout.trim();
+    report.osDistribution =
+      process.platform === 'linux'
+        ? await readFile('/etc/os-release', 'utf8')
+        : spawnSync('sw_vers', [], {encoding: 'utf8'}).stdout.trim();
+    if (!reuseSourceChecks) {
+      await command('install', 'pnpm', ['install', '--frozen-lockfile']);
+      await command('electron-runtime', 'pnpm', [
+        '--filter',
+        'electron',
+        'exec',
+        'node',
+        '-e',
+        'require("electron/install.js")',
+      ]);
+      await command('source-tests', 'pnpm', ['test', '--packages-only']);
+    }
+
+    const source: Record<string, unknown> = {};
+    for (const suite of ['contract', 'db', 'electron', 'interface']) {
+      const results = JSON.parse(
+        await readFile(join(directory, suite + '-tests.json'), 'utf8')
+      );
+      assert.equal(results.success, true);
+      assert.ok(results.numTotalTests > 0);
+      assert.equal(results.numPendingTests, 0);
+      assert.equal(results.numTodoTests ?? 0, 0);
+      assert.equal(results.numFailedTests, 0);
+      assert.equal(
+        results.numPassedTests,
+        results.numTotalTests,
+        `No skipped ${suite} checks`
+      );
+      source[suite] = {
+        passed: results.numPassedTests,
+        total: results.numTotalTests,
+        skipped: 0,
+      };
+    }
+
+    report.sourceTests = source;
+    if (reuseRendererChecks) {
+      const rendererCommit = (
+        await readFile(join(directory, 'renderer-checks.commit'), 'utf8')
+      ).trim();
+      assert.equal(rendererCommit, report.commit, 'Renderer checks must use this commit');
+      report.developmentWatcher = await successfulReport('watcher.json');
+      report.rendererChecks = {origin: 'prior-workflow-job', commit: rendererCommit};
+    } else {
+      await command('chromium-runtime', 'pnpm', [
+        'exec',
+        'playwright',
+        'install',
+        'chromium',
+      ]);
+      const {chromium} = await import('@playwright/test');
+      const browser = await chromium.launch();
+      report.chromium = browser.version();
+      await browser.close();
+    }
+
+    if (mode === 'full') {
+      await command('build', 'pnpm', ['build']);
+    }
+
+    if (!reuseRendererChecks) {
+      try {
+        await command('renderer', 'pnpm', ['test:renderer']);
+      } finally {
+        await cp('acceptance-reports/renderer', join(directory, 'renderer-artifacts'), {
+          recursive: true,
+          force: true,
+        }).catch(error => {
+          report.rendererArtifactError = String(error);
+        });
+      }
+    }
+
+    const renderer = JSON.parse(
+      await readFile(
+        reuseRendererChecks
+          ? join(directory, 'renderer-results.json')
+          : 'acceptance-reports/renderer/results.json',
+        'utf8'
+      )
+    );
+    assert.ok(renderer.stats.expected > 0);
+    for (const field of ['unexpected', 'skipped', 'flaky']) {
+      assert.equal(renderer.stats[field], 0, `Renderer ${field} checks must be zero`);
+    }
+
+    await writeFile(
+      join(directory, 'renderer-results.json'),
+      JSON.stringify(renderer, null, 2)
+    );
+    report.renderer = {
+      kind: 'built-test-entry-Electron-and-Chromium',
+      stats: renderer.stats,
+      results: 'renderer-results.json',
+    };
+    if (mode === 'finalize') {
+      const packaged = await successfulReport('package-acceptance.json');
+      assert.equal(packaged.kind, 'package', 'Require package-only evidence');
+      assert.equal(packaged.schemaVersion, 3);
+      assert.equal(packaged.cleanBefore, true, 'Package proof requires clean sources');
+      assert.equal(packaged.cleanAfter, true, 'Package proof must preserve sources');
+      assert.equal(
+        packaged.build?.commit,
+        report.commit,
+        'Package proof must use the shared build'
+      );
+      assert.equal(packaged.environment.target, target);
+      for (const name of ['package', 'shipped-backend-node', 'packaged-renderer']) {
+        const step = packaged.steps.find((value: {name: string}) => value.name === name);
+        assert.equal(step?.status, 'passed', `${name} package proof must pass`);
+        assert.equal(step.exitCode, 0);
+      }
+
+      const installer = await installerEvidence();
+      assert.deepEqual(
+        installer,
+        packaged.installer,
+        'Installer must match tested package'
+      );
+      report.installer = installer;
+      report.packageChecks = {origin: 'prior-workflow-job', commit: packaged.commit};
+      report.shippedBackend = await installerReport('package-smoke.json', installer);
+      report.packagedRenderer = await installerReport(
+        'packaged-renderer.json',
+        installer
+      );
+    } else {
+      await packageApplication();
+    }
+
+    if (!reuseRendererChecks) {
+      await command('development-watcher', process.execPath, ['acceptance/watcher.mjs']);
+      report.developmentWatcher = await successfulReport('watcher.json');
+    }
+
+    assert.equal(
+      git(['status', '--porcelain', '--untracked-files=all']),
+      '',
+      'Acceptance must restore all source bytes'
+    );
+    assert.equal(git(['rev-parse', 'HEAD']), report.commit);
+    report.cleanAfter = true;
+    report.status = 'passed';
+  }
 } catch (error) {
   report.status = 'failed';
   report.error =

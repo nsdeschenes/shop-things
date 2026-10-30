@@ -17,6 +17,7 @@ const reportDirectory = process.env.ACCEPTANCE_REPORT_DIR;
 const commit = process.env.GITHUB_SHA;
 assert.ok(reportDirectory && commit, 'Provide ACCEPTANCE_REPORT_DIR and GITHUB_SHA');
 const report = JSON.parse(readFileSync(join(reportDirectory, 'acceptance.json'), 'utf8'));
+assert.equal(report.kind, 'acceptance', 'Require complete acceptance before staging');
 assert.equal(report.status, 'passed', 'Acceptance must pass before staging a release');
 assert.equal(report.commit, commit, 'Acceptance must test the release commit');
 assert.equal(report.environment.target, 'linux-arm64-glibc');
@@ -30,6 +31,11 @@ assert.ok(
 const filename = `shop-things-${version}-linux-arm64.deb`;
 const installerPath = join('release', installer);
 const checksum = createHash('sha256').update(readFileSync(installerPath)).digest('hex');
+assert.deepEqual(
+  report.installer,
+  {filename: installer, sha256: checksum},
+  'Stage only the tested installer bytes'
+);
 const outputDirectory = join('release', 'assets');
 rmSync(outputDirectory, {recursive: true, force: true});
 mkdirSync(outputDirectory, {recursive: true});

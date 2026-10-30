@@ -43,7 +43,7 @@ Run the package tests, typecheck, production build, lint, and formatting checks.
 ```sh
 pnpm build
 node acceptance/buildHarness.mjs
-pnpm exec playwright test --config acceptance/playwright.config.ts telemetry.spec.ts
+pnpm exec playwright test --config acceptance/playwright.config.ts monitoringLifecycle.spec.ts monitoringSettings.spec.ts productionTelemetry.spec.ts browserDiagnostics.spec.ts
 ```
 
 The collector listens on localhost and inspects real event, streamed-span, log, and metric envelopes from both processes. It verifies cold-restart activation, disabled delivery, private payloads, both environment labels on every signal type, and Settings during held database startup. A focused browser scenario produces real visible content, layout shift, and a slow native click to verify numeric LCP, CLS, INP, paint, resource, and long-frame diagnostics. Native error scenarios verify SDK metadata, linked causes, React and global mechanisms, same-object duplicate suppression, distinct errors, expected-error exclusion, and privacy after scope poisoning. Query assertions cover native and prepared execution counts, real constraint and unknown-column failures, scrubbed backup paths, parent linkage, timing, approved argument propagation, prepared reuse across actions, scope poisoning and overlapping BUSY requests. The production-label scenario sets `app.isPackaged` in the test launcher; it exercises built application code without building an installer. Linux containers may need Xvfb and runtime libraries. Set `SHOP_THINGS_ACCEPTANCE_NO_SANDBOX=true` only in a test container whose Electron sandbox helper cannot be used. The production BrowserWindow still sets `sandbox: true`.

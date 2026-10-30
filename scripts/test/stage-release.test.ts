@@ -16,7 +16,16 @@ test('stages only the accepted arm64 installer and generates its verifiable chec
     await writeFile(join(directory, 'release/electron_0.0.1_arm64.deb'), payload);
     await writeFile(join(directory, 'release/ignored.yml'), 'packaging metadata');
     const reportPath = join(directory, 'reports/acceptance.json');
-    const report = {status: 'passed', commit, environment: {target: 'linux-arm64-glibc'}};
+    const report = {
+      kind: 'acceptance',
+      status: 'passed',
+      commit,
+      environment: {target: 'linux-arm64-glibc'},
+      installer: {
+        filename: 'electron_0.0.1_arm64.deb',
+        sha256: createHash('sha256').update(payload).digest('hex'),
+      },
+    };
     await writeFile(reportPath, JSON.stringify(report));
     const env = {GITHUB_SHA: commit, ACCEPTANCE_REPORT_DIR: join(directory, 'reports')};
     const result = runReleaseScript(directory, 'stage-release', env);
@@ -33,6 +42,8 @@ test('stages only the accepted arm64 installer and generates its verifiable chec
       `${createHash('sha256').update(payload).digest('hex')}  ${filename}\n`
     );
     for (const invalidReport of [
+      {...report, kind: 'package'},
+      {...report, kind: undefined},
       {...report, status: 'failed'},
       {...report, commit: 'b'.repeat(40)},
       {...report, environment: {target: 'darwin-arm64-supporting-unsigned'}},
@@ -43,6 +54,11 @@ test('stages only the accepted arm64 installer and generates its verifiable chec
     }
 
     await writeFile(reportPath, JSON.stringify(report));
+    await writeFile(join(directory, 'release/electron_0.0.1_arm64.deb'), 'changed bytes');
+    expect(runReleaseScript(directory, 'stage-release', env).stderr).toContain(
+      'Stage only the tested installer bytes'
+    );
+    await writeFile(join(directory, 'release/electron_0.0.1_arm64.deb'), payload);
     await writeFile(join(directory, 'release/extra_0.0.1_amd64.deb'), payload);
     expect(runReleaseScript(directory, 'stage-release', env).stderr).toContain(
       'Expected exactly one Debian installer'

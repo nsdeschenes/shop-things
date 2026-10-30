@@ -52,11 +52,21 @@ jobs:
           cache: pnpm
       - name: Install locked workspace
         run: pnpm install --frozen-lockfile
-      - name: Check script formatting
-        run: pnpm exec oxfmt --check scripts
-      - name: Typecheck scripts
-        run: pnpm typecheck scripts
-      - name: Lint scripts
-        run: pnpm exec oxlint scripts
-      - name: Test scripts
-        run: pnpm test:scripts
+      - parallel:
+          - name: Check script formatting
+            run: pnpm exec oxfmt --check scripts
+          - name: Typecheck scripts
+            run: pnpm typecheck scripts
+          - name: Lint scripts
+            run: pnpm exec oxlint scripts
+          - name: Test scripts
+            run: pnpm test:scripts
+      - name: Retain failed build fixture diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: script-fixture-diagnostics-${{ github.sha }}
+          overwrite: true
+          path: ~/.cache/agent-work/shop-things/build-fixtures/context
+          retention-days: 7
+          if-no-files-found: warn
