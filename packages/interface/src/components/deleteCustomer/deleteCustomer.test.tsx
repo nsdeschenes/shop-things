@@ -46,6 +46,7 @@ async function fixture(remove: Client['customers']['delete'], number = 5) {
       balance: '0.00',
       previousBalance: '0.00',
       donate: false,
+      hasPickup: false,
       comments: '',
     },
     reference: {session: status.value.session!, id: 7, revision: 'loaded-revision'},

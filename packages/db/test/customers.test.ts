@@ -49,18 +49,27 @@ test('customer workflow preserves cents, partial fields, identities and never re
       balance: '1000000000000.00',
       previousBalance: '-12.34',
       donate: true,
+      hasPickup: true,
     });
     expect(first.customerNumber).toBe(1);
     expect(first.balance).toBe('1000000000000.00');
     expect(first.previousBalance).toBe('-12.34');
     expect(first.province).toBe('');
+    expect(first.hasPickup).toBe(true);
 
     const second = await createCustomer(db, {lastName: 'Smith'});
     expect(second.customerNumber).toBe(2);
+    expect(second.hasPickup).toBe(false);
 
-    const changed = await updateCustomer(db, first, {balance: '0.01', stock: 12});
+    const changed = await updateCustomer(db, first, {
+      balance: '0.01',
+      stock: 12,
+      hasPickup: false,
+    });
     expect(changed.firstName).toBe(' Alice ');
     expect(changed.donate).toBe(true);
+    expect(changed.hasPickup).toBe(false);
+    expect((await getCustomer(db, first.id))?.hasPickup).toBe(false);
 
     await updateCustomer(db, changed, {balance: first.balance});
     await expect(updateCustomer(db, first, {firstName: 'Old'})).rejects.toThrow(
@@ -93,6 +102,7 @@ test('invalid writes reject every field with no changes; nullable reads do not p
       {firstName: 'A', stock: -1},
       {firstName: 'A', stock: 1.5},
       {firstName: 'A', donate: 1},
+      {firstName: 'A', hasPickup: 1},
       {firstName: 'A', balance: '1.234'},
       {firstName: 'A', balance: '1000000000000.01'},
       {firstName: 'A', balance: 1},
@@ -126,6 +136,7 @@ test('invalid writes reject every field with no changes; nullable reads do not p
       {customerNumber: null},
       {stock: Number.MAX_SAFE_INTEGER + 1},
       {donate: 'true'},
+      {hasPickup: 'true'},
       {revision: '3'},
       {unknown: true},
     ]) {

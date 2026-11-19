@@ -23,6 +23,7 @@ test('temporary canonical records normalize decimal strings and retain opaque re
     balance: '-0001.2',
     previousBalance: '000.0',
     donate: false,
+    hasPickup: false,
     comments: '',
   };
   const created = await client.customers.create({session, values});
@@ -104,6 +105,7 @@ async function previewNames(names: string[]) {
         balance: '0.00',
         previousBalance: '0.00',
         donate: false,
+        hasPickup: false,
         comments: '',
       },
     });
@@ -168,6 +170,7 @@ test('preview rejects invalid and duplicate number edits without changing saved 
     balance: '0.00',
     previousBalance: '0.00',
     donate: false,
+    hasPickup: false,
     comments: '',
   };
   const first = await client.customers.create({session, values});

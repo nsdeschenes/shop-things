@@ -154,6 +154,7 @@ test('Edit requires valid contacts and retains the original revision across back
     balance: '-1.23',
     previousBalance: '0.00',
     donate: false,
+    hasPickup: false,
     comments: '',
   };
   const created = await application.request(session, client =>
@@ -261,6 +262,7 @@ test('changing immutable route ID remounts the editable customer and history res
     balance: '0.00',
     previousBalance: '0.00',
     donate: false,
+    hasPickup: false,
     comments: '',
   };
   await application.request(session, client =>
@@ -614,4 +616,28 @@ test('customers can be reopened after repeated saves and deleted with a draft', 
   expect(await screen.findByRole('heading', {name: 'Customers'})).toBeVisible();
   expect(screen.getByText('Customer deleted.')).toBeVisible();
   expect(application.protection.isDirty()).toBe(false);
+});
+
+test('pickup is unchecked on create and persists checked and unchecked edits with draft protection', async () => {
+  const user = userEvent.setup();
+  const {application} = renderRoute('/customers/new');
+  const pickup = await screen.findByRole('checkbox', {name: 'Has items to pick up'});
+  expect(pickup).not.toBeChecked();
+  await user.type(screen.getByRole('textbox', {name: 'First name'}), 'Pickup customer');
+  await user.click(pickup);
+  await user.click(screen.getByRole('button', {name: 'Save'}));
+  await user.click(await screen.findByRole('link', {name: 'Pickup customer'}));
+  const editPickup = await screen.findByRole('checkbox', {name: 'Has items to pick up'});
+  expect(editPickup).toBeChecked();
+  await user.click(editPickup);
+  expect(application.protection.isDirty()).toBe(true);
+  await user.click(screen.getByRole('link', {name: 'Back to customers'}));
+  await user.click(await screen.findByRole('button', {name: 'Stay'}));
+  expect(editPickup).not.toBeChecked();
+  await user.click(screen.getByRole('button', {name: 'Save'}));
+  await user.click(await screen.findByRole('link', {name: 'Pickup customer'}));
+  expect(
+    await screen.findByRole('checkbox', {name: 'Has items to pick up'})
+  ).not.toBeChecked();
+  expect(screen.getByRole('checkbox', {name: 'Donate'})).not.toBeChecked();
 });

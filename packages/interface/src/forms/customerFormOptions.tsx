@@ -25,6 +25,7 @@ export default function customerFormOptions(customer?: Customer) {
       previousBalance: customer?.previousBalance ?? '0.00',
       balance: customer?.balance ?? '0.00',
       donate: customer?.donate ?? false,
+      hasPickup: customer?.hasPickup ?? false,
       comments: customer?.comments ?? '',
     },
   });

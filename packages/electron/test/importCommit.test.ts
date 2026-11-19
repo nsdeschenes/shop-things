@@ -39,7 +39,7 @@ async function setup(
         {customerNumber: 9, ...values, firstName: 'Second'},
       ]
     ) {
-      const header = Object.keys(rows[0]!);
+      const header = Object.keys(rows[0]!).filter(key => key !== 'hasPickup');
       function quote(v: unknown) {
         return `"${String(v).replaceAll('"', '""')}"`;
       }
@@ -281,6 +281,7 @@ it('imports reordered CSV balances and numeric donate', async () => {
     balance: '25.93',
     previousBalance: '25.83',
     donate: false,
+    hasPickup: false,
     comments: 'Imported customer',
   });
 });

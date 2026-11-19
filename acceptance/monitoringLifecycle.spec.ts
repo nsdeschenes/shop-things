@@ -193,6 +193,7 @@ test('production monitoring activates only on cold restart and delivers private 
         balance: '0.00',
         previousBalance: '0.00',
         donate: false,
+        hasPickup: false,
         comments: sentinel,
       };
       const created = await window.shopThings!.customers.create({

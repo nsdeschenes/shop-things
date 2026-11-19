@@ -90,6 +90,56 @@ test('saved customer list/search/detail through actual bundled hash renderer IPC
   }
 });
 
+test('saved pickup and donation filters work with text search through Electron IPC', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-customer-filters-'));
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
+  });
+  try {
+    const page = await application.firstWindow();
+    await page.getByRole('link', {name: 'Add customer'}).click();
+    await page.getByRole('textbox', {name: 'First name'}).fill('Alpha Pickup');
+    const pickup = page.getByRole('checkbox', {name: 'Has items to pick up'});
+    await expect(pickup).not.toBeChecked();
+    await pickup.check();
+    await page.getByRole('checkbox', {name: 'Donate', exact: true}).check();
+    await page.getByRole('button', {name: 'Save', exact: true}).click();
+
+    const search = page.getByRole('textbox', {name: 'Search customers'});
+    const pickupFilter = page.getByRole('combobox', {name: 'Has pickup'});
+    const donationFilter = page.getByRole('combobox', {name: 'Donate'});
+    await search.fill('Alpha');
+    await pickupFilter.selectOption('true');
+    await donationFilter.selectOption('false');
+    await expect(
+      page.getByRole('heading', {name: 'No Matching Customers'})
+    ).toBeVisible();
+    await donationFilter.selectOption('true');
+    await expectCustomerOrder(page, ['Alpha Pickup']);
+    await page.reload();
+    await expect(search).toHaveValue('Alpha');
+    await expect(pickupFilter).toHaveValue('true');
+    await expect(donationFilter).toHaveValue('true');
+    await expectCustomerOrder(page, ['Alpha Pickup']);
+
+    await page.getByRole('link', {name: 'Alpha Pickup'}).click();
+    await expect(pickup).toBeChecked();
+    await pickup.uncheck();
+    await page.getByRole('button', {name: 'Save', exact: true}).click();
+    await pickupFilter.selectOption('true');
+    await expect(
+      page.getByRole('heading', {name: 'No Matching Customers'})
+    ).toBeVisible();
+    await pickupFilter.selectOption('false');
+    await donationFilter.selectOption('true');
+    await expectCustomerOrder(page, ['Alpha Pickup']);
+  } finally {
+    await application.evaluate(() => Reflect.set(globalThis, 'acceptanceDiscard', true));
+    await application.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
 test('header lookup opens exact saved numbers and retains focus through held reads and error toasts', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-customer-lookup-'));
   const application = await launchElectron(directory, {

@@ -296,6 +296,7 @@ export function readCustomerImportEffect(
         balance,
         previousBalance,
         donate: source.donate === 'true' || source.donate === '1',
+        hasPickup: false,
       };
       if (invalid) {
         review.invalidRecordCount++;

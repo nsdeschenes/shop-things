@@ -91,6 +91,7 @@ await createCustomer(db.db, {
   balance: '0.00',
   previousBalance: '0.00',
   donate: false,
+  hasPickup: false,
   comments: '',
 });
 db.close();

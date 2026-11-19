@@ -587,15 +587,25 @@ export default function CustomerForm({
               disabled={disabled || blocked === 'deleted'}
               {...stylex.props(styles.fieldset)}
             >
-              <legend {...stylex.props(styles.legend)}>Donation preference</legend>
-              <form.AppField name="donate">
-                {field => (
-                  <field.CheckboxField
-                    disabled={disabled || blocked === 'deleted'}
-                    label="Donate"
-                  />
-                )}
-              </form.AppField>
+              <legend {...stylex.props(styles.legend)}>Pickup and donation</legend>
+              <div {...stylex.props(styles.grid)}>
+                <form.AppField name="donate">
+                  {field => (
+                    <field.CheckboxField
+                      disabled={disabled || blocked === 'deleted'}
+                      label="Donate"
+                    />
+                  )}
+                </form.AppField>
+                <form.AppField name="hasPickup">
+                  {field => (
+                    <field.CheckboxField
+                      disabled={disabled || blocked === 'deleted'}
+                      label="Has items to pick up"
+                    />
+                  )}
+                </form.AppField>
+              </div>
             </fieldset>
 
             <form.AppField name="comments">

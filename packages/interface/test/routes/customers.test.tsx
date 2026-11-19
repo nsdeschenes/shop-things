@@ -303,3 +303,86 @@ test('discarding an unavailable draft completes the redirect to the index', asyn
   expect(application.protection.getState().frozen).toBe(false);
   expect(application.protection.isDirty()).toBe(false);
 });
+
+test('pickup and donation filters combine with pending text search and Clear resets all controls', async () => {
+  const user = userEvent.setup();
+  const {client, application} = fixture();
+  const status = await client.database.status();
+  if (status.status !== 'success') {
+    throw new Error('Expected preview database');
+  }
+
+  const session = status.value.session!;
+  for (const [firstName, hasPickup, donate] of [
+    ['Ada pickup donor', true, true],
+    ['Ada pickup', true, false],
+    ['Ada donor', false, true],
+    ['Grace pickup donor', true, true],
+  ] as const) {
+    await client.customers.create({
+      session,
+      values: {
+        firstName,
+        hasPickup,
+        donate,
+        lastName: '',
+        address: '',
+        city: '',
+        province: 'NS',
+        postalCode: '',
+        phone: '',
+        email: '',
+        stock: 0,
+        balance: '0.00',
+        previousBalance: '0.00',
+        comments: '',
+      },
+    });
+  }
+
+  const list = client.customers.list;
+  const {promise: held, resolve: release} = deferred();
+  const read = vi.spyOn(client.customers, 'list').mockImplementation(async args => {
+    if (args.query) {
+      await held;
+    }
+
+    return list(args);
+  });
+  const {router} = renderRoute('/customers', application);
+  const input = await screen.findByRole('textbox', {name: 'Search customers'});
+  await screen.findByText('4 results');
+  read.mockClear();
+  try {
+    await user.type(input, 'Ada');
+    await user.selectOptions(screen.getByRole('combobox', {name: 'Has pickup'}), 'true');
+    expect(await screen.findByText('Loading customers…')).toBeVisible();
+    await user.selectOptions(screen.getByRole('combobox', {name: 'Donate'}), 'false');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 300));
+    });
+    expect(read).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => release());
+  }
+
+  expect(await screen.findByText('1 result')).toBeVisible();
+  expect(screen.getByRole('link', {name: 'Ada pickup'})).toBeVisible();
+  expect(router.state.location.search).toEqual({
+    q: 'Ada',
+    hasPickup: true,
+    donate: false,
+  });
+  await user.selectOptions(screen.getByRole('combobox', {name: 'Has pickup'}), 'false');
+  expect(
+    await screen.findByRole('heading', {name: 'No Matching Customers'})
+  ).toBeVisible();
+  await user.selectOptions(screen.getByRole('combobox', {name: 'Donate'}), 'true');
+  expect(await screen.findByRole('link', {name: 'Ada donor'})).toBeVisible();
+  await user.click(screen.getByRole('button', {name: 'Clear'}));
+  expect(await screen.findByText('4 results')).toBeVisible();
+  expect(input).toHaveValue('');
+  expect(screen.getByRole('combobox', {name: 'Has pickup'})).toHaveValue('');
+  expect(screen.getByRole('combobox', {name: 'Donate'})).toHaveValue('');
+  expect(router.state.location.search).toEqual({});
+});

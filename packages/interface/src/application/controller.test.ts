@@ -476,6 +476,7 @@ test('protected customer replacement permits only its coordinated get and suppre
       balance: '0.00',
       previousBalance: '0.00',
       donate: false,
+      hasPickup: false,
       comments: '',
     },
   });

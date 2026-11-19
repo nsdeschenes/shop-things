@@ -26,6 +26,9 @@ export const customers = sqliteTable(
     balance: real().default(0),
     previousBalance: real().default(0),
     donate: integer({mode: 'boolean'}),
+    hasPickup: integer({mode: 'boolean'})
+      .notNull()
+      .default(sql`0`),
     comments: text(),
   },
   table => [

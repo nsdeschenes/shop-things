@@ -24,6 +24,7 @@ export const values = {
   balance: '12.34',
   previousBalance: '0.00',
   donate: false,
+  hasPickup: false,
   comments: '',
 };
 export function success<T>(
