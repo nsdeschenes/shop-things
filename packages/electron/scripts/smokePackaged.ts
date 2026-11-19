@@ -343,6 +343,7 @@ try {
     balance: '12.34',
     previousBalance: '-1.23',
     donate: false,
+    hasPickup: false,
     comments: 'Saved, "quoted"\nsecond line',
   };
   const service = makeService();

@@ -43,6 +43,7 @@ const values = {
   balance: '0.00',
   previousBalance: '0.00',
   donate: false,
+  hasPickup: false,
   comments: '',
 };
 const reference = {session: 'session', id: 1, revision: 'revision'};
@@ -604,6 +605,7 @@ test('customer telemetry retains only the five permitted business fields and rej
   };
   const personal = {
     id: 99,
+    hasPickup: true,
     firstName: 'PRIVATE_FIRST',
     lastName: 'PRIVATE_LAST',
     address: 'PRIVATE_ADDRESS',

@@ -18,6 +18,7 @@ const editableFields = {
   balance: moneyInput,
   previousBalance: moneyInput,
   donate: z.boolean(),
+  hasPickup: z.boolean(),
   comments: z.string(),
 };
 

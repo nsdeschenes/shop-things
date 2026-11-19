@@ -8,7 +8,7 @@ import {
   useRouter,
   useRouterState,
 } from '@tanstack/react-router';
-import {useEffect, useState, useSyncExternalStore} from 'react';
+import {useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {z} from 'zod';
 
 import {customerListOptions} from '../application/customers';
@@ -20,6 +20,7 @@ import {
   CustomerRoutePending,
 } from '../components/customerRouteFeedback/customerRouteFeedback';
 import Input from '../components/input/input';
+import inputStyles from '../components/input/inputStyles';
 import LoadingSpinner from '../components/loadingSpinner/loadingSpinner';
 import PageShell from '../components/pageShell/pageShell';
 import {breakpoints} from '../styles/breakpoints.stylex';
@@ -29,7 +30,12 @@ import {radii} from '../styles/radii.stylex';
 import {spacing} from '../styles/spacing.stylex';
 import {typography} from '../styles/typography.stylex';
 
-const customerSearchSchema = z.object({q: z.string().optional().catch(undefined)});
+const customerSearchSchema = z.object({
+  q: z.string().optional().catch(undefined),
+  hasPickup: z.boolean().optional().catch(undefined),
+  donate: z.boolean().optional().catch(undefined),
+});
+type CustomerSearch = z.infer<typeof customerSearchSchema>;
 
 export const Route = createFileRoute('/customers')({
   validateSearch: customerSearchSchema,
@@ -67,6 +73,13 @@ const styles = stylex.create({
     display: 'grid',
     gridTemplateColumns: {default: 'minmax(0, 1fr) 112px', [breakpoints.compact]: '1fr'},
   },
+  filters: {
+    gap: spacing.space12,
+    display: 'flex',
+    flexWrap: 'wrap',
+    marginTop: spacing.space12,
+  },
+  filter: {gap: spacing.space6, display: 'flex', flexDirection: 'column', minWidth: 150},
   count: {marginBlock: spacing.space8, color: colors.textMuted, textAlign: 'right'},
   empty: {
     borderColor: colors.border,
@@ -138,7 +151,8 @@ function RouteComponent() {
     application.protection.subscribe,
     application.protection.getState
   );
-  const {q = ''} = Route.useSearch();
+  const routeSearch = Route.useSearch();
+  const {q = ''} = routeSearch;
   const searching = useRouterState({
     select: router => router.isLoading && router.location.pathname === '/customers',
   });
@@ -146,13 +160,22 @@ function RouteComponent() {
   const notice = Reflect.get(location.state, 'customerNotice');
   const navigate = Route.useNavigate();
   const router = useRouter();
-  const [input, setInput] = useState(q);
+  const [draftSearch, setDraftSearch] = useState<CustomerSearch>(routeSearch);
+  const intendedSearch = useRef<CustomerSearch>(routeSearch);
+  const input = draftSearch.q ?? '';
+
+  function changeSearch(next: CustomerSearch) {
+    intendedSearch.current = next;
+    setDraftSearch(next);
+  }
 
   useEffect(
     () =>
       router.subscribe('onBeforeNavigate', ({toLocation}) => {
         if (toLocation.pathname === '/customers') {
-          setInput(customerSearchSchema.parse(toLocation.search).q ?? '');
+          const next = customerSearchSchema.parse(toLocation.search);
+          intendedSearch.current = next;
+          setDraftSearch(next);
         }
       }),
     [router]
@@ -171,18 +194,30 @@ function RouteComponent() {
     enabled: !disabled,
   });
 
-  const rows = customers.data ?? [];
+  const rows = (customers.data ?? []).filter(
+    ({customer}) =>
+      (draftSearch.hasPickup === undefined ||
+        customer.hasPickup === draftSearch.hasPickup) &&
+      (draftSearch.donate === undefined || customer.donate === draftSearch.donate)
+  );
+  const filtered =
+    Boolean(q) || draftSearch.hasPickup !== undefined || draftSearch.donate !== undefined;
 
-  function submitSearch(value: string) {
-    if (!disabled && value !== (router.state.location.search.q ?? '')) {
-      void navigate({search: {q: value || undefined}, replace: true});
+  function submitSearch(next: CustomerSearch) {
+    if (!disabled && router.latestLocation.pathname === '/customers') {
+      const current = router.latestLocation.search;
+      if (
+        (['q', 'hasPickup', 'donate'] as const).some(key => next[key] !== current[key])
+      ) {
+        void navigate({search: next, replace: true});
+      }
     }
   }
 
   const search = useDebouncedCallback(
     (value: string) => {
-      if (value === input) {
-        submitSearch(value);
+      if (value === (intendedSearch.current.q ?? '')) {
+        submitSearch(intendedSearch.current);
       }
     },
     {wait: 250, enabled: !disabled}
@@ -218,25 +253,56 @@ function RouteComponent() {
           disabled={disabled}
           placeholder="Name or customer number"
           onValueChange={value => {
-            setInput(value);
+            changeSearch({...intendedSearch.current, q: value || undefined});
             search(value);
           }}
           onKeyDown={event => {
             if (event.key === 'Enter') {
               event.preventDefault();
-              submitSearch(input);
+              submitSearch(intendedSearch.current);
             }
           }}
         />
         <Button
-          disabled={disabled || (!input && !q)}
+          disabled={disabled || (!input && !filtered)}
           onClick={() => {
-            setInput('');
-            void navigate({replace: true});
+            changeSearch({});
+            void navigate({search: {}, replace: true});
           }}
         >
           Clear
         </Button>
+      </div>
+      <div {...stylex.props(styles.filters)}>
+        {(
+          [
+            {name: 'hasPickup', label: 'Has pickup'},
+            {name: 'donate', label: 'Donate'},
+          ] as const
+        ).map(({name, label}) => (
+          <label key={name} {...stylex.props(styles.filter)}>
+            <span {...stylex.props(styles.searchLabel)}>{label}</span>
+            <select
+              name={name}
+              disabled={disabled}
+              value={draftSearch[name] === undefined ? '' : String(draftSearch[name])}
+              onChange={event => {
+                const value = event.target.value;
+                const next = {
+                  ...intendedSearch.current,
+                  [name]: value === '' ? undefined : value === 'true',
+                };
+                changeSearch(next);
+                submitSearch(next);
+              }}
+              {...stylex.props(inputStyles.input)}
+            >
+              <option value="">All</option>
+              <option value="true">Yes</option>
+              <option value="false">No</option>
+            </select>
+          </label>
+        ))}
       </div>
       {!available ? (
         <p role="alert">
@@ -267,11 +333,11 @@ function RouteComponent() {
           {rows.length === 0 ? (
             <section {...stylex.props(styles.empty)}>
               <h2 {...stylex.props(styles.emptyTitle)}>
-                {q ? 'No Matching Customers' : 'No Customers Yet'}
+                {filtered ? 'No Matching Customers' : 'No Customers Yet'}
               </h2>
               <p>
-                {q
-                  ? 'Try a different name or customer number.'
+                {filtered
+                  ? 'Try a different search or filter.'
                   : 'Add your first customer to start keeping records.'}
               </p>
             </section>

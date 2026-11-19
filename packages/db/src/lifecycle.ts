@@ -16,11 +16,13 @@ const initialMigration = '20260929093112_wealthy_hemingway';
 const integrityMigration = '20260929120000_customer_integrity';
 const phoneMigration = '20261001005150_rename_home_phone';
 const numberMigration = '20261006232551_required_customer_numbers';
+const pickupMigration = '20261119095557_customer_pickup';
 const supportedMigrations = [
   initialMigration,
   integrityMigration,
   phoneMigration,
   numberMigration,
+  pickupMigration,
 ];
 const expectedColumns = [
   'id',
@@ -61,6 +63,7 @@ export function recognizeDatabase(db: AppDatabase): Effect.Effect<void, Database
         type: string;
         pk: number;
         notnull: number;
+        dflt_value: string | null;
       }>('pragma table_info(customers)')
     );
     const expected = [
@@ -68,6 +71,7 @@ export function recognizeDatabase(db: AppDatabase): Effect.Effect<void, Database
         name === 'phone' && !names.includes(phoneMigration) ? 'homePhone' : name
       ),
       ...(names.includes(integrityMigration) ? ['revision'] : []),
+      ...(names.includes(pickupMigration) ? ['hasPickup'] : []),
     ];
 
     if (
@@ -86,7 +90,9 @@ export function recognizeDatabase(db: AppDatabase): Effect.Effect<void, Database
     for (const column of columns) {
       const type = ['balance', 'previousBalance'].includes(column.name)
         ? 'real'
-        : ['id', 'customerNumber', 'stock', 'donate', 'revision'].includes(column.name)
+        : ['id', 'customerNumber', 'stock', 'donate', 'revision', 'hasPickup'].includes(
+              column.name
+            )
           ? 'integer'
           : 'text';
 
@@ -149,6 +155,13 @@ export function recognizeDatabase(db: AppDatabase): Effect.Effect<void, Database
           )
       ) {
         throw new Error('Missing customer number constraint');
+      }
+    }
+
+    if (names.includes(pickupMigration)) {
+      const pickup = columns.find(column => column.name === 'hasPickup');
+      if (pickup?.notnull !== 1 || String(pickup.dflt_value) !== '0') {
+        throw new Error('Missing pickup default or constraint');
       }
     }
 

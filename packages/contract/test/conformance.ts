@@ -48,6 +48,7 @@ export async function conformance(bridge: ShopThingsBridge, handlers: ActionHand
     balance: '0.00',
     previousBalance: '0.00',
     donate: false,
+    hasPickup: false,
     comments: '',
   };
   await client.customers.create({session: 's', values});

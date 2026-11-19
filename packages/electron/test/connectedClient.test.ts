@@ -226,6 +226,7 @@ test('compiled client and real compiled backend complete the saved-data lifecycl
       balance: '12.34',
       previousBalance: '-1.01',
       donate: false,
+      hasPickup: false,
       comments: 'Saved "notes", line\ntwo',
     };
     const created = success(await client.customers.create({session, values}));
