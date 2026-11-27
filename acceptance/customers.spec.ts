@@ -109,9 +109,9 @@ test('saved pickup status and filter work with text search through Electron IPC'
     await page.getByRole('button', {name: 'Save', exact: true}).click();
 
     const search = page.getByRole('textbox', {name: 'Search customers'});
-    const pickupFilter = page.getByRole('combobox', {name: 'Has pickup'});
+    const pickupFilter = page.getByRole('combobox', {name: 'Filter'});
     await search.fill('Alpha');
-    await pickupFilter.selectOption('true');
+    await pickupFilter.selectOption({label: 'Has pickup'});
     await expectCustomerOrder(page, ['Alpha Pickup']);
     await page.reload();
     await expect(search).toHaveValue('Alpha');
@@ -125,11 +125,11 @@ test('saved pickup status and filter work with text search through Electron IPC'
     await expect(pickup).toBeChecked();
     await pickup.uncheck();
     await page.getByRole('button', {name: 'Save', exact: true}).click();
-    await pickupFilter.selectOption('true');
+    await pickupFilter.selectOption({label: 'Has pickup'});
     await expect(
       page.getByRole('heading', {name: 'No Matching Customers'})
     ).toBeVisible();
-    await pickupFilter.selectOption('false');
+    await pickupFilter.selectOption({label: 'No pickup'});
     await expect(
       page.getByRole('link', {name: 'Alpha Pickup'})
     ).toHaveAccessibleDescription(noPickupDescription);

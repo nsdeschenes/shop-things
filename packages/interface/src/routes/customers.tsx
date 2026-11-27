@@ -258,7 +258,7 @@ function RouteComponent() {
         </div>
         <div>
           <label htmlFor="filter-pickup" {...stylex.props(styles.searchLabel)}>
-            Has pickup
+            Filter
           </label>
           <select
             id="filter-pickup"
@@ -277,9 +277,9 @@ function RouteComponent() {
             }}
             {...stylex.props(inputStyles.input)}
           >
-            <option value="">All</option>
-            <option value="true">Yes</option>
-            <option value="false">No</option>
+            <option value="">All customers</option>
+            <option value="true">Has pickup</option>
+            <option value="false">No pickup</option>
           </select>
         </div>
         <Button

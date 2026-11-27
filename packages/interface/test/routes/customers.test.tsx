@@ -358,10 +358,10 @@ test('pickup filter combines with pending text search and Clear resets all contr
   read.mockClear();
   try {
     await user.type(input, 'Ada');
-    await user.selectOptions(screen.getByRole('combobox', {name: 'Has pickup'}), 'true');
+    await user.selectOptions(screen.getByRole('combobox', {name: 'Filter'}), 'true');
     expect(await screen.findByText('Loading customers…')).toBeVisible();
-    await user.selectOptions(screen.getByRole('combobox', {name: 'Has pickup'}), 'false');
-    await user.selectOptions(screen.getByRole('combobox', {name: 'Has pickup'}), 'true');
+    await user.selectOptions(screen.getByRole('combobox', {name: 'Filter'}), 'false');
+    await user.selectOptions(screen.getByRole('combobox', {name: 'Filter'}), 'true');
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 300));
     });
@@ -378,7 +378,7 @@ test('pickup filter combines with pending text search and Clear resets all contr
     q: 'Ada',
     hasPickup: true,
   });
-  await user.selectOptions(screen.getByRole('combobox', {name: 'Has pickup'}), 'false');
+  await user.selectOptions(screen.getByRole('combobox', {name: 'Filter'}), 'false');
   expect(await screen.findByText('1 result')).toBeVisible();
   expect(
     await screen.findByRole('link', {name: 'Ada donor'})
@@ -386,7 +386,7 @@ test('pickup filter combines with pending text search and Clear resets all contr
   await user.click(screen.getByRole('button', {name: 'Clear'}));
   expect(await screen.findByText('4 results')).toBeVisible();
   expect(input).toHaveValue('');
-  expect(screen.getByRole('combobox', {name: 'Has pickup'})).toHaveValue('');
+  expect(screen.getByRole('combobox', {name: 'Filter'})).toHaveValue('');
   expect(screen.queryByRole('combobox', {name: 'Donate'})).not.toBeInTheDocument();
   expect(router.state.location.search).toEqual({});
 });
