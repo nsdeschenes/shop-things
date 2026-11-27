@@ -1,4 +1,10 @@
 # Changelog
+## 1.4.0
+
+### New Features ✨
+
+- (interface) Track and filter customer pickups by @nsdeschenes in [#211](https://github.com/nsdeschenes/shop-things/pull/211)
+
 ## 1.3.0
 
 ### New Features ✨
