@@ -16,6 +16,9 @@ async function expectCustomerOrder(page: Page, names: string[]) {
 
 const alphaDetailLink = /\/customers\/2$/;
 
+const hasPickupDescription = /Has pickup/;
+const noPickupDescription = /No pickup/;
+
 test('saved customer list/search/detail through actual bundled hash renderer IPC', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shop-things-customers-'));
   const application = await launchElectron(directory, {
@@ -85,6 +88,53 @@ test('saved customer list/search/detail through actual bundled hash renderer IPC
       expect.arrayContaining(['shop-things:customers.list', 'shop-things:customers.get'])
     );
   } finally {
+    await application.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('saved pickup status and filter work with text search through Electron IPC', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-customer-filters-'));
+  const application = await launchElectron(directory, {
+    SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS: 'true',
+  });
+  try {
+    const page = await application.firstWindow();
+    await page.getByRole('link', {name: 'Add customer'}).click();
+    await page.getByRole('textbox', {name: 'First name'}).fill('Alpha Pickup');
+    const pickup = page.getByRole('checkbox', {name: 'Has items to pick up'});
+    await expect(pickup).not.toBeChecked();
+    await pickup.check();
+    await page.getByRole('checkbox', {name: 'Donate', exact: true}).check();
+    await page.getByRole('button', {name: 'Save', exact: true}).click();
+
+    const search = page.getByRole('textbox', {name: 'Search customers'});
+    const pickupFilter = page.getByRole('combobox', {name: 'Filter'});
+    await search.fill('Alpha');
+    await pickupFilter.selectOption({label: 'Has pickup'});
+    await expectCustomerOrder(page, ['Alpha Pickup']);
+    await page.reload();
+    await expect(search).toHaveValue('Alpha');
+    await expect(pickupFilter).toHaveValue('true');
+    await expectCustomerOrder(page, ['Alpha Pickup']);
+
+    await expect(
+      page.getByRole('link', {name: 'Alpha Pickup'})
+    ).toHaveAccessibleDescription(hasPickupDescription);
+    await page.getByRole('link', {name: 'Alpha Pickup'}).click();
+    await expect(pickup).toBeChecked();
+    await pickup.uncheck();
+    await page.getByRole('button', {name: 'Save', exact: true}).click();
+    await pickupFilter.selectOption({label: 'Has pickup'});
+    await expect(
+      page.getByRole('heading', {name: 'No Matching Customers'})
+    ).toBeVisible();
+    await pickupFilter.selectOption({label: 'No pickup'});
+    await expect(
+      page.getByRole('link', {name: 'Alpha Pickup'})
+    ).toHaveAccessibleDescription(noPickupDescription);
+  } finally {
+    await application.evaluate(() => Reflect.set(globalThis, 'acceptanceDiscard', true));
     await application.close();
     await rm(directory, {recursive: true, force: true});
   }

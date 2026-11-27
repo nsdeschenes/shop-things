@@ -100,6 +100,7 @@ function definedChanges(changes: UpdateCustomerInput): CustomerChanges {
       ? {previousBalance: changes.previousBalance}
       : {}),
     ...(changes.donate !== undefined ? {donate: changes.donate} : {}),
+    ...(changes.hasPickup !== undefined ? {hasPickup: changes.hasPickup} : {}),
     ...(changes.comments !== undefined ? {comments: changes.comments} : {}),
     ...(changes.customerNumber !== undefined
       ? {customerNumber: changes.customerNumber}

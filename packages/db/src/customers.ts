@@ -33,6 +33,7 @@ export interface CustomerValues {
   balance?: string;
   previousBalance?: string;
   donate?: boolean;
+  hasPickup?: boolean;
 }
 
 export interface CustomerChanges extends CustomerValues {
@@ -120,6 +121,7 @@ function validate(values: CustomerChanges, creation: boolean) {
     'balance',
     'previousBalance',
     'donate',
+    'hasPickup',
     ...(creation ? [] : ['customerNumber']),
   ];
   for (const [key, value] of Object.entries(values)) {
@@ -140,8 +142,11 @@ function validate(values: CustomerChanges, creation: boolean) {
       throw new DatabaseError('VALIDATION', `${key} must be a safe whole number`);
     }
 
-    if (key === 'donate' && typeof value !== 'boolean') {
-      throw new DatabaseError('VALIDATION', 'Donate must be boolean');
+    if ((key === 'donate' || key === 'hasPickup') && typeof value !== 'boolean') {
+      throw new DatabaseError(
+        'VALIDATION',
+        key === 'donate' ? 'Donate must be boolean' : 'Has pickup must be boolean'
+      );
     }
 
     if (key === 'balance' || key === 'previousBalance') {

@@ -169,6 +169,7 @@ if (process.env.SHOP_THINGS_ACCEPTANCE_SEED_CUSTOMERS) {
     balance: '0.00',
     previousBalance: '0.00',
     donate: false,
+    hasPickup: false,
     comments: '',
   };
   await createCustomer(handle.db, {...values, firstName: 'Zed', lastName: 'Two'});

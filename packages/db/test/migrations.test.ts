@@ -84,6 +84,7 @@ test.each([1, 2])(
             ...legacyMigrations.map(name => ({name})),
             {name: '20261001005150_rename_home_phone'},
             {name: '20261006232551_required_customer_numbers'},
+            {name: '20261119095557_customer_pickup'},
           ]);
         } finally {
           migrated.close();
@@ -94,6 +95,69 @@ test.each([1, 2])(
     }
   }
 );
+
+test('opening the previous schema defaults pickup to false and preserves customer values and revisions', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shop-things-pickup-migration-'));
+  const path = join(directory, 'app.db');
+  const legacyFolder = join(directory, 'legacy');
+  const migrations = [
+    '20260929093112_wealthy_hemingway',
+    '20260929120000_customer_integrity',
+    '20261001005150_rename_home_phone',
+    '20261006232551_required_customer_numbers',
+  ];
+  try {
+    await mkdir(legacyFolder);
+    for (const name of migrations) {
+      await cp(join(checkedInFolder, name), join(legacyFolder, name), {recursive: true});
+    }
+
+    const legacy = openDatabase(path);
+    try {
+      await runMigrations(legacy.db, {migrationsFolder: legacyFolder});
+      await legacy.db.run(
+        "insert into customers (id,customerNumber,revision,firstName,balance,donate,comments) values (7,42,9,'Ada',12.34,1,'Keep me')"
+      );
+    } finally {
+      legacy.close();
+    }
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const migrated = await openExistingDatabase(path, {
+        migrationsFolder: checkedInFolder,
+      });
+      try {
+        expect(await listCustomers(migrated.db)).toMatchObject([
+          {
+            id: 7,
+            customerNumber: 42,
+            revision: '9',
+            firstName: 'Ada',
+            balance: '12.34',
+            donate: true,
+            comments: 'Keep me',
+            hasPickup: false,
+          },
+        ]);
+        expect(await migrated.db.all('select hasPickup from customers')).toEqual([
+          {hasPickup: 0},
+        ]);
+        expect(await migrated.db.all('pragma table_info(customers)')).toContainEqual(
+          expect.objectContaining({
+            name: 'hasPickup',
+            type: 'integer',
+            notnull: 1,
+            dflt_value: '0',
+          })
+        );
+      } finally {
+        migrated.close();
+      }
+    }
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
 
 async function withDatabase(
   callback: (context: {
@@ -271,6 +335,7 @@ test.each([1, 2, 3])(
               const {homePhone, ...fields} = row;
               return {
                 ...fields,
+                hasPickup: 0,
                 ...(count < 3 ? {phone: homePhone} : {}),
                 customerNumber: row.id === 3 ? 2 : row.id === 9 ? 4 : row.customerNumber,
                 revision: row.customerNumber === null ? 2 : 1,

@@ -61,6 +61,7 @@ const identifiers = new Map(
     'balance',
     'previousBalance',
     'donate',
+    'hasPickup',
     'comments',
     'hash',
     'created_at',

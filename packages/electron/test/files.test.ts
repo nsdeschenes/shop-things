@@ -144,6 +144,7 @@ test('pending migration restore migrates only the separate writable copy of a re
       customerNumber: 7,
       balance: '4.56',
       phone: '+1 (902) 555-1234',
+      hasPickup: false,
     });
     const numbered = success(
       await f.service.handlers['customers.get']({session: restored.session!, id: 2})
@@ -161,9 +162,16 @@ test('pending migration restore migrates only the separate writable copy of a re
       migrationsFolder,
     });
     try {
-      expect(
-        await migrated.db.all('select name from __drizzle_migrations order by id')
-      ).toHaveLength(4);
+      const shippedMigrations = (await readdir(migrationsFolder, {withFileTypes: true}))
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name)
+        .sort();
+      const appliedMigrations = await migrated.db.all<{name: string}>(
+        'select name from __drizzle_migrations order by id'
+      );
+      expect(appliedMigrations.map(migration => migration.name)).toEqual(
+        shippedMigrations
+      );
     } finally {
       migrated.close();
     }
