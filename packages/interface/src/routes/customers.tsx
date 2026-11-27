@@ -33,7 +33,6 @@ import {typography} from '../styles/typography.stylex';
 const customerSearchSchema = z.object({
   q: z.string().optional().catch(undefined),
   hasPickup: z.boolean().optional().catch(undefined),
-  donate: z.boolean().optional().catch(undefined),
 });
 type CustomerSearch = z.infer<typeof customerSearchSchema>;
 
@@ -69,17 +68,14 @@ const styles = stylex.create({
   },
   search: {
     gap: spacing.space12,
-    alignItems: 'center',
+    alignItems: 'end',
     display: 'grid',
-    gridTemplateColumns: {default: 'minmax(0, 1fr) 112px', [breakpoints.compact]: '1fr'},
+    gridTemplateColumns: {
+      default: 'minmax(0, 1fr) 150px 112px',
+      [breakpoints.compact]: 'minmax(0, 1fr) auto',
+    },
   },
-  filters: {
-    gap: spacing.space12,
-    display: 'flex',
-    flexWrap: 'wrap',
-    marginTop: spacing.space12,
-  },
-  filter: {gap: spacing.space6, display: 'flex', flexDirection: 'column', minWidth: 150},
+  searchField: {gridColumn: {default: 'auto', [breakpoints.compact]: '1 / -1'}},
   count: {marginBlock: spacing.space8, color: colors.textMuted, textAlign: 'right'},
   empty: {
     borderColor: colors.border,
@@ -196,19 +192,14 @@ function RouteComponent() {
 
   const rows = (customers.data ?? []).filter(
     ({customer}) =>
-      (draftSearch.hasPickup === undefined ||
-        customer.hasPickup === draftSearch.hasPickup) &&
-      (draftSearch.donate === undefined || customer.donate === draftSearch.donate)
+      draftSearch.hasPickup === undefined || customer.hasPickup === draftSearch.hasPickup
   );
-  const filtered =
-    Boolean(q) || draftSearch.hasPickup !== undefined || draftSearch.donate !== undefined;
+  const filtered = Boolean(q) || draftSearch.hasPickup !== undefined;
 
   function submitSearch(next: CustomerSearch) {
     if (!disabled && router.latestLocation.pathname === '/customers') {
       const current = router.latestLocation.search;
-      if (
-        (['q', 'hasPickup', 'donate'] as const).some(key => next[key] !== current[key])
-      ) {
+      if (next.q !== current.q || next.hasPickup !== current.hasPickup) {
         void navigate({search: next, replace: true});
       }
     }
@@ -241,28 +232,56 @@ function RouteComponent() {
         )
       }
     >
-      <label htmlFor="search-customers" {...stylex.props(styles.searchLabel)}>
-        Search customers
-      </label>
       {notice === 'Customer deleted.' && <p role="status">{notice}</p>}
       <div {...stylex.props(styles.search)}>
-        <Input
-          id="search-customers"
-          name="search"
-          value={input}
-          disabled={disabled}
-          placeholder="Name or customer number"
-          onValueChange={value => {
-            changeSearch({...intendedSearch.current, q: value || undefined});
-            search(value);
-          }}
-          onKeyDown={event => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              submitSearch(intendedSearch.current);
+        <div {...stylex.props(styles.searchField)}>
+          <label htmlFor="search-customers" {...stylex.props(styles.searchLabel)}>
+            Search customers
+          </label>
+          <Input
+            id="search-customers"
+            name="search"
+            value={input}
+            disabled={disabled}
+            placeholder="Name or customer number"
+            onValueChange={value => {
+              changeSearch({...intendedSearch.current, q: value || undefined});
+              search(value);
+            }}
+            onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                submitSearch(intendedSearch.current);
+              }
+            }}
+          />
+        </div>
+        <div>
+          <label htmlFor="filter-pickup" {...stylex.props(styles.searchLabel)}>
+            Has pickup
+          </label>
+          <select
+            id="filter-pickup"
+            disabled={disabled}
+            value={
+              draftSearch.hasPickup === undefined ? '' : String(draftSearch.hasPickup)
             }
-          }}
-        />
+            onChange={event => {
+              const value = event.target.value;
+              const next = {
+                ...intendedSearch.current,
+                hasPickup: value === '' ? undefined : value === 'true',
+              };
+              changeSearch(next);
+              submitSearch(next);
+            }}
+            {...stylex.props(inputStyles.input)}
+          >
+            <option value="">All</option>
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </div>
         <Button
           disabled={disabled || (!input && !filtered)}
           onClick={() => {
@@ -272,37 +291,6 @@ function RouteComponent() {
         >
           Clear
         </Button>
-      </div>
-      <div {...stylex.props(styles.filters)}>
-        {(
-          [
-            {name: 'hasPickup', label: 'Has pickup'},
-            {name: 'donate', label: 'Donate'},
-          ] as const
-        ).map(({name, label}) => (
-          <label key={name} {...stylex.props(styles.filter)}>
-            <span {...stylex.props(styles.searchLabel)}>{label}</span>
-            <select
-              name={name}
-              disabled={disabled}
-              value={draftSearch[name] === undefined ? '' : String(draftSearch[name])}
-              onChange={event => {
-                const value = event.target.value;
-                const next = {
-                  ...intendedSearch.current,
-                  [name]: value === '' ? undefined : value === 'true',
-                };
-                changeSearch(next);
-                submitSearch(next);
-              }}
-              {...stylex.props(inputStyles.input)}
-            >
-              <option value="">All</option>
-              <option value="true">Yes</option>
-              <option value="false">No</option>
-            </select>
-          </label>
-        ))}
       </div>
       {!available ? (
         <p role="alert">
@@ -350,7 +338,7 @@ function RouteComponent() {
                     params={{customerId: String(customer.id)}}
                     disabled={disabled}
                     aria-label={`${customer.firstName} ${customer.lastName}`.trim()}
-                    aria-describedby={`customer-number-${customer.id} customer-contact-${customer.id} customer-stock-${customer.id} customer-balance-${customer.id}`}
+                    aria-describedby={`customer-number-${customer.id} customer-pickup-${customer.id} customer-contact-${customer.id} customer-stock-${customer.id} customer-balance-${customer.id}`}
                     {...stylex.props(styles.customerLink)}
                   >
                     <span>
@@ -362,6 +350,12 @@ function RouteComponent() {
                         {...stylex.props(styles.detail)}
                       >
                         Customer {customer.customerNumber}
+                      </span>
+                      <span
+                        id={`customer-pickup-${customer.id}`}
+                        {...stylex.props(styles.detail)}
+                      >
+                        {customer.hasPickup ? 'Has pickup' : 'No pickup'}
                       </span>
                     </span>
                     <span

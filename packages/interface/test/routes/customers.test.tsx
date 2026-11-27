@@ -23,6 +23,9 @@ function deferred() {
   return {promise, resolve};
 }
 
+const hasPickupDescription = /Has pickup/;
+const noPickupDescription = /No pickup/;
+
 test('offers temporary customer workflows without database file controls', async () => {
   renderRoute('/customers');
   expect(
@@ -304,7 +307,7 @@ test('discarding an unavailable draft completes the redirect to the index', asyn
   expect(application.protection.isDirty()).toBe(false);
 });
 
-test('pickup and donation filters combine with pending text search and Clear resets all controls', async () => {
+test('pickup filter combines with pending text search and Clear resets all controls', async () => {
   const user = userEvent.setup();
   const {client, application} = fixture();
   const status = await client.database.status();
@@ -357,7 +360,8 @@ test('pickup and donation filters combine with pending text search and Clear res
     await user.type(input, 'Ada');
     await user.selectOptions(screen.getByRole('combobox', {name: 'Has pickup'}), 'true');
     expect(await screen.findByText('Loading customers…')).toBeVisible();
-    await user.selectOptions(screen.getByRole('combobox', {name: 'Donate'}), 'false');
+    await user.selectOptions(screen.getByRole('combobox', {name: 'Has pickup'}), 'false');
+    await user.selectOptions(screen.getByRole('combobox', {name: 'Has pickup'}), 'true');
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 300));
     });
@@ -366,23 +370,23 @@ test('pickup and donation filters combine with pending text search and Clear res
     await act(async () => release());
   }
 
-  expect(await screen.findByText('1 result')).toBeVisible();
-  expect(screen.getByRole('link', {name: 'Ada pickup'})).toBeVisible();
+  expect(await screen.findByText('2 results')).toBeVisible();
+  expect(screen.getByRole('link', {name: 'Ada pickup'})).toHaveAccessibleDescription(
+    hasPickupDescription
+  );
   expect(router.state.location.search).toEqual({
     q: 'Ada',
     hasPickup: true,
-    donate: false,
   });
   await user.selectOptions(screen.getByRole('combobox', {name: 'Has pickup'}), 'false');
+  expect(await screen.findByText('1 result')).toBeVisible();
   expect(
-    await screen.findByRole('heading', {name: 'No Matching Customers'})
-  ).toBeVisible();
-  await user.selectOptions(screen.getByRole('combobox', {name: 'Donate'}), 'true');
-  expect(await screen.findByRole('link', {name: 'Ada donor'})).toBeVisible();
+    await screen.findByRole('link', {name: 'Ada donor'})
+  ).toHaveAccessibleDescription(noPickupDescription);
   await user.click(screen.getByRole('button', {name: 'Clear'}));
   expect(await screen.findByText('4 results')).toBeVisible();
   expect(input).toHaveValue('');
   expect(screen.getByRole('combobox', {name: 'Has pickup'})).toHaveValue('');
-  expect(screen.getByRole('combobox', {name: 'Donate'})).toHaveValue('');
+  expect(screen.queryByRole('combobox', {name: 'Donate'})).not.toBeInTheDocument();
   expect(router.state.location.search).toEqual({});
 });
